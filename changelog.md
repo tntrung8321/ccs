@@ -2,6 +2,12 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🔧 Version `v3.4.1` — *Lecturer-Proximity Priority (`TEACHER_GPS`) & Advanced 3-Student Centroid Mode (`STUDENT_AVG_3`)*
+* **Default Lecturer-Proximity Evaluation (`TEACHER_GPS`)**: Whenever the Lecturer's device returns valid GPS coordinates (with Advanced Mode off), the session room center is strictly locked to the Lecturer's live position (`TEACHER_GPS`). Every student is evaluated strictly by their distance to the Lecturer (`<= 100m`), immediately rejecting any student sitting in another building (`ERR_LOCATION_OUT_OF_RANGE`).
+* **Advanced Mode Toggle & No-GPS Fallback (`STUDENT_AVG_3` — Average of First 3 Students)**:
+  * Added a dedicated `"Chế độ GPS nâng cao"` button (`#btn-toggle-adv-gps`) and toggle (`#chk-use-student-avg3`: *"Sử dụng GPS Sinh viên — Lấy trung bình 3 bạn đầu tiên làm tâm phòng"*) on the Lecturer dashboard.
+  * **Only** when the Lecturer's device has no GPS at all, **or** when the Lecturer explicitly enables this Advanced Mode toggle, the session activates **`STUDENT_AVG_3`** (`COLLECTING_AVG_3`): it collects the coordinates of the **first 3 verified, non-spoofed students** inside the campus (`<= 850m`) and within `100m` of the running classroom average, locking the final classroom center to their exact centroid $\left(\frac{\text{Lat}_1+\text{Lat}_2+\text{Lat}_3}{3}, \frac{\text{Lng}_1+\text{Lng}_2+\text{Lng}_3}{3}\right)$.
+
 ### 🚀 Version `v3.4.0` — *Zero-Scroll Student UI, Contextual Inline Alerts & Dynamic Multi-Room Session Anchor*
 * **Zero-Scroll (`100dvh`) Student Viewport & Contextual Inline Alerts**:
   * Locked the mobile Student check-in view (`body.student-locked-scroll`) to a compact, single-screen `100dvh` layout (`overflow: hidden`, `overscroll-behavior: none`), eliminating accidental vertical dragging while tapping check-in controls. Automatically unlocks scroll when opening the camera modal or advanced settings.
@@ -55,6 +61,12 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.4.1` — *Mặc Định Đánh Giá Theo Vị Trí Giảng Viên (`TEACHER_GPS`) & Nút Chế Độ Nâng Cao Lấy Trung Bình 3 Sinh Viên Đầu Tiên (`STUDENT_AVG_3`)*
+* **Mặc định Đánh giá theo Khoảng cách Gần Giảng viên (`TEACHER_GPS`)**: Khi Giảng viên mở phiên (chế độ mặc định), chỉ cần thiết bị của Giảng viên có tín hiệu GPS hợp lệ, hệ thống luôn khóa cứng tâm phòng học theo **vị trí thực tế của Giảng viên (`TEACHER_GPS`)**. Mọi sinh viên đều được chấm khoảng cách trực tiếp so với Giảng viên (`<= 100m`); sinh viên ngồi ở tòa nhà khác (`320m`) sẽ bị từ chối ngay lập tức (`[NGOÀI PHẠM VI]`).
+* **Nút Chế độ GPS Nâng cao & Dự phòng khi Máy bàn Không có GPS (`STUDENT_AVG_3` — Trung bình 3 Sinh viên đầu tiên)**:
+  * Bổ sung nút **`"Chế độ GPS nâng cao"`** (`#btn-toggle-adv-gps`) kèm tùy chọn **`"Sử dụng GPS Sinh viên (Lấy trung bình 3 bạn đầu tiên làm tâm phòng)"`** (`#chk-use-student-avg3`) trên giao diện Giảng viên.
+  * **CHỈ KHI** thiết bị của Giảng viên hoàn toàn không có GPS, **HOẶC** khi Giảng viên chủ động bật nút Chế độ nâng cao này, hệ thống mới kích hoạt chế độ **`STUDENT_AVG_3`** (`COLLECTING_AVG_3`): lấy tọa độ trung bình cộng của **3 sinh viên hợp lệ đầu tiên** trong phòng học $\left(\frac{\text{Lat}_1+\text{Lat}_2+\text{Lat}_3}{3}, \frac{\text{Lng}_1+\text{Lng}_2+\text{Lng}_3}{3}\right)$ (bắt buộc cả 3 bạn phải ở trong trường `<= 850m` và ngồi gần nhau `<= 100m`) để khóa làm tâm phòng học.
+
 ### 🚀 Version `v3.4.0` — *Giao Diện Sinh Viên Không Cuộn Trang (`Zero-Scroll`), Thông Báo Nội Tuyến Đúng Vị Trí & Khóa Tâm Phòng Học Động Theo Ca*
 * **Giao diện Sinh viên Không cuộn trang (`100dvh Zero-Scroll`) & Thông báo Nội tuyến Đúng vị trí**:
   * Khóa khung nhìn điểm danh của Sinh viên trên điện thoại (`body.student-locked-scroll`) vừa khít 1 màn hình `100dvh` (`overflow: hidden`, `overscroll-behavior: none`), loại bỏ hoàn toàn tình trạng trượt tay kéo trang khi bấm điểm danh. Tự động mở cuộn linh hoạt khi bật khung quét QR hoặc cài đặt nâng cao.
@@ -106,14 +118,14 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.0`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.1`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.0` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.1` |
 | :--- | :--- | :--- |
 | **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Zero-Scroll (`100dvh`) Student View & Contextual Inline Alerts** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Pre-Check `#gps-panel` + 1-Tap Live GPS (`cachedGPS = null`) + `isSubmitting` Lock** |
-| **Multi-Room Anchor / Đổi phòng học** | Static coordinates / Tọa độ phòng cố định | **Dynamic Session Anchor (`TEACHER_GPS` on Phone / `CAMPUS_CLUSTER` on Classroom PC across 9+ rooms)** |
+| **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS`) + Advanced / No-GPS 3-Student Centroid (`STUDENT_AVG_3`)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Smart `17:15–17:30` Priority)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + Legacy URL Auto-Migration** |
 | **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **2-Step Confirm + Hidden-Roster Search & 1-Key (`Enter`) Quick Mark** |

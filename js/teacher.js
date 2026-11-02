@@ -385,6 +385,22 @@ async function renderClassroomQr(classCfg, qrMode) {
   }
 }
 
+function toggleTeacherAdvGpsBox() {
+  const box = document.getElementById('box-adv-gps-mode');
+  if (box) box.classList.toggle('hidden');
+}
+
+function onAdvStudentGpsToggle() {
+  const chk = document.getElementById('chk-use-student-avg3');
+  const hint = document.getElementById('tea-gps-anchor-hint');
+  if (!hint) return;
+  if (chk && chk.checked) {
+    hint.textContent = 'Chế độ nâng cao ĐANG BẬT: Lấy trung bình GPS 3 sinh viên đầu tiên làm tâm phòng học.';
+  } else {
+    hint.textContent = 'Mặc định: Đánh giá khoảng cách theo vị trí Giảng viên (Chỉ khi máy không có GPS mới lấy trung bình 3 SV đầu tiên)';
+  }
+}
+
 function probeLecturerDeviceGpsFast() {
   return new Promise((resolve) => {
     if (!navigator.geolocation) return resolve(null);
@@ -404,29 +420,34 @@ async function teacherStartSession() {
     return;
   }
 
+  const advChk = document.getElementById('chk-use-student-avg3');
+  const forceStudentAvg3 = Boolean(advChk && advChk.checked);
+
   showStatus('Đang định vị phòng học và mở phiên điểm danh...', 'warn', 'tea-session-inline-status');
-  const pos = await probeLecturerDeviceGpsFast();
-  const hasAccurateGps = Boolean(
+  const pos = forceStudentAvg3 ? null : await probeLecturerDeviceGpsFast();
+  const hasTeacherGps = Boolean(
+    !forceStudentAvg3 &&
     pos &&
     pos.coords &&
     typeof pos.coords.latitude === 'number' &&
     typeof pos.coords.longitude === 'number' &&
-    pos.coords.accuracy <= 85
+    pos.coords.latitude !== 0 &&
+    pos.coords.longitude !== 0
   );
 
-  const lat = hasAccurateGps ? pos.coords.latitude : 0;
-  const lng = hasAccurateGps ? pos.coords.longitude : 0;
-  const acc = hasAccurateGps ? Math.round(pos.coords.accuracy) : 0;
-  const anchorMode = hasAccurateGps ? 'TEACHER_GPS' : 'CAMPUS_CLUSTER';
+  const lat = hasTeacherGps ? pos.coords.latitude : 0;
+  const lng = hasTeacherGps ? pos.coords.longitude : 0;
+  const acc = hasTeacherGps ? Math.round(pos.coords.accuracy) : 0;
+  const anchorMode = hasTeacherGps ? 'TEACHER_GPS' : 'STUDENT_AVG_3';
 
   const anchorHintEl = document.getElementById('tea-gps-anchor-hint');
   if (anchorHintEl) {
-    anchorHintEl.textContent = hasAccurateGps
-      ? `Tâm phòng học buổi này: Đã khóa theo GPS thiết bị Giảng viên (±${acc}m)`
-      : 'Tâm phòng học buổi này: Tự động khóa theo Cụm Sinh viên tại phòng học (Campus Cluster Anchor)';
+    anchorHintEl.textContent = hasTeacherGps
+      ? `Tâm phòng học buổi này: Đã khóa theo vị trí thiết bị Giảng viên (±${acc}m)`
+      : 'Tâm phòng học buổi này: Lấy trung bình GPS 3 sinh viên đầu tiên trong lớp (STUDENT_AVG_3)';
   }
 
-  await executeStartSessionRequest(auth, classId, hasAccurateGps, lat, lng, acc, anchorMode);
+  await executeStartSessionRequest(auth, classId, hasTeacherGps, lat, lng, acc, anchorMode);
 }
 
 async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAccuracy = 0, anchorMode = 'TEACHER_GPS') {
@@ -449,8 +470,8 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
     await applyTeacherState(res, false);
     showStatus(
       useGps
-        ? `Đã mở phiên lớp ${classId} (Tâm GPS theo thiết bị Giảng viên ±${gpsAccuracy}m).`
-        : `Đã mở phiên lớp ${classId} (Tự động khóa tâm phòng mới theo Cụm Sinh viên tại trường).`,
+        ? `Đã mở phiên lớp ${classId} (Đánh giá theo vị trí Giảng viên ±${gpsAccuracy}m).`
+        : `Đã mở phiên lớp ${classId} (Chế độ lấy trung bình GPS 3 sinh viên đầu tiên làm tâm phòng).`,
       'success',
       'tea-session-inline-status'
     );

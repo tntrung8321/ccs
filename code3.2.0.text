@@ -1,11 +1,11 @@
 /**
  * ============================================================================
- * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.4.0)
+ * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.4.1)
  * ============================================================================
  * Architecture: Lecturer-Owned Google Sheet + Bound Google Apps Script
- * Key Upgrades & Verified Fixes in v3.4.0:
+ * Key Upgrades & Verified Fixes in v3.4.1:
  *  - Compatible 100% with modular index.html UI & external Sync.gs menu/functions
- *  - Dynamic Session Anchor (TEACHER_GPS vs CAMPUS_CLUSTER) for multi-room classes
+ *  - Default Lecturer-Proximity GPS Evaluation (TEACHER_GPS) + Advanced 3-Student Centroid Anchor (STUDENT_AVG_3)
  *  - Fixed Lecturer 6-digit password & Master Key verification (accepts C9 & ScriptProperties)
  *  - High-Concurrency CacheService layer (absorbs 60+ simultaneous check-ins)
  *  - Pre-lock Idempotency & Rate-Limiting (blocks F12 spam loops before LockService)
@@ -17,7 +17,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.4.0';
+const SYSTEM_VERSION = '3.4.1';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -791,7 +791,7 @@ function handleStudentCheckIn(ss, body) {
     return jsonResponse({ ok: false, code: 'ERR_INVALID_QR' });
   }
 
-  // 4. Verify Geolocation Proximity (Accuracy-Aware Haversine + Dynamic Session Anchor)
+  // 4. Verify Geolocation Proximity (Accuracy-Aware Haversine + Lecturer GPS / 3-Student Average Anchor)
   if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0 || accuracy <= 0) {
     return jsonResponse({ ok: false, code: 'ERR_GPS_UNAVAILABLE' });
   }
@@ -803,7 +803,7 @@ function handleStudentCheckIn(ss, body) {
     if (rawAnchor) anchorState = JSON.parse(rawAnchor);
   } catch (e) {}
 
-  if (anchorState && anchorState.mode === 'LOCKED' && anchorState.lat && anchorState.lng) {
+  if (anchorState && anchorState.lat && anchorState.lng) {
     activeSession.roomLat = Number(anchorState.lat);
     activeSession.roomLng = Number(anchorState.lng);
   }
@@ -812,7 +812,7 @@ function handleStudentCheckIn(ss, body) {
   let rawDist = Math.round(calculateHaversineMeters(lat, lng, activeSession.roomLat, activeSession.roomLng));
   let effectiveDist = Math.max(0, rawDist - accuracyAllowance);
 
-  if (anchorState && anchorState.mode === 'PENDING_CLUSTER') {
+  if (anchorState && anchorState.mode === 'COLLECTING_AVG_3') {
     const hasCampusRef = !isNaN(anchorState.campusLat) && !isNaN(anchorState.campusLng) && anchorState.campusLat !== 0 && anchorState.campusLng !== 0;
     const distToCampus = hasCampusRef
       ? Math.round(calculateHaversineMeters(lat, lng, Number(anchorState.campusLat), Number(anchorState.campusLng)))
@@ -824,6 +824,18 @@ function handleStudentCheckIn(ss, body) {
         code: 'ERR_LOCATION_OUT_OF_RANGE',
         params: {
           dist: distToCampus,
+          max: activeSession.radiusMeters,
+          acc: Math.round(accuracy)
+        }
+      });
+    }
+    // Once at least 1 student has anchored the provisional average, subsequent students must be within radiusMeters of the running average
+    if (Array.isArray(anchorState.samples) && anchorState.samples.length > 0 && effectiveDist > activeSession.radiusMeters) {
+      return jsonResponse({
+        ok: false,
+        code: 'ERR_LOCATION_OUT_OF_RANGE',
+        params: {
+          dist: rawDist,
           max: activeSession.radiusMeters,
           acc: Math.round(accuracy)
         }
@@ -853,31 +865,61 @@ function handleStudentCheckIn(ss, body) {
       return jsonResponse({ ok: false, code: credCheck.code, params: { id: studentId } });
     }
 
-    // Re-check dynamic session anchor inside lock so the first verified on-campus student locks the classroom
+    // Re-check dynamic session anchor inside lock: if in COLLECTING_AVG_3 mode, average the first 3 verified students
     try {
       const freshAnchorRaw = cache.get(anchorKey);
       if (freshAnchorRaw) anchorState = JSON.parse(freshAnchorRaw);
     } catch (e) {}
 
-    if (anchorState && anchorState.mode === 'PENDING_CLUSTER') {
-      if (accuracy <= 85 && !(clientMeta && clientMeta.mockGpsSuspect)) {
-        anchorState = {
-          mode: 'LOCKED',
-          lat: lat,
-          lng: lng,
-          source: 'CLUSTER_' + studentId
-        };
-        try { cache.put(anchorKey, JSON.stringify(anchorState), 7200); } catch (e) {}
-        activeSession.roomLat = lat;
-        activeSession.roomLng = lng;
-        rawDist = 0;
-        effectiveDist = 0;
-        try {
-          if (activeSession.rowIndex) {
-            ss.getSheetByName(TAB_SESSIONS).getRange(activeSession.rowIndex, 8, 1, 2).setValues([[lat, lng]]);
+    if (anchorState && anchorState.mode === 'COLLECTING_AVG_3') {
+      if (!Array.isArray(anchorState.samples)) anchorState.samples = [];
+      if (anchorState.samples.length > 0 && anchorState.lat && anchorState.lng) {
+        activeSession.roomLat = Number(anchorState.lat);
+        activeSession.roomLng = Number(anchorState.lng);
+        rawDist = Math.round(calculateHaversineMeters(lat, lng, activeSession.roomLat, activeSession.roomLng));
+        effectiveDist = Math.max(0, rawDist - accuracyAllowance);
+        if (effectiveDist > activeSession.radiusMeters) {
+          return jsonResponse({
+            ok: false,
+            code: 'ERR_LOCATION_OUT_OF_RANGE',
+            params: {
+              dist: rawDist,
+              max: activeSession.radiusMeters,
+              acc: Math.round(accuracy)
+            }
+          });
+        }
+      }
+
+      if (accuracy <= 100 && !(clientMeta && clientMeta.mockGpsSuspect)) {
+        const alreadySampled = anchorState.samples.some(s => s.studentId === studentId);
+        if (!alreadySampled && anchorState.samples.length < 3) {
+          anchorState.samples.push({ studentId: studentId, lat: lat, lng: lng });
+        }
+        const n = anchorState.samples.length;
+        if (n > 0) {
+          const sumLat = anchorState.samples.reduce((acc, item) => acc + Number(item.lat), 0);
+          const sumLng = anchorState.samples.reduce((acc, item) => acc + Number(item.lng), 0);
+          const avgLat = Number((sumLat / n).toFixed(6));
+          const avgLng = Number((sumLng / n).toFixed(6));
+          anchorState.lat = avgLat;
+          anchorState.lng = avgLng;
+          if (n >= 3) {
+            anchorState.mode = 'LOCKED';
+            anchorState.source = 'STUDENT_AVG_3';
           }
-          invalidateClassCache(classId);
-        } catch (e) {}
+          try { cache.put(anchorKey, JSON.stringify(anchorState), 7200); } catch (e) {}
+          activeSession.roomLat = avgLat;
+          activeSession.roomLng = avgLng;
+          rawDist = Math.round(calculateHaversineMeters(lat, lng, avgLat, avgLng));
+          effectiveDist = Math.max(0, rawDist - accuracyAllowance);
+          try {
+            if (activeSession.rowIndex) {
+              ss.getSheetByName(TAB_SESSIONS).getRange(activeSession.rowIndex, 8, 1, 2).setValues([[avgLat, avgLng]]);
+            }
+            invalidateClassCache(classId);
+          } catch (e) {}
+        }
       } else if (effectiveDist > activeSession.radiusMeters) {
         return jsonResponse({
           ok: false,
@@ -1235,7 +1277,7 @@ function handleTeacherStartSession(ss, body) {
     if (!cfg) return jsonResponse({ ok: false, code: 'ERR_INVALID_CLASS' });
 
     const existingOpen = getLatestOpenSession(ss, classId);
-    const hasAccurateTeacherGps = usePhoneGps && !isNaN(phoneLat) && !isNaN(phoneLng) && phoneLat !== 0 && (gpsAcc === 0 || gpsAcc <= 85) && anchorMode !== 'CAMPUS_CLUSTER';
+    const hasTeacherGps = usePhoneGps && !isNaN(phoneLat) && !isNaN(phoneLng) && phoneLat !== 0 && anchorMode !== 'STUDENT_AVG_3' && anchorMode !== 'CAMPUS_CLUSTER';
 
     // If lecturer clicked legacy calibrate without opening a new session
     if (calibrateOnly && !existingOpen) {
@@ -1251,7 +1293,7 @@ function handleTeacherStartSession(ss, body) {
     }
 
     if (existingOpen) {
-      if (hasAccurateTeacherGps) {
+      if (hasTeacherGps) {
         ss.getSheetByName(TAB_SESSIONS).getRange(existingOpen.rowIndex, 8, 1, 2).setValues([[phoneLat, phoneLng]]);
         ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[phoneLat, phoneLng]]);
         try {
@@ -1263,6 +1305,16 @@ function handleTeacherStartSession(ss, body) {
           }), 7200);
         } catch (e) {}
         invalidateClassCache(classId);
+      } else if (anchorMode === 'STUDENT_AVG_3') {
+        try {
+          cache.put('SES_ANCHOR_' + existingOpen.sessionId, JSON.stringify({
+            mode: 'COLLECTING_AVG_3',
+            campusLat: cfg.roomLat,
+            campusLng: cfg.roomLng,
+            maxCampusMeters: 850,
+            samples: []
+          }), 7200);
+        } catch (e) {}
       }
       return handleTeacherGetState(ss, { classId: classId });
     }
@@ -1270,7 +1322,7 @@ function handleTeacherStartSession(ss, body) {
     let roomLat = cfg.roomLat;
     let roomLng = cfg.roomLng;
 
-    if (hasAccurateTeacherGps) {
+    if (hasTeacherGps) {
       roomLat = phoneLat;
       roomLng = phoneLng;
       const clSheet = ss.getSheetByName(TAB_CLASSES);
@@ -1300,7 +1352,7 @@ function handleTeacherStartSession(ss, body) {
     ]);
 
     try {
-      if (hasAccurateTeacherGps) {
+      if (hasTeacherGps) {
         cache.put('SES_ANCHOR_' + sessionId, JSON.stringify({
           mode: 'LOCKED',
           lat: roomLat,
@@ -1309,10 +1361,11 @@ function handleTeacherStartSession(ss, body) {
         }), 7200);
       } else {
         cache.put('SES_ANCHOR_' + sessionId, JSON.stringify({
-          mode: 'PENDING_CLUSTER',
+          mode: 'COLLECTING_AVG_3',
           campusLat: cfg.roomLat,
           campusLng: cfg.roomLng,
-          maxCampusMeters: 850
+          maxCampusMeters: 850,
+          samples: []
         }), 7200);
       }
     } catch (e) {}
