@@ -2,6 +2,13 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### ✨ Version `v3.4.2` — *Lecturer UI Decluttering, 1-Tap Device Unlock & Projector Auto-Rehide*
+* **Single-Column Lecturer Session Control & Removed Decorative Radar Box**: Removed the secondary `.gps-station-box` column (`.radar-circle` and `#poster-class-title`) from Panel 1 of the Lecturer Dashboard and integrated `#tea-gps-anchor-hint`, `#btn-toggle-adv-gps`, and `#box-adv-gps-mode` directly inside `#teacher-session-control-box` for a cleaner, faster single-column layout.
+* **Removed Redundant `"Che MSSV"` Button & Unused QR Generator Library**: Removed `#btn-toggle-privacy` (`Che MSSV`) from the Panel 2 Roster header so only the 2 core actions (`Gọi ngẫu nhiên 1 SV` and `Ẩn/Hiện danh sách`) remain. Removed the unused `qrcode.min.js` library and legacy classroom QR poster nodes while preserving `html5-qrcode.min.js` for scanning Course Onboarding and Lecturer Pairing QR codes from the Google Sheet (`Setup_&_Dashboard`).
+* **Projector Auto-Rehide on Search Action & 1-Tap Device Unlock**:
+  * When the class roster is hidden on the projector (`showRosterNames === false`) and the Lecturer types into `#inp-roster-search` to find a student, clicking **`P`**, **`L`**, **`E`**, **`-`**, or **`Mở khóa`** now automatically clears `#inp-roster-search` and hides the roster again on the projector immediately.
+  * Streamlined `teacherResetStudentDevice(studentId)` (`Mở khóa`) to execute in a single tap without a blocking confirmation modal (displaying feedback in `#tea-session-inline-status`), while keeping `P` and `L` buttons independent so late students (`L`) who cleared browser cache can be unlocked and marked accurately.
+
 ### 🔧 Version `v3.4.1` — *Lecturer-Proximity Priority (`TEACHER_GPS`) & Advanced 3-Student Centroid Mode (`STUDENT_AVG_3`)*
 * **Default Lecturer-Proximity Evaluation (`TEACHER_GPS`)**: Whenever the Lecturer's device returns valid GPS coordinates (with Advanced Mode off), the session room center is strictly locked to the Lecturer's live position (`TEACHER_GPS`). Every student is evaluated strictly by their distance to the Lecturer (`<= 100m`), immediately rejecting any student sitting in another building (`ERR_LOCATION_OUT_OF_RANGE`).
 * **Advanced Mode Toggle & No-GPS Fallback (`STUDENT_AVG_3` — Average of First 3 Students)**:
@@ -61,6 +68,13 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### ✨ Version `v3.4.2` — *Tinh Gọn Giao Diện Giảng Viên, Mở Khóa Thiết Bị 1 Chạm & Tự Động Ẩn Lại Danh Sách Trên Máy Chiếu*
+* **Gộp Cột Điều khiển Phiên 1 Cột & Loại bỏ Khung Radar Trang trí**: Gỡ bỏ cột phụ `.gps-station-box` (biểu tượng `.radar-circle` và tiêu đề lặp `#poster-class-title`) ở Mục 1 của Giảng viên; tích hợp gọn dòng trạng thái `#tea-gps-anchor-hint` và nút `#btn-toggle-adv-gps` (`"Chế độ GPS nâng cao"`) ngay bên trong khung `#teacher-session-control-box`.
+* **Loại bỏ Nút `"Che MSSV"` Dư thừa & Thư viện Tạo QR Cũ (`qrcode.min.js`)**: Gỡ bỏ nút `#btn-toggle-privacy` (`Che MSSV`) trên thanh tiêu đề Mục 2 để chỉ giữ lại 2 nút cốt lõi (`Gọi ngẫu nhiên 1 SV` và `Ẩn/Hiện danh sách`). Loại bỏ thư viện `qrcode.min.js` không còn sử dụng nhưng giữ nguyên `html5-qrcode.min.js` để sinh viên và giảng viên quét mã QR Khóa học / QR Ghép nối có sẵn trong Google Sheet (`Setup_&_Dashboard`).
+* **Tự động Xóa Ô Tìm kiếm để Ẩn lại Danh sách trên Máy chiếu & Mở khóa Thiết bị 1 Chạm**:
+  * Khi Giảng viên đang bật chế độ Ẩn danh sách trên máy chiếu (`showRosterNames === false`) và gõ tìm kiếm sinh viên tại `#inp-roster-search`, ngay sau khi bấm **`P`**, **`L`**, **`E`**, **`-`** hoặc **`Mở khóa`**, hệ thống tự động xóa trắng ô tìm kiếm để màn hình máy chiếu quay về trạng thái ẩn danh sách ngay lập tức.
+  * Tối ưu nút **`Mở khóa`** (`teacherResetStudentDevice`) thực thi ngay trong 1 cú chạm (báo kết quả tại `#tea-session-inline-status`, không bật hộp thoại hỏi lại), đồng thời giữ tách biệt với các nút `P` / `L` để Giảng viên linh hoạt bấm `L` nếu sinh viên đổi máy/xóa cache đi học trễ.
+
 ### 🔧 Version `v3.4.1` — *Mặc Định Đánh Giá Theo Vị Trí Giảng Viên (`TEACHER_GPS`) & Nút Chế Độ Nâng Cao Lấy Trung Bình 3 Sinh Viên Đầu Tiên (`STUDENT_AVG_3`)*
 * **Mặc định Đánh giá theo Khoảng cách Gần Giảng viên (`TEACHER_GPS`)**: Khi Giảng viên mở phiên (chế độ mặc định), chỉ cần thiết bị của Giảng viên có tín hiệu GPS hợp lệ, hệ thống luôn khóa cứng tâm phòng học theo **vị trí thực tế của Giảng viên (`TEACHER_GPS`)**. Mọi sinh viên đều được chấm khoảng cách trực tiếp so với Giảng viên (`<= 100m`); sinh viên ngồi ở tòa nhà khác (`320m`) sẽ bị từ chối ngay lập tức (`[NGOÀI PHẠM VI]`).
 * **Nút Chế độ GPS Nâng cao & Dự phòng khi Máy bàn Không có GPS (`STUDENT_AVG_3` — Trung bình 3 Sinh viên đầu tiên)**:
@@ -118,17 +132,17 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.1`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.2`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.1` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.2` |
 | :--- | :--- | :--- |
 | **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)** |
-| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Zero-Scroll (`100dvh`) Student View & Contextual Inline Alerts** |
+| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Zero-Scroll (`100dvh`) Student View, Decluttered 1-Col Lecturer UI & Inline Alerts** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Pre-Check `#gps-panel` + 1-Tap Live GPS (`cachedGPS = null`) + `isSubmitting` Lock** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS`) + Advanced / No-GPS 3-Student Centroid (`STUDENT_AVG_3`)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Smart `17:15–17:30` Priority)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + Legacy URL Auto-Migration** |
-| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **2-Step Confirm + Hidden-Roster Search & 1-Key (`Enter`) Quick Mark** |
+| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **2-Step Confirm + Hidden-Roster Search Auto-Rehide & 1-Tap Device Unlock** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **RAM `CacheService` (~10x faster / Nhanh gấp 10 lần)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Multi-Browser (`Safari+Chrome`), F12, Fresh GPS Timestamp & Spot-Check Lock** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Universal Content-Aware (`Class_ID` + `MSSV`/Name) 2-Way `.XLSX` Sync + Pre-Export Delta Import** |

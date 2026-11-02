@@ -8,9 +8,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>ClassCheck — Hệ Thống Điểm Danh Định Vị</title>
 
-  <!-- Version-Pinned QR Scanner & QR Generator Libraries -->
+  <!-- Version-Pinned QR Scanner Library (Sheet Course & Lecturer Pairing QR) -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
   <!-- Modular Utilitarian Stylesheet -->
   <link rel="stylesheet" href="css/styles.css" />
@@ -229,13 +228,6 @@
 
         <!-- TODAY'S VERIFIED RECEIPT PERSISTENCE -->
         <div id="student-today-receipt" class="receipt-card hidden"></div>
-
-        <!-- Optional fallback QR scanner / manual box -->
-        <div id="box-manual-qr" class="hidden" style="margin-top:10px;">
-          <button class="btn btn-outline btn-sm" onclick="startCameraScanner('CHECKIN')" data-i18n="stu_scan_checkin_btn">Quét mã QR phòng học</button>
-          <input type="text" id="inp-manual-qr" />
-          <button class="btn btn-outline btn-sm" onclick="handleManualQrSubmit()" data-i18n="stu_submit_manual_qr">Gửi mã</button>
-        </div>
       </div>
 
     </section>
@@ -366,37 +358,29 @@
                   <button class="btn btn-danger btn-sm" onclick="teacherControlSession('CLOSE_NOW')" data-i18n="tea_close_btn">Đóng phiên ngay</button>
                 </div>
 
+                <!-- COMPACT GPS MODE BAR & ADVANCED OVERRIDE -->
+                <div style="margin-top:10px; padding-top:8px; border-top:1px dashed var(--border-subtle); display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+                  <div id="tea-gps-anchor-hint" style="font-size:0.75rem; color:var(--muted); line-height:1.35; flex:1; min-width:200px;">
+                    Mặc định: Đánh giá khoảng cách theo vị trí Giảng viên (Chỉ khi máy không có GPS mới lấy trung bình 3 SV đầu tiên)
+                  </div>
+                  <button type="button" id="btn-toggle-adv-gps" class="btn btn-outline btn-sm no-print" onclick="toggleTeacherAdvGpsBox()" style="width:auto; padding:4px 9px; font-size:0.73rem;">
+                    <svg class="icon icon-sm"><use href="#ic-shield"></use></svg>
+                    <span>Chế độ GPS nâng cao</span>
+                  </button>
+                </div>
+
+                <div id="box-adv-gps-mode" class="hidden no-print" style="margin-top:8px; padding:8px 10px; background:var(--surface); border:1px solid var(--border); border-radius:6px; text-align:left; width:100%;">
+                  <label class="checkbox-row" for="chk-use-student-avg3" style="margin:0; font-size:0.78rem; font-weight:600; color:var(--text);">
+                    <input type="checkbox" id="chk-use-student-avg3" onchange="onAdvStudentGpsToggle()" />
+                    <span>Sử dụng GPS Sinh viên (Lấy trung bình 3 bạn đầu tiên làm tâm phòng)</span>
+                  </label>
+                  <div style="font-size:0.72rem; color:var(--muted); margin-top:4px; line-height:1.3;">
+                    Bật tùy chọn này khi dùng máy tính bàn đổi phòng hoặc muốn lấy tâm theo trung bình 3 sinh viên đầu tiên.
+                  </div>
+                </div>
+
                 <div id="tea-session-inline-status" class="inline-feedback hidden"></div>
               </div>
-            </div>
-
-            <!-- Secondary Column: Compact GPS Station & Poster -->
-            <div class="gps-station-box" id="printable-poster">
-              <div class="radar-circle">
-                <svg class="icon icon-xl"><use href="#ic-crosshair"></use></svg>
-              </div>
-              <div style="font-weight:700; font-size:1.02rem; color:var(--primary); margin-bottom:4px;" id="poster-class-title">
-                Lớp học phần
-              </div>
-              <div id="tea-gps-anchor-hint" style="font-size:0.75rem; color:var(--muted); line-height:1.35; margin-bottom:8px;">
-                Mặc định: Đánh giá khoảng cách theo vị trí Giảng viên (Chỉ khi máy không có GPS mới lấy trung bình 3 SV đầu tiên)
-              </div>
-              <button type="button" id="btn-toggle-adv-gps" class="btn btn-outline btn-sm no-print" onclick="toggleTeacherAdvGpsBox()" style="width:auto; padding:5px 10px; font-size:0.74rem;">
-                <svg class="icon icon-sm"><use href="#ic-shield"></use></svg>
-                <span>Chế độ GPS nâng cao</span>
-              </button>
-              <div id="box-adv-gps-mode" class="hidden no-print" style="margin-top:8px; padding:8px 10px; background:#fff; border:1px solid var(--border); border-radius:6px; text-align:left; width:100%;">
-                <label class="checkbox-row" for="chk-use-student-avg3" style="margin:0; font-size:0.78rem; font-weight:600; color:var(--text);">
-                  <input type="checkbox" id="chk-use-student-avg3" onchange="onAdvStudentGpsToggle()" />
-                  <span>Sử dụng GPS Sinh viên (Lấy trung bình 3 bạn đầu tiên làm tâm phòng)</span>
-                </label>
-                <div style="font-size:0.72rem; color:var(--muted); margin-top:4px; line-height:1.3;">
-                  Bật tùy chọn này khi dùng máy tính bàn đổi phòng hoặc muốn lấy tâm theo trung bình 3 sinh viên đầu tiên.
-                </div>
-              </div>
-              <div class="hidden" id="tea-gps-coords-badge"></div>
-              <div class="hidden" id="poster-qr-subtitle"></div>
-              <div id="teacher-qr-canvas" class="hidden" style="margin-top:10px; padding:10px; background:#fff; border-radius:8px; border:1px solid var(--border);"></div>
             </div>
           </div>
         </div>
@@ -412,10 +396,6 @@
               <button class="btn btn-primary btn-sm" onclick="triggerRandomSpotCheck()">
                 <svg class="icon icon-sm"><use href="#ic-shuffle"></use></svg>
                 <span data-i18n="tea_spot_check_btn">Gọi ngẫu nhiên 1 SV</span>
-              </button>
-              <button class="btn btn-outline btn-sm" id="btn-toggle-privacy" onclick="toggleProjectorPrivacy()">
-                <svg class="icon icon-sm"><use href="#ic-lock"></use></svg>
-                <span data-i18n="tea_privacy_btn">Che MSSV</span>
               </button>
               <button class="btn btn-outline btn-sm" id="btn-toggle-names" onclick="toggleRosterVisibility()">
                 <svg class="icon icon-sm"><use href="#ic-eye"></use></svg>
@@ -460,13 +440,6 @@
             </button>
           </div>
           <div id="tea-admin-inline-status" class="inline-feedback hidden"></div>
-
-          <!-- Hidden legacy buttons preserved for backward compatibility -->
-          <div class="hidden">
-            <button id="btn-qr-mode-toggle" onclick="toggleQrMode()">QR Mode: STATIC</button>
-            <button onclick="window.print()" data-i18n="tea_print_qr_btn">In bảng QR</button>
-            <button onclick="teacherRotateStaticQr()" data-i18n="tea_replace_qr_btn">Đổi khóa QR</button>
-          </div>
         </div>
 
       </div>

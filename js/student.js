@@ -596,12 +596,3 @@ function renderTodayStudentReceipt(classId) {
     box.classList.add('hidden');
   }
 }
-
-function toggleManualQrInput() {
-  document.getElementById('box-manual-qr').classList.toggle('hidden');
-}
-
-function handleManualQrSubmit() {
-  const code = document.getElementById('inp-manual-qr').value.trim();
-  if (code) executeStudentCheckIn(code);
-}

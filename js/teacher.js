@@ -11,9 +11,7 @@
 let teacherState = null;
 let teacherPollTimer = null;
 let teacherCountdownTimer = null;
-let teacherRotatingQrTimer = null;
 let showRosterNames = true;
-let maskStudentIdsOnProjector = false;
 let activeRosterFilter = 'ALL'; // 'ALL' | 'PRESENT' | 'ABSENT' | 'SUSPECT'
 let teacherHasManuallySelectedClass = false;
 let selectedTeacherClassId = '';
@@ -162,11 +160,8 @@ async function applyTeacherState(state, isInitialLoad = false) {
   if (activeCfg) {
     document.getElementById('btn-reg-gate-toggle').textContent =
       `Đăng ký Thiết bị Mới: ${activeCfg.regOpen ? 'ĐANG MỞ' : 'ĐANG KHÓA'}`;
-    document.getElementById('poster-class-title').textContent =
-      `${activeCfg.classId} — ${activeCfg.className || ''}`;
   } else {
     document.getElementById('btn-reg-gate-toggle').textContent = 'Đăng ký Thiết bị Mới: Chưa chọn lớp';
-    document.getElementById('poster-class-title').textContent = 'Chưa chọn lớp học phần';
   }
 
   const roster = activeCfg ? (state.roster || []) : [];
@@ -178,8 +173,6 @@ async function applyTeacherState(state, isInitialLoad = false) {
   document.getElementById('tea-live-count').textContent = `${pCount + lCount} / ${roster.length} Có mặt`;
   document.getElementById('tea-live-breakdown').textContent = `Có mặt (P): ${pCount} | Đi trễ (L): ${lCount} | Vắng (-): ${aCount} | Phép (E): ${eCount}`;
 
-  const qrMode = ses ? ses.qrMode : 'STATIC';
-  renderClassroomQr(activeCfg, qrMode);
   setupTeacherCountdown(ses, Boolean(activeCfg));
   renderTeacherRoster();
 }
@@ -276,38 +269,6 @@ async function onTeacherClassChange() {
   await refreshTeacherState();
 }
 
-async function teacherCalibrateRoomGpsNow() {
-  const auth = getTeacherAuth();
-  const classId = document.getElementById('sel-tea-class').value;
-  if (!auth || !classId) {
-    showStatus('Vui lòng chọn lớp học phần trước khi cập nhật Tâm GPS.', 'warn');
-    return;
-  }
-
-  showStatus('Đang lấy tọa độ GPS của thiết bị này làm Tâm phòng học...', 'warn');
-  try {
-    const pos = await getAccuratePosition();
-    const res = await callBackend(auth.apiUrl, {
-      action: 'TEACHER_START_SESSION',
-      teacherToken: auth.token,
-      classId: classId,
-      usePhoneGps: true,
-      calibrateOnly: true,
-      lat: pos.coords.latitude,
-      lng: pos.coords.longitude,
-      qrMode: 'STATIC'
-    });
-    if (res && res.ok) {
-      await applyTeacherState(res, false);
-      showStatus('Đã cập nhật tọa độ Tâm điểm danh thành công.', 'success');
-    } else {
-      showStatus(res && res.message ? res.message : 'Không cập nhật được tọa độ.', 'err');
-    }
-  } catch (e) {
-    showStatus('Không lấy được GPS. Hãy cấp quyền Vị trí trên trình duyệt.', 'err');
-  }
-}
-
 function setupTeacherCountdown(ses, hasSelectedClass = true) {
   if (teacherCountdownTimer) clearInterval(teacherCountdownTimer);
   const badge = document.getElementById('tea-session-badge');
@@ -350,39 +311,6 @@ function setupTeacherCountdown(ses, hasSelectedClass = true) {
   };
   updateTick();
   teacherCountdownTimer = setInterval(updateTick, 1000);
-}
-
-async function renderClassroomQr(classCfg, qrMode) {
-  if (teacherRotatingQrTimer) clearInterval(teacherRotatingQrTimer);
-  const container = document.getElementById('teacher-qr-canvas');
-  if (!container) return;
-  if (!classCfg) {
-    container.innerHTML = '';
-    return;
-  }
-
-  const drawQr = async () => {
-    container.innerHTML = '';
-    let payloadText = classCfg.activeQrSecret;
-    if (qrMode === 'ROTATING') {
-      const bucket = Math.floor(Date.now() / 15000);
-      const tok = (await sha256Browser(classCfg.activeQrSecret + '|' + bucket)).slice(0, 12);
-      payloadText = JSON.stringify({ cid: classCfg.classId, mode: 'ROTATING', tok: tok });
-    }
-    new QRCode(container, {
-      text: payloadText,
-      width: 160,
-      height: 160,
-      colorDark: '#0f172a',
-      colorLight: '#ffffff',
-      correctLevel: QRCode.CorrectLevel.M
-    });
-  };
-
-  await drawQr();
-  if (qrMode === 'ROTATING') {
-    teacherRotatingQrTimer = setInterval(drawQr, 5000);
-  }
 }
 
 function toggleTeacherAdvGpsBox() {
@@ -497,12 +425,6 @@ async function teacherControlSession(subAction, extra = {}) {
   if (res && res.ok) await applyTeacherState(res, false);
 }
 
-async function toggleQrMode() {
-  const cur = (teacherState && teacherState.activeSession && teacherState.activeSession.qrMode) || 'STATIC';
-  const next = cur === 'STATIC' ? 'ROTATING' : 'STATIC';
-  await teacherControlSession('SET_QR_MODE', { qrMode: next });
-}
-
 function parseTimeSec(timeStr) {
   if (!timeStr) return null;
   const m = String(timeStr).match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
@@ -548,22 +470,6 @@ function setRosterFilter(filterMode) {
   renderTeacherRoster();
 }
 
-function toggleProjectorPrivacy() {
-  maskStudentIdsOnProjector = !maskStudentIdsOnProjector;
-  const btn = document.getElementById('btn-toggle-privacy');
-  if (btn) {
-    btn.classList.toggle('btn-primary', maskStudentIdsOnProjector);
-    btn.classList.toggle('btn-outline', !maskStudentIdsOnProjector);
-  }
-  renderTeacherRoster();
-}
-
-function formatDisplayedStudentId(studentId) {
-  const s = String(studentId || '');
-  if (!maskStudentIdsOnProjector || s.length < 5) return s;
-  return s.slice(0, 3) + '***' + s.slice(-2);
-}
-
 function renderTeacherRoster() {
   const container = document.getElementById('tea-roster-container');
   const suspectBanner = document.getElementById('tea-suspect-banner');
@@ -603,7 +509,7 @@ function renderTeacherRoster() {
     return;
   }
 
-  if (suspectIds.length > 0 && !maskStudentIdsOnProjector) {
+  if (suspectIds.length > 0) {
     suspectBanner.classList.remove('hidden');
     suspectBanner.textContent = `[CẢNH BÁO KIỂM TRA] Phát hiện ${suspectIds.length} trường hợp trùng thiết bị hoặc bấm sát nhau <= 2 giây (đánh dấu vàng).`;
   } else {
@@ -626,16 +532,15 @@ function renderTeacherRoster() {
 
   container.innerHTML = filtered.map(st => {
     const suspectNote = suspectMap[st.studentId];
-    const shownId = formatDisplayedStudentId(st.studentId);
     return `
       <div class="roster-item ${suspectNote ? 'suspect-row' : ''}">
         <div>
           <strong>${escapeHtml(st.fullName)}</strong>
-          <span style="color:var(--muted); font-size:0.8rem; font-family:var(--font-mono);">(${escapeHtml(shownId)})</span>
+          <span style="color:var(--muted); font-size:0.8rem; font-family:var(--font-mono);">(${escapeHtml(st.studentId)})</span>
           <span class="status-pill st-${st.status}">${escapeHtml(st.status)}</span>
           ${st.time ? `<span style="font-size:0.75rem; color:var(--muted); font-family:var(--font-mono);">${escapeHtml(st.time)}</span>` : ''}
           ${st.distance !== '' && st.distance !== undefined ? `<span style="font-size:0.74rem; color:#0f766e; font-weight:600; font-family:var(--font-mono);">(${escapeHtml(st.distance)}m)</span>` : ''}
-          ${suspectNote && !maskStudentIdsOnProjector ? `<span class="suspect-tag">[NGHI VẤN] ${escapeHtml(suspectNote)}</span>` : ''}
+          ${suspectNote ? `<span class="suspect-tag">[NGHI VẤN] ${escapeHtml(suspectNote)}</span>` : ''}
         </div>
         <div style="display:flex; gap:4px;">
           <button class="btn btn-outline btn-sm" onclick="teacherManualMark('${escapeHtml(st.studentId)}','P')">P</button>
@@ -692,6 +597,10 @@ async function teacherManualMark(studentId, status) {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
   if (!auth || !classId) return;
+  if (!showRosterNames) {
+    const searchInput = document.getElementById('inp-roster-search');
+    if (searchInput) searchInput.value = '';
+  }
   const res = await callBackend(auth.apiUrl, {
     action: 'TEACHER_MANUAL_MARK',
     teacherToken: auth.token,
@@ -703,44 +612,24 @@ async function teacherManualMark(studentId, status) {
   else showStatus(res && res.message ? res.message : 'Lỗi cập nhật trạng thái.', 'err');
 }
 
-function teacherResetStudentDevice(studentId) {
-  openAppModal(
-    'Mở khóa Thiết bị Sinh viên',
-    `Xác nhận đặt lại khóa thiết bị cho MSSV ${studentId}? Sinh viên sẽ có thể liên kết lại trên trình duyệt mới.`,
-    'Xác nhận mở khóa',
-    async () => {
-      const auth = getTeacherAuth();
-      const res = await callBackend(auth.apiUrl, {
-        action: 'TEACHER_RESET_DEVICE',
-        teacherToken: auth.token,
-        studentId: studentId
-      });
-      if (res && res.ok) {
-        showStatus(formatServerMessage('DEVICE_RESET_OK', { id: studentId }), 'success');
-      } else {
-        showStatus(res && res.message ? res.message : 'Không thể mở khóa thiết bị.', 'warn');
-      }
-    }
-  );
-}
-
-function teacherRotateStaticQr() {
-  openAppModal(
-    'Đổi mã khóa QR Lớp học',
-    'Tạo mã khóa bí mật mới cho lớp này?',
-    'Đổi mã khóa',
-    async () => {
-      const auth = getTeacherAuth();
-      const classId = document.getElementById('sel-tea-class').value;
-      if (!auth || !classId) return;
-      const res = await callBackend(auth.apiUrl, {
-        action: 'TEACHER_ROTATE_STATIC_QR',
-        teacherToken: auth.token,
-        classId: classId
-      });
-      if (res && res.ok) await applyTeacherState(res, false);
-    }
-  );
+async function teacherResetStudentDevice(studentId) {
+  const auth = getTeacherAuth();
+  if (!auth || !studentId) return;
+  if (!showRosterNames) {
+    const searchInput = document.getElementById('inp-roster-search');
+    if (searchInput) searchInput.value = '';
+    renderTeacherRoster();
+  }
+  const res = await callBackend(auth.apiUrl, {
+    action: 'TEACHER_RESET_DEVICE',
+    teacherToken: auth.token,
+    studentId: studentId
+  });
+  if (res && res.ok) {
+    showStatus(formatServerMessage('DEVICE_RESET_OK', { id: studentId }), 'success', 'tea-session-inline-status');
+  } else {
+    showStatus(res && res.message ? res.message : 'Không thể mở khóa thiết bị.', 'warn', 'tea-session-inline-status');
+  }
 }
 
 async function teacherToggleRegGate() {
