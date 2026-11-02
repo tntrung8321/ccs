@@ -26,6 +26,7 @@ window.addEventListener('DOMContentLoaded', () => {
   checkIosStandaloneNotice();
   handleUrlDeepLinks();
   renderStudentCourseSelectors();
+  syncStudentViewportScrollLock();
   syncStudentLiveScheduleFromServer();
 });
 
@@ -177,16 +178,19 @@ function updateStudentClassSelectionUI(instId, scheduleMatch) {
 
 function toggleAddCourseBox() {
   document.getElementById('box-add-course').classList.toggle('hidden');
+  syncStudentViewportScrollLock();
 }
 
 function toggleAdvancedApiBox() {
   document.getElementById('box-advanced-api').classList.toggle('hidden');
+  syncStudentViewportScrollLock();
 }
 
 /**
  * ============================================================================
  * REQUIREMENT 3: PRE-CHECK & ACTIVATE GPS PANEL (#gps-panel)
  *  - Tests if student's phone/browser can acquire GPS even before session opens.
+ *  - Shows feedback directly inside #gps-panel (#gps-readout & #gps-inline-status).
  *  - Does NOT cache/store old coordinates for attendance submission.
  * ============================================================================
  */
@@ -210,6 +214,11 @@ async function handleStudentPreCheckGps() {
     pill.className = 'badge-warn';
     pill.textContent = currentLang === 'en' ? 'Testing GPS...' : 'Đang thử GPS...';
   }
+  showInlineStatus(
+    'gps-inline-status',
+    currentLang === 'en' ? 'Testing device GPS sensor...' : 'Đang kiểm tra tín hiệu GPS của thiết bị...',
+    'warn'
+  );
 
   try {
     const pos = await getAccuratePosition();
@@ -224,6 +233,7 @@ async function handleStudentPreCheckGps() {
         pill.className = 'badge-err';
         pill.textContent = 'GPS không hợp lệ';
       }
+      showInlineStatus('gps-inline-status', 'Phát hiện tín hiệu GPS không hợp lệ.', 'err');
     } else {
       const latStr = Number(pos.coords.latitude).toFixed(5);
       const lngStr = Number(pos.coords.longitude).toFixed(5);
@@ -231,26 +241,40 @@ async function handleStudentPreCheckGps() {
       if (dot) dot.className = 'status-dot dot-ok';
       if (readout) {
         readout.textContent = currentLang === 'en'
-          ? `GPS Ready (${latStr}, ${lngStr} | Accuracy ±${accVal}m) — Position is not stored; fresh GPS will be verified on Check-In.`
-          : `GPS hoạt động tốt (${latStr}, ${lngStr} | Sai số ±${accVal}m) — Không lưu vị trí; sẽ kiểm tra lại GPS khi bấm Điểm danh.`;
+          ? `GPS Ready (${latStr}, ${lngStr} | Accuracy ±${accVal}m)`
+          : `GPS hoạt động tốt (${latStr}, ${lngStr} | Sai số ±${accVal}m)`;
       }
       if (pill) {
         pill.className = 'badge-ok';
         pill.textContent = `GPS OK (±${accVal}m)`;
       }
+      showInlineStatus(
+        'gps-inline-status',
+        currentLang === 'en'
+          ? `GPS verified (±${accVal}m). Position is not cached; fresh GPS will be checked on Check-In.`
+          : `Thiết bị đã bật GPS thành công (±${accVal}m). Khi bấm Điểm danh hệ thống sẽ xác thực vị trí trực tiếp tại lớp.`,
+        'success'
+      );
     }
   } catch (err) {
     window.cachedGPS = null;
     if (dot) dot.className = 'status-dot dot-err';
     if (readout) {
       readout.textContent = currentLang === 'en'
-        ? 'GPS Blocked / Off: Please enable Location Services in your phone Settings and allow browser permission.'
-        : 'Không mở được GPS: Vui lòng bật Định vị (Location) trong Cài đặt điện thoại và cấp quyền Vị trí cho trình duyệt.';
+        ? 'GPS Blocked / Off: Enable Location Services and browser permission.'
+        : 'Chưa mở được GPS trên thiết bị này.';
     }
     if (pill) {
       pill.className = 'badge-err';
       pill.textContent = 'Lỗi GPS';
     }
+    showInlineStatus(
+      'gps-inline-status',
+      currentLang === 'en'
+        ? 'Cannot access GPS: Please turn on Location Services in phone Settings and allow browser location permission.'
+        : 'Không lấy được GPS: Vui lòng bật Định vị (Location) trong Cài đặt điện thoại và cấp quyền Vị trí cho trình duyệt.',
+      'err'
+    );
   } finally {
     isCheckingGps = false;
     if (btn) btn.disabled = false;
@@ -265,7 +289,7 @@ async function handleStudentPreCheckGps() {
 async function submitStudentOnboarding() {
   const check = evaluateStudentAntiCheat();
   if (!check.browserOk) {
-    showStatus('Vui lòng mở bằng trình duyệt chính (Safari, Chrome, Cốc Cốc, Edge), không mở trong Zalo/Messenger.', 'err');
+    showStatus('Vui lòng mở bằng trình duyệt chính (Safari, Chrome, Cốc Cốc, Edge), không mở trong Zalo/Messenger.', 'err', 'onboard-inline-status');
     return;
   }
 
@@ -273,15 +297,15 @@ async function submitStudentOnboarding() {
   const studentId = document.getElementById('inp-student-id').value.trim().toUpperCase();
 
   if (!studentId) {
-    showStatus('Vui lòng nhập Mã số sinh viên (MSSV).', 'err');
+    showStatus('Vui lòng nhập Mã số sinh viên (MSSV).', 'err', 'onboard-inline-status');
     return;
   }
 
-  showStatus('Đang xác thực MSSV với máy chủ...', 'warn');
+  showStatus('Đang xác thực MSSV với máy chủ...', 'warn', 'onboard-inline-status');
 
   const pingRes = await callBackend(apiUrl, { action: 'PING' });
   if (!pingRes || !pingRes.ok) {
-    showStatus('Không kết nối được tới máy chủ. Vui lòng kiểm tra mạng.', 'err');
+    showStatus('Không kết nối được tới máy chủ. Vui lòng kiểm tra mạng.', 'err', 'onboard-inline-status');
     return;
   }
 
@@ -294,7 +318,7 @@ async function submitStudentOnboarding() {
   });
 
   if (!res || !res.ok) {
-    showStatus(formatServerMessage(res ? res.code : 'ERR_NETWORK', res ? res.params : {}, res ? res.message : ''), 'err');
+    showStatus(formatServerMessage(res ? res.code : 'ERR_NETWORK', res ? res.params : {}, res ? res.message : ''), 'err', 'onboard-inline-status');
     return;
   }
 
@@ -307,13 +331,15 @@ async function submitStudentOnboarding() {
     enrolledClasses: res.enrolledClasses
   });
 
+  hideStatus('onboard-inline-status');
   document.getElementById('box-add-course').classList.add('hidden');
   renderStudentCourseSelectors();
+  syncStudentViewportScrollLock();
   showStatus(formatServerMessage('ONBOARD_CONFIRMED', {
     name: res.fullName,
     id: res.studentId,
     count: (res.enrolledClasses || []).length
-  }), 'success');
+  }), 'success', 'checkin-inline-status');
 }
 
 /**
@@ -335,13 +361,14 @@ async function executeStudentCheckIn(qrString) {
   const profile = profiles[instId];
 
   if (!profile) {
-    showStatus('Vui lòng nhập và lưu MSSV trước khi điểm danh.', 'err');
     document.getElementById('box-add-course').classList.remove('hidden');
+    syncStudentViewportScrollLock();
+    showStatus('Vui lòng nhập và lưu MSSV trước khi điểm danh.', 'err', 'onboard-inline-status');
     return;
   }
 
   if (!classId) {
-    showStatus('Bạn chưa chọn lớp học phần (Đang ở ngoài khung giờ tự động). Vui lòng chọn lớp học ở ô phía trên trước khi bấm Điểm danh.', 'warn');
+    showStatus('Bạn chưa chọn lớp học phần (Đang ở ngoài khung giờ tự động). Vui lòng chọn lớp học ở ô phía trên trước khi bấm Điểm danh.', 'warn', 'checkin-inline-status');
     const selClass = document.getElementById('sel-student-class');
     if (selClass) selClass.focus();
     return;
@@ -349,7 +376,7 @@ async function executeStudentCheckIn(qrString) {
 
   const check = evaluateStudentAntiCheat();
   if (!check.browserOk) {
-    showStatus('Không điểm danh trong Zalo/Messenger. Hãy mở bằng trình duyệt đã đăng ký.', 'err');
+    showStatus('Không điểm danh trong Zalo/Messenger. Hãy mở bằng trình duyệt đã đăng ký.', 'err', 'checkin-inline-status');
     return;
   }
 

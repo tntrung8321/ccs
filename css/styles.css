@@ -439,6 +439,67 @@ select.unselected-warning {
   border: 1px solid var(--err-border);
 }
 
+/* Contextual Inline Feedback (Appears directly where action was triggered) */
+.inline-feedback {
+  padding: 9px 11px;
+  border-radius: 7px;
+  font-size: 0.81rem;
+  font-weight: 600;
+  margin-top: 8px;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.inline-feedback.alert-success {
+  background: var(--success-bg);
+  color: var(--success-text);
+  border: 1px solid var(--success-border);
+}
+
+.inline-feedback.alert-warn {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border: 1px solid var(--warn-border);
+}
+
+.inline-feedback.alert-err {
+  background: var(--err-bg);
+  color: var(--err-text);
+  border: 1px solid var(--err-border);
+}
+
+/* Zero-Scroll Compact Student Mode Viewport */
+body.student-locked-scroll {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+body.student-locked-scroll .container {
+  margin: 8px auto;
+}
+
+#view-student .card {
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+
+#view-student .card-header {
+  margin-bottom: 8px;
+  padding-bottom: 7px;
+}
+
+#view-student select,
+#view-student input[type="text"] {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+#view-student .btn-checkin-hero {
+  padding: 13px 16px;
+}
+
 /* Student Identity Bar */
 .student-id-pill {
   display: flex;

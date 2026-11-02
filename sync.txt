@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * QR ATTENDANCE — UNIVERSAL ROSTER & SHEET SYNC (GOOGLE SHEETS & .XLSX)
+ * QR ATTENDANCE — UNIVERSAL ROSTER & SHEET SYNC (GOOGLE SHEETS & .XLSX) (v3.4.0)
  * ============================================================================
  * Designed for University Lecturers, Teaching Assistants (TAs), and Teachers:
  *   - Auto-displays the "📋 Roster & Sheet Sync" menu immediately when the
@@ -1500,6 +1500,16 @@ function autoSyncTodayAttendanceAfterClass() {
     }
 
     if (!sessionGroup.allClosed && now.getTime() < sessionGroup.maxClosesAtMs) continue;
+
+    // Auto-pull any newly added students from Drive (.XLSX / Google Sheet) if file was modified
+    if (typeof syncSingleClassRosterFromDrive_ === 'function') {
+      try {
+        syncSingleClassRosterFromDrive_(masterSs, classId, className, {
+          onlyIfModified: true,
+          actor: 'AUTO_SYNC'
+        });
+      } catch (e) {}
+    }
 
     const statusMap = getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup);
     const statusSignature = JSON.stringify(statusMap);

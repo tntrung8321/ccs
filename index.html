@@ -157,20 +157,23 @@
         </div>
 
         <!-- ONBOARDING / LINK NEW COURSE SUB-PANEL -->
-        <div id="box-add-course" class="hidden" style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border-subtle);">
+        <div id="box-add-course" class="hidden" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border-subtle);">
           <label for="inp-student-id" data-i18n="stu_id_label">Mã số sinh viên (MSSV):</label>
           <input type="text" id="inp-student-id" placeholder="Nhập MSSV..." autocomplete="off" />
 
           <button class="btn btn-primary" onclick="submitStudentOnboarding()" data-i18n="stu_register_btn">Lưu & Liên kết Thiết bị</button>
 
-          <div style="margin-top:8px; text-align:right;">
-            <a href="javascript:void(0)" style="font-size:0.76rem; color:var(--muted); text-decoration:none;" onclick="toggleAdvancedApiBox()" data-i18n="stu_toggle_api_link">
+          <!-- INLINE CONTEXTUAL FEEDBACK FOR ONBOARDING -->
+          <div id="onboard-inline-status" class="inline-feedback hidden"></div>
+
+          <div style="margin-top:6px; text-align:right;">
+            <a href="javascript:void(0)" style="font-size:0.75rem; color:var(--muted); text-decoration:none;" onclick="toggleAdvancedApiBox()" data-i18n="stu_toggle_api_link">
               Cài đặt kết nối nâng cao
             </a>
           </div>
 
-          <div id="box-advanced-api" class="hidden" style="margin-top:8px;">
-            <div class="btn-row" style="margin-bottom:8px;">
+          <div id="box-advanced-api" class="hidden" style="margin-top:6px;">
+            <div class="btn-row" style="margin-bottom:6px;">
               <button class="btn btn-outline btn-sm" onclick="startCameraScanner('ONBOARD')">
                 <svg class="icon icon-sm"><use href="#ic-qr"></use></svg>
                 <span data-i18n="stu_scan_onboard_qr">Quét QR Khóa học</span>
@@ -199,18 +202,19 @@
           <span id="shield-id-status"></span>
         </div>
 
-        <!-- REQUIREMENT 3: GPS PRE-CHECK PANEL (#gps-panel) -->
+        <!-- REQUIREMENT 3: GPS PRE-CHECK PANEL (#gps-panel) WITH INLINE FEEDBACK -->
         <div id="gps-panel">
           <div class="gps-panel-top">
             <div class="gps-status-group">
               <span id="gps-dot" class="status-dot dot-idle"></span>
-              <span id="gps-readout" data-i18n="stu_gps_readout_idle">Chưa kiểm tra GPS (Bấm nút bên cạnh để kiểm tra thiết bị trước giờ học)</span>
+              <span id="gps-readout" data-i18n="stu_gps_readout_idle">Chưa kiểm tra GPS (Bấm nút bên cạnh để kiểm tra thiết bị)</span>
             </div>
             <button type="button" id="btn-check-gps" class="btn btn-outline btn-sm" onclick="handleStudentPreCheckGps()">
               <svg class="icon icon-sm"><use href="#ic-crosshair"></use></svg>
               <span data-i18n="stu_btn_check_gps">Kiểm tra & Kích hoạt GPS</span>
             </button>
           </div>
+          <div id="gps-inline-status" class="inline-feedback hidden"></div>
         </div>
 
         <button id="btn-start-checkin" class="btn btn-checkin-hero" onclick="handleOneTapGpsCheckIn()">
@@ -218,7 +222,10 @@
           <span id="btn-start-checkin-label" data-i18n="stu_one_tap_checkin_btn">ĐIỂM DANH NGAY</span>
         </button>
 
-        <div id="stu-gps-telemetry" class="subtext hidden" style="margin-top:10px; margin-bottom:0; text-align:center; font-weight:600;"></div>
+        <!-- INLINE CONTEXTUAL FEEDBACK FOR CHECK-IN -->
+        <div id="checkin-inline-status" class="inline-feedback hidden"></div>
+
+        <div id="stu-gps-telemetry" class="subtext hidden" style="margin-top:6px; margin-bottom:0; text-align:center; font-weight:600;"></div>
 
         <!-- TODAY'S VERIFIED RECEIPT PERSISTENCE -->
         <div id="student-today-receipt" class="receipt-card hidden"></div>
@@ -260,6 +267,7 @@
         </select>
 
         <button class="btn btn-primary" onclick="loginTeacher()" data-i18n="tea_login_btn">Đăng nhập Giảng viên</button>
+        <div id="tea-login-inline-status" class="inline-feedback hidden"></div>
 
         <div style="margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
           <button class="btn btn-outline btn-sm" onclick="startCameraScanner('TEACHER_PAIR')">
@@ -286,7 +294,7 @@
           <div class="card-header">
             <div class="card-title">
               <svg class="icon"><use href="#ic-crosshair"></use></svg>
-              <span data-i18n="tea_panel1_title">1. Trạm Định vị & Thông tin Lớp học</span>
+              <span data-i18n="tea_panel1_title">1. Điều khiển Phiên & Định vị Lớp học</span>
             </div>
             <div style="display:flex; gap:6px;">
               <button class="btn btn-outline btn-sm" onclick="toggleProjectorFullscreen()">
@@ -311,27 +319,8 @@
           </div>
 
           <div class="projector-grid">
-            <!-- Left: GPS Station & Poster -->
-            <div class="gps-station-box" id="printable-poster">
-              <div class="radar-circle">
-                <svg class="icon icon-xl"><use href="#ic-crosshair"></use></svg>
-              </div>
-              <div style="font-weight:700; font-size:1.05rem; color:var(--primary); margin-bottom:10px;" id="poster-class-title">
-                Lớp học phần
-              </div>
-              <div class="hidden" id="tea-gps-coords-badge"></div>
-              <div class="hidden" id="poster-qr-subtitle"></div>
-
-              <button class="btn btn-outline btn-sm no-print" onclick="teacherCalibrateRoomGpsNow()">
-                <svg class="icon icon-sm"><use href="#ic-crosshair"></use></svg>
-                <span>Đặt vị trí thiết bị này làm Tâm</span>
-              </button>
-
-              <div id="teacher-qr-canvas" class="hidden" style="margin-top:10px; padding:10px; background:#fff; border-radius:8px; border:1px solid var(--border);"></div>
-            </div>
-
-            <!-- Right: Timer, Live Counter & ISOLATED SESSION CONTROL BLOCK -->
-            <div>
+            <!-- Primary Column (First on Mobile): Timer, Live Counter & ISOLATED SESSION CONTROL BLOCK -->
+            <div id="teacher-session-main-col">
               <div style="text-align:center; margin-bottom:4px;">
                 <span id="tea-session-badge" class="badge-err">PHIÊN ĐANG ĐÓNG</span>
               </div>
@@ -349,11 +338,6 @@
                 <div class="session-control-header">
                   <span>Điều khiển Mở / Đóng Phiên Điểm Danh</span>
                 </div>
-
-                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:0 0 10px 0; background:var(--surface); padding:8px 10px; border-radius:6px; border:1px solid var(--border-subtle);">
-                  <input type="checkbox" id="chk-use-phone-gps" checked style="width:16px; height:16px;" />
-                  <span data-i18n="tea_calibrate_gps_chk">Cập nhật Tâm phòng học theo GPS thiết bị này khi Mở phiên</span>
-                </label>
 
                 <!-- Step 1 Trigger Button -->
                 <button id="btn-tea-open-trigger" class="btn btn-accent" onclick="promptOpenSessionConfirm()">
@@ -381,7 +365,25 @@
                   <button class="btn btn-outline btn-sm" onclick="teacherControlSession('REOPEN_5M')" data-i18n="tea_reopen_btn">Mở lại 5 phút</button>
                   <button class="btn btn-danger btn-sm" onclick="teacherControlSession('CLOSE_NOW')" data-i18n="tea_close_btn">Đóng phiên ngay</button>
                 </div>
+
+                <div id="tea-session-inline-status" class="inline-feedback hidden"></div>
               </div>
+            </div>
+
+            <!-- Secondary Column: Compact GPS Station & Poster -->
+            <div class="gps-station-box" id="printable-poster">
+              <div class="radar-circle">
+                <svg class="icon icon-xl"><use href="#ic-crosshair"></use></svg>
+              </div>
+              <div style="font-weight:700; font-size:1.02rem; color:var(--primary); margin-bottom:4px;" id="poster-class-title">
+                Lớp học phần
+              </div>
+              <div id="tea-gps-anchor-hint" style="font-size:0.75rem; color:var(--muted); line-height:1.35;">
+                Tự động nhận diện vị trí phòng học theo từng buổi (Điện thoại GV hoặc Cụm SV tại trường)
+              </div>
+              <div class="hidden" id="tea-gps-coords-badge"></div>
+              <div class="hidden" id="poster-qr-subtitle"></div>
+              <div id="teacher-qr-canvas" class="hidden" style="margin-top:10px; padding:10px; background:#fff; border-radius:8px; border:1px solid var(--border);"></div>
             </div>
           </div>
         </div>
@@ -418,7 +420,7 @@
               <button type="button" id="tab-filter-absent" class="filter-tab" data-roster-filter="ABSENT" onclick="setRosterFilter('ABSENT')">Vắng (0)</button>
               <button type="button" id="tab-filter-suspect" class="filter-tab" data-roster-filter="SUSPECT" onclick="setRosterFilter('SUSPECT')">Nghi vấn (0)</button>
             </div>
-            <input type="text" id="inp-roster-search" placeholder="Tìm theo MSSV hoặc Họ tên sinh viên..." oninput="renderTeacherRoster()" style="margin-bottom:0;" />
+            <input type="text" id="inp-roster-search" placeholder="Gõ tên hoặc 3-4 số cuối MSSV (Enter = Có mặt ngay)..." oninput="renderTeacherRoster()" onkeydown="handleRosterSearchKeydown(event)" style="margin-bottom:0;" />
           </div>
 
           <div id="tea-roster-container" class="roster-list"></div>
@@ -444,6 +446,7 @@
               Đăng xuất
             </button>
           </div>
+          <div id="tea-admin-inline-status" class="inline-feedback hidden"></div>
 
           <!-- Hidden legacy buttons preserved for backward compatibility -->
           <div class="hidden">

@@ -385,40 +385,52 @@ async function renderClassroomQr(classCfg, qrMode) {
   }
 }
 
+function probeLecturerDeviceGpsFast() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve(pos),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 3500, maximumAge: 0 }
+    );
+  });
+}
+
 async function teacherStartSession() {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
   if (!auth || !classId) {
-    showStatus('Vui lòng chọn lớp học phần trước khi mở phiên điểm danh.', 'warn');
+    showStatus('Vui lòng chọn lớp học phần trước khi mở phiên điểm danh.', 'warn', 'tea-session-inline-status');
     return;
   }
-  const usePhoneGps = document.getElementById('chk-use-phone-gps').checked;
 
-  let lat = 0, lng = 0;
-  if (usePhoneGps) {
-    showStatus('Đang lấy tọa độ GPS làm Tâm phòng học...', 'warn');
-    try {
-      const pos = await getAccuratePosition();
-      lat = pos.coords.latitude;
-      lng = pos.coords.longitude;
-    } catch (e) {
-      openAppModal(
-        'Không lấy được tọa độ GPS mới',
-        'Bạn có muốn mở phiên điểm danh bằng tọa độ phòng đã lưu sẵn trên Google Sheet không?',
-        'Mở bằng tọa độ lưu sẵn',
-        async () => {
-          await executeStartSessionRequest(auth, classId, false, 0, 0);
-        }
-      );
-      return;
-    }
+  showStatus('Đang định vị phòng học và mở phiên điểm danh...', 'warn', 'tea-session-inline-status');
+  const pos = await probeLecturerDeviceGpsFast();
+  const hasAccurateGps = Boolean(
+    pos &&
+    pos.coords &&
+    typeof pos.coords.latitude === 'number' &&
+    typeof pos.coords.longitude === 'number' &&
+    pos.coords.accuracy <= 85
+  );
+
+  const lat = hasAccurateGps ? pos.coords.latitude : 0;
+  const lng = hasAccurateGps ? pos.coords.longitude : 0;
+  const acc = hasAccurateGps ? Math.round(pos.coords.accuracy) : 0;
+  const anchorMode = hasAccurateGps ? 'TEACHER_GPS' : 'CAMPUS_CLUSTER';
+
+  const anchorHintEl = document.getElementById('tea-gps-anchor-hint');
+  if (anchorHintEl) {
+    anchorHintEl.textContent = hasAccurateGps
+      ? `Tâm phòng học buổi này: Đã khóa theo GPS thiết bị Giảng viên (±${acc}m)`
+      : 'Tâm phòng học buổi này: Tự động khóa theo Cụm Sinh viên tại phòng học (Campus Cluster Anchor)';
   }
 
-  await executeStartSessionRequest(auth, classId, usePhoneGps && lat !== 0, lat, lng);
+  await executeStartSessionRequest(auth, classId, hasAccurateGps, lat, lng, acc, anchorMode);
 }
 
-async function executeStartSessionRequest(auth, classId, useGps, lat, lng) {
-  showStatus(`Đang mở phiên điểm danh cho lớp ${classId}...`, 'warn');
+async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAccuracy = 0, anchorMode = 'TEACHER_GPS') {
+  showStatus(`Đang mở phiên điểm danh cho lớp ${classId}...`, 'warn', 'tea-session-inline-status');
   const res = await callBackend(auth.apiUrl, {
     action: 'TEACHER_START_SESSION',
     teacherToken: auth.token,
@@ -426,16 +438,24 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng) {
     usePhoneGps: useGps,
     lat: lat,
     lng: lng,
+    gpsAccuracy: gpsAccuracy,
+    anchorMode: anchorMode,
     qrMode: 'STATIC'
   });
 
   if (res && res.ok) {
-    hideStatus();
     selectedTeacherClassId = classId;
     teacherHasManuallySelectedClass = true;
     await applyTeacherState(res, false);
+    showStatus(
+      useGps
+        ? `Đã mở phiên lớp ${classId} (Tâm GPS theo thiết bị Giảng viên ±${gpsAccuracy}m).`
+        : `Đã mở phiên lớp ${classId} (Tự động khóa tâm phòng mới theo Cụm Sinh viên tại trường).`,
+      'success',
+      'tea-session-inline-status'
+    );
   } else {
-    showStatus(res && res.message ? res.message : 'Không thể mở phiên điểm danh.', 'err');
+    showStatus(res && res.message ? res.message : 'Không thể mở phiên điểm danh.', 'err', 'tea-session-inline-status');
   }
 }
 
@@ -534,17 +554,14 @@ function renderTeacherRoster() {
     return;
   }
 
-  if (!showRosterNames) {
-    if (suspectBanner) suspectBanner.classList.add('hidden');
-    container.innerHTML = '<div style="padding:16px; text-align:center; color:var(--muted);">Đã ẩn danh sách sinh viên trên màn hình chiếu.</div>';
-    return;
-  }
+  const searchInput = document.getElementById('inp-roster-search');
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
 
   const list = (teacherState && teacherState.roster) || [];
   const suspectMap = detectCoCheckInSuspects(list);
   const suspectIds = Object.keys(suspectMap);
 
-  // Update quick filter tab counters
+  // Update quick filter tab counters even when roster names are hidden on projector
   const countAll = list.length;
   const countPresent = list.filter(s => s.status === 'P' || s.status === 'L').length;
   const countAbsent = list.filter(s => !s.status || s.status === '-').length;
@@ -559,6 +576,12 @@ function renderTeacherRoster() {
   if (tabAbsent) tabAbsent.textContent = `Vắng (${countAbsent})`;
   if (tabSuspect) tabSuspect.textContent = `Nghi vấn (${countSuspect})`;
 
+  if (!showRosterNames && !query) {
+    if (suspectBanner) suspectBanner.classList.add('hidden');
+    container.innerHTML = '<div style="padding:16px; text-align:center; color:var(--muted);">Đã ẩn danh sách sinh viên trên màn hình chiếu (Gõ tên hoặc 3-4 số cuối MSSV vào ô tìm kiếm phía trên để điểm danh nhanh).</div>';
+    return;
+  }
+
   if (suspectIds.length > 0 && !maskStudentIdsOnProjector) {
     suspectBanner.classList.remove('hidden');
     suspectBanner.textContent = `[CẢNH BÁO KIỂM TRA] Phát hiện ${suspectIds.length} trường hợp trùng thiết bị hoặc bấm sát nhau <= 2 giây (đánh dấu vàng).`;
@@ -566,7 +589,6 @@ function renderTeacherRoster() {
     suspectBanner.classList.add('hidden');
   }
 
-  const query = document.getElementById('inp-roster-search').value.trim().toLowerCase();
   const filtered = list.filter(s => {
     const matchesSearch = s.studentId.toLowerCase().includes(query) || s.fullName.toLowerCase().includes(query);
     if (!matchesSearch) return false;
@@ -604,6 +626,25 @@ function renderTeacherRoster() {
       </div>
     `;
   }).join('');
+}
+
+async function handleRosterSearchKeydown(event) {
+  if (!event || event.key !== 'Enter') return;
+  event.preventDefault();
+  const searchInput = document.getElementById('inp-roster-search');
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  if (!query) return;
+
+  const list = (teacherState && teacherState.roster) || [];
+  const matches = list.filter(s =>
+    s.studentId.toLowerCase().includes(query) || s.fullName.toLowerCase().includes(query)
+  );
+  if (matches.length === 1) {
+    const target = matches[0];
+    searchInput.value = '';
+    await teacherManualMark(target.studentId, 'P');
+    showStatus(`Đã ghi nhận CÓ MẶT (P) nhanh cho ${target.fullName} (${target.studentId}).`, 'success', 'tea-session-inline-status');
+  }
 }
 
 function triggerRandomSpotCheck() {
@@ -685,7 +726,7 @@ async function teacherToggleRegGate() {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
   if (!auth || !classId) {
-    showStatus('Vui lòng chọn lớp học phần trước.', 'warn');
+    showStatus('Vui lòng chọn lớp học phần trước.', 'warn', 'tea-admin-inline-status');
     return;
   }
   const res = await callBackend(auth.apiUrl, {
@@ -693,14 +734,17 @@ async function teacherToggleRegGate() {
     teacherToken: auth.token,
     classId: classId
   });
-  if (res && res.ok) await applyTeacherState(res, false);
+  if (res && res.ok) {
+    await applyTeacherState(res, false);
+    showStatus('Đã cập nhật trạng thái cổng đăng ký thiết bị mới.', 'success', 'tea-admin-inline-status');
+  }
 }
 
 async function teacherRebuildSheet() {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
   if (!auth) return;
-  showStatus('Đang kiểm tra danh sách Drive & đồng bộ kết quả vào Google Sheet...', 'warn');
+  showStatus('Đang kiểm tra danh sách Drive & đồng bộ kết quả vào Google Sheet...', 'warn', 'tea-admin-inline-status');
   const res = await callBackend(auth.apiUrl, {
     action: 'TEACHER_REBUILD_REPORT',
     teacherToken: auth.token,
@@ -712,9 +756,9 @@ async function teacherRebuildSheet() {
       const namesStr = Array.isArray(res.newStudentNames) && res.newStudentNames.length > 0
         ? ` (${res.newStudentNames.join(', ')})`
         : '';
-      showStatus(`Đã bổ sung ${res.newStudentsAdded} sinh viên mới từ Drive${namesStr} và đồng bộ Google Sheet thành công.`, 'success');
+      showStatus(`Đã bổ sung ${res.newStudentsAdded} sinh viên mới từ Drive${namesStr} và đồng bộ Google Sheet thành công.`, 'success', 'tea-admin-inline-status');
     } else {
-      showStatus('Đã đồng bộ dữ liệu vào Google Sheet thành công.', 'success');
+      showStatus('Đã đồng bộ dữ liệu vào Google Sheet thành công.', 'success', 'tea-admin-inline-status');
     }
   }
 }

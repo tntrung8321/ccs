@@ -971,6 +971,15 @@ async function sha256Browser(message) {
   return hashArray.map(b => ('00' + b.toString(16)).slice(-2)).join('');
 }
 
+function syncStudentViewportScrollLock() {
+  const camBox = document.getElementById('camera-modal-box');
+  const advBox = document.getElementById('box-advanced-api');
+  const camOpen = camBox && !camBox.classList.contains('hidden');
+  const advOpen = advBox && !advBox.classList.contains('hidden');
+  const lockScroll = currentMode === 'STUDENT' && !camOpen && !advOpen;
+  document.body.classList.toggle('student-locked-scroll', lockScroll);
+}
+
 function switchMode(mode) {
   currentMode = mode;
   stopCameraScanner();
@@ -1001,6 +1010,7 @@ function switchMode(mode) {
     teaView.classList.add('hidden');
     stuView.classList.remove('hidden');
   }
+  syncStudentViewportScrollLock();
 }
 
 function toggleLanguage() {
@@ -1075,7 +1085,51 @@ function formatServerMessage(code, params = {}, fallback = '') {
   return stripRemainingEmojis(tpl);
 }
 
-function showStatus(msg, type = 'warn') {
+const INLINE_STATUS_IDS = [
+  'onboard-inline-status',
+  'gps-inline-status',
+  'checkin-inline-status',
+  'tea-login-inline-status',
+  'tea-session-inline-status',
+  'tea-admin-inline-status'
+];
+
+function showInlineStatus(targetId, msg, type = 'warn') {
+  const topBox = document.getElementById('status-box');
+  if (topBox) topBox.classList.add('hidden');
+
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  const variant = type === 'success' ? 'success' : type === 'err' ? 'err' : 'warn';
+  el.className = 'inline-feedback alert-' + variant;
+  el.textContent = stripRemainingEmojis(msg);
+  el.classList.remove('hidden');
+}
+
+function showStatus(msg, type = 'warn', preferredTargetId = '') {
+  if (preferredTargetId && document.getElementById(preferredTargetId)) {
+    showInlineStatus(preferredTargetId, msg, type);
+    return;
+  }
+
+  if (currentMode === 'STUDENT') {
+    const addBox = document.getElementById('box-add-course');
+    const isOnboardingVisible = addBox && !addBox.classList.contains('hidden');
+    const targetId = isOnboardingVisible && !isSubmitting ? 'onboard-inline-status' : 'checkin-inline-status';
+    if (document.getElementById(targetId)) {
+      showInlineStatus(targetId, msg, type);
+      return;
+    }
+  } else if (currentMode === 'TEACHER') {
+    const loginCard = document.getElementById('card-teacher-login');
+    const isLoginVisible = loginCard && !loginCard.classList.contains('hidden');
+    const targetId = isLoginVisible ? 'tea-login-inline-status' : 'tea-session-inline-status';
+    if (document.getElementById(targetId)) {
+      showInlineStatus(targetId, msg, type);
+      return;
+    }
+  }
+
   const box = document.getElementById('status-box');
   if (!box) return;
   box.className = 'alert alert-' + (type === 'success' ? 'success' : type === 'err' ? 'err' : 'warn');
@@ -1083,9 +1137,18 @@ function showStatus(msg, type = 'warn') {
   box.classList.remove('hidden');
 }
 
-function hideStatus() {
+function hideStatus(targetId = '') {
+  if (targetId) {
+    const el = document.getElementById(targetId);
+    if (el) el.classList.add('hidden');
+    return;
+  }
   const box = document.getElementById('status-box');
   if (box) box.classList.add('hidden');
+  INLINE_STATUS_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
+  });
 }
 
 function formatMmSs(totalSec) {

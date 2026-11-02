@@ -2,6 +2,18 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🚀 Version `v3.4.0` — *Zero-Scroll Student UI, Contextual Inline Alerts & Dynamic Multi-Room Session Anchor*
+* **Zero-Scroll (`100dvh`) Student Viewport & Contextual Inline Alerts**:
+  * Locked the mobile Student check-in view (`body.student-locked-scroll`) to a compact, single-screen `100dvh` layout (`overflow: hidden`, `overscroll-behavior: none`), eliminating accidental vertical dragging while tapping check-in controls. Automatically unlocks scroll when opening the camera modal or advanced settings.
+  * Replaced the detached bottom status banner with contextual inline notifications (`#gps-inline-status` inside `#gps-panel`, `#checkin-inline-status` directly below `"ĐIỂM DANH NGAY"`, `#onboard-inline-status` inside `#box-add-course`, plus `#tea-login-inline-status`, `#tea-session-inline-status`, and `#tea-admin-inline-status` for Lecturers) so errors and confirmations appear at the exact point of interaction.
+* **Dynamic Session Anchor for Multi-Room Schedules (`TEACHER_GPS` vs. `CAMPUS_CLUSTER`)**:
+  * Removed both confusing Lecturer GPS controls (`"Đặt vị trí thiết bị này làm Tâm"` button and `"Cập nhật Tâm phòng học theo GPS thiết bị này khi Mở phiên"` checkbox).
+  * Automatically probes the Lecturer's device GPS when opening a session (`probeLecturerDeviceGpsFast`): if opened on a mobile phone/tablet with accurate hardware GPS (`accuracy <= 85m`), locks the session center to `TEACHER_GPS`. If opened on a classroom desktop PC without GPS (`accuracy > 85m` or unavailable), activates **`CAMPUS_CLUSTER`** (`PENDING_CLUSTER`), where the first verified, non-spoofed student checking in inside the university campus boundary (`<= 850m` from the baseline campus coordinates) dynamically anchors the exact classroom coordinates `(Room_Lat, Room_Lng)` for that session (`100m` radius), while off-campus students (`> 850m`) are immediately rejected.Supports lecturers teaching across 9+ different rooms/buildings per week without manual reconfiguration.
+* **Hidden-Roster Instant Search & 1-Key (`Enter`) Attendance Mark**:
+  * Upgraded `renderTeacherRoster()` so typing a student name or the last 3–4 digits of a Student ID (`#inp-roster-search`) immediately filters and reveals only the matching student(s) even while the full class roster remains hidden on the classroom projector (`showRosterNames === false`).
+  * Added `handleRosterSearchKeydown(event)` so pressing `Enter` when a single student matches marks them `P` (`Present`) immediately and clears the search box.
+* **Pre-Export Auto-Sync for Mid-Semester Roster Additions**: Updated `autoSyncTodayAttendanceAfterClass()` in `sync.txt` to invoke `syncSingleClassRosterFromDrive_` (`onlyIfModified: true`) prior to exporting attendance to `.XLSX` / Google Sheets, ensuring any newly added student in the Drive workbook is automatically imported before end-of-class grading.
+
 ### 🔧 Version `v3.3.1` — *Universal Content-Aware Drive Roster Sync & Zero-Lag Mid-Semester Student Import*
 * **Universal Content-Aware File & Tab Resolution (`Class_ID` + `MSSV` / `Full_Name`)**: Upgraded `resolveClassTargetFile_` and `findBestMatchingSheet_` to universally disambiguate multiple files sharing the same `Class_ID` (such as a Class Diary / Course Syllabus sheet vs. an Attendance Roster workbook) by verifying the presence of valid `MSSV` (`Student_ID`) and `Full_Name` student rows rather than relying on personal filename suffixes. Added native resolution for Google Drive Shortcuts (`application/vnd.google-apps.shortcut`).
 * **Zero-Lag Modified-Time Delta Detection (`ROSTER_SYNC_META_PROP_KEY`)**: Tracks each class's Drive file `lastUpdated` timestamp and synced student count so unchanged `.XLSX` files are skipped in `0ms`, while any `.XLSX` / Sheet file edited mid-semester to add new students is automatically re-scanned, badged (`🔄 +N new`), and pre-selected in the Sync dialog. Removed the legacy restriction that ignored ticked synced classes when the secondary re-scan toggle was unchecked.
@@ -43,6 +55,18 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🚀 Version `v3.4.0` — *Giao Diện Sinh Viên Không Cuộn Trang (`Zero-Scroll`), Thông Báo Nội Tuyến Đúng Vị Trí & Khóa Tâm Phòng Học Động Theo Ca*
+* **Giao diện Sinh viên Không cuộn trang (`100dvh Zero-Scroll`) & Thông báo Nội tuyến Đúng vị trí**:
+  * Khóa khung nhìn điểm danh của Sinh viên trên điện thoại (`body.student-locked-scroll`) vừa khít 1 màn hình `100dvh` (`overflow: hidden`, `overscroll-behavior: none`), loại bỏ hoàn toàn tình trạng trượt tay kéo trang khi bấm điểm danh. Tự động mở cuộn linh hoạt khi bật khung quét QR hoặc cài đặt nâng cao.
+  * Thay thế thanh thông báo dưới đáy màn hình bằng các khung phản hồi nội tuyến ngay tại vị trí thao tác (`#gps-inline-status` nằm trong khung `#gps-panel`, `#checkin-inline-status` ngay dưới nút `"ĐIỂM DANH NGAY"`, `#onboard-inline-status` ngay trong khung `#box-add-course`, cùng `#tea-login-inline-status`, `#tea-session-inline-status`, `#tea-admin-inline-status` bên Giảng viên): lỗi hoặc thành công ở đâu thì xuất hiện thông báo ngay tại đó.
+* **Khóa Tâm Phòng Học Động Theo Từng Ca Dạy (`TEACHER_GPS` vs. `CAMPUS_CLUSTER` cho 9+ Phòng Học Khác Nhau)**:
+  * Gỡ bỏ hoàn toàn 2 nút/ô tích GPS gây rối trên giao diện Giảng viên (`"Đặt vị trí thiết bị này làm Tâm"` và `"Cập nhật Tâm phòng học theo GPS thiết bị này khi Mở phiên"`).
+  * Tự động dò nhanh tín hiệu GPS của thiết bị Giảng viên khi bấm Mở phiên (`probeLecturerDeviceGpsFast`): nếu Giảng viên mở phiên bằng điện thoại/máy tính bảng có GPS chính xác (`accuracy <= 85m`), hệ thống khóa tâm phòng học theo `TEACHER_GPS`. Nếu Giảng viên mở phiên bằng máy tính bàn (PC) tại phòng học không có chip GPS (`accuracy > 85m`), hệ thống tự động kích hoạt chế độ **`CAMPUS_CLUSTER`** (`PENDING_CLUSTER`): sinh viên hợp lệ đầu tiên điểm danh bên trong khuôn viên trường (`<= 850m` so với tọa độ cơ sở và không bị gắn cờ can thiệp GPS) sẽ tự động ghim chính xác tọa độ phòng học mới `(Room_Lat, Room_Lng)` cho ca học đó (bán kính `100m`), trong khi sinh viên ở nhà/ngoài trường (`> 850m`) bị chặn ngay lập tức. Giải quyết triệt để bài toán Giảng viên dạy nhiều lớp đổi qua 9+ phòng/tòa nhà khác nhau mỗi tuần.
+* **Tìm kiếm Nhanh & Điểm danh 1 Phím (`Enter`) Ngay Cả Khi Đang Ẩn Danh Sách Trên Máy Chiếu**:
+  * Nâng cấp `renderTeacherRoster()` cho phép Giảng viên gõ tên hoặc 3–4 số cuối MSSV vào ô `#inp-roster-search` để hiện ngay đúng sinh viên cần tìm mà vẫn giữ nguyên chế độ ẩn toàn bộ danh sách còn lại trên máy chiếu (`showRosterNames === false`).
+  * Bổ sung `handleRosterSearchKeydown(event)`: khi kết quả lọc khớp duy nhất 1 sinh viên, Giảng viên chỉ cần nhấn phím `Enter` để đánh dấu `P` (`Có mặt`) ngay lập tức và tự xóa ô tìm kiếm.
+* **Tự động Nạp Sinh viên mới Trước Khi Xuất Điểm danh Cuối Ca**: Cập nhật `autoSyncTodayAttendanceAfterClass()` trong `sync.txt` tự động gọi `syncSingleClassRosterFromDrive_` (`onlyIfModified: true`) trước khi xuất dữ liệu điểm danh sang file `.XLSX` / Google Sheet, đảm bảo sinh viên mới thêm vào danh sách lớp giữa kỳ được cập nhật đầy đủ vào sổ điểm danh cuối buổi.
+
 ### 🔧 Version `v3.3.1` — *Đồng Bộ Danh Sách Thông Minh Theo Cấu Trúc (`Mã Lớp` + `MSSV` / `Họ Tên`) & Bổ Sung Sinh Viên Giữa Kỳ Không Độ Trễ*
 * **Nhận diện File & Tab Điểm danh theo Cấu trúc Chung (`Class_ID` + `MSSV` / `Họ tên`)**: Nâng cấp `resolveClassTargetFile_` và `findBestMatchingSheet_` để phân biệt chính xác file Bảng điểm danh (`.XLSX` / Google Sheet) với file Nhật ký giảng dạy / Đề cương (`CLASS FOLDER`) có cùng Mã lớp dựa trên cấu trúc dữ liệu sinh viên thực tế (`MSSV` + `Họ và tên`), hoàn toàn không phụ thuộc vào hậu tố tên riêng của từng giảng viên. Hỗ trợ giải mã trực tiếp cả lối tắt Google Drive (`Shortcut`).
 * **Phát hiện Sinh viên mới Bổ sung Giữa kỳ Không gây Lag (`ROSTER_SYNC_META_PROP_KEY`)**: Đối chiếu thời gian chỉnh sửa `lastUpdated` của file trên Drive và sĩ số đã đồng bộ; tự động bỏ qua trong `0ms` nếu file `.XLSX` không đổi, và tự động quét lại kèm nhãn **`🔄 +N new`** (tích chọn sẵn) ngay khi giảng viên vừa thêm sinh viên mới vào file `.XLSX` trên Drive. Loại bỏ hoàn toàn lỗi khóa hộp kiểm của các lớp đã đồng bộ trước đó.
@@ -82,17 +106,18 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.3.1`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.0`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.3.1` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.0` |
 | :--- | :--- | :--- |
 | **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)** |
-| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian Academic UI & Technical Monoline SVGs (`tabular-nums`)** |
+| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Zero-Scroll (`100dvh`) Student View & Contextual Inline Alerts** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Pre-Check `#gps-panel` + 1-Tap Live GPS (`cachedGPS = null`) + `isSubmitting` Lock** |
+| **Multi-Room Anchor / Đổi phòng học** | Static coordinates / Tọa độ phòng cố định | **Dynamic Session Anchor (`TEACHER_GPS` on Phone / `CAMPUS_CLUSTER` on Classroom PC across 9+ rooms)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Smart `17:15–17:30` Priority)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + Legacy URL Auto-Migration** |
-| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **Isolated `#teacher-session-control-box` + 2-Step Inline Confirm (`Hủy` / `Xác nhận mở lớp [Mã Lớp]`)** |
+| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **2-Step Confirm + Hidden-Roster Search & 1-Key (`Enter`) Quick Mark** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **RAM `CacheService` (~10x faster / Nhanh gấp 10 lần)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Multi-Browser (`Safari+Chrome`), F12, Fresh GPS Timestamp & Spot-Check Lock** |
-| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Universal Content-Aware (`Class_ID` + `MSSV`/Name) 2-Way `.XLSX` Sync + Zero-Lag Delta Import** |
+| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Universal Content-Aware (`Class_ID` + `MSSV`/Name) 2-Way `.XLSX` Sync + Pre-Export Delta Import** |
 | **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload / Luôn tải bản mới tức thì** |
