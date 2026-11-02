@@ -1,0 +1,1863 @@
+/**
+ * ============================================================================
+ * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.3.0)
+ * ============================================================================
+ * Architecture: Lecturer-Owned Google Sheet + Bound Google Apps Script
+ * Key Upgrades & Verified Fixes in v3.3.0:
+ *  - Compatible 100% with old index.html UI & external Sync.gs menu/functions
+ *  - Fixed Lecturer 6-digit password & Master Key verification (accepts C9 & ScriptProperties)
+ *  - High-Concurrency CacheService layer (absorbs 60+ simultaneous check-ins)
+ *  - Pre-lock Idempotency & Rate-Limiting (blocks F12 spam loops before LockService)
+ *  - Blocks re-check-in if Lecturer revoked attendance via Spot-Check (TEACHER_MANUAL '-')
+ *  - Accepts 1-Tap GPS tokens & rotated static secrets without false ERR_INVALID_QR
+ *  - Server-side Multi-Browser (Safari + Chrome) & Fake GPS Soft-Flagging (SUSPECT_WITH_)
+ *  - Multi-day class schedule & period auto-detection (T2&6, T2&T6, T3&T5, 10-12, 13-15)
+ * ============================================================================
+ */
+
+const SYSTEM_VERSION = '3.3.0';
+const TIMEZONE = 'Asia/Ho_Chi_Minh';
+
+// Tab Names (Shared across Code.gs and external Sync.gs)
+const TAB_DASHBOARD = 'Setup_&_Dashboard';
+const TAB_CLASSES   = 'Classes_Config';
+const TAB_DEVICES   = 'Device_Registry';
+const TAB_SESSIONS  = 'Sessions_Log';
+const TAB_ATTEND    = 'Attendance_Log';
+const TAB_AUDIT     = 'Audit_Log';
+const SYSTEM_TABS   = [TAB_DASHBOARD, TAB_CLASSES, TAB_DEVICES, TAB_SESSIONS, TAB_ATTEND, TAB_AUDIT];
+
+/**
+ * 1. GOOGLE SHEETS CUSTOM MENU
+ * Keeps Setup/Admin separate while automatically invoking external Sync menu if present.
+ */
+function onOpen(e) {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('🎓 Attendance Admin')
+    .addItem('🚀 1. Initialize / Verify System Setup', 'initializeAndVerifySystem')
+    .addSeparator()
+    .addItem('➕ 2. Add New Class Wizard', 'showAddClassWizard')
+    .addItem('🔄 3. Sync / Rebuild Class Roster Grids', 'rebuildAllClassGridsMenu')
+    .addSeparator()
+    .addItem('🔑 4. View Teacher Pairing & Temp PC Login Code', 'showTeacherPairingDialog')
+    .addItem('🔓 5. Reset a Student Device Lock (By Student ID)', 'resetStudentDeviceMenu')
+    .addSeparator()
+    .addItem('📦 6. Start New Semester (Archive & Reset)', 'startNewSemesterWizard')
+    .addToUi();
+
+  // Automatically trigger external Sync menu builder if defined in another .gs file
+  try {
+    if (typeof buildSyncMenu === 'function') buildSyncMenu();
+    else if (typeof createSyncMenu === 'function') createSyncMenu();
+    else if (typeof addSyncMenu === 'function') addSyncMenu();
+    else if (typeof setupSyncMenu === 'function') setupSyncMenu();
+    else if (typeof onOpenSync === 'function') onOpenSync(e);
+  } catch (err) {}
+}
+
+/**
+ * 2. NON-DESTRUCTIVE INITIALIZATION & SETUP VERIFICATION
+ */
+function initializeAndVerifySystem() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const props = PropertiesService.getScriptProperties();
+  const ui = SpreadsheetApp.getUi();
+
+  const sheetId = ss.getId();
+  const boundSheetId = props.getProperty('BOUND_SHEET_ID');
+
+  // If a colleague clicked "File -> Make a Copy", generate fresh isolated credentials
+  if (boundSheetId !== sheetId) {
+    props.setProperty('BOUND_SHEET_ID', sheetId);
+    props.setProperty('INSTALLATION_ID', 'INST_' + generateRandomToken(10));
+    props.setProperty('TEACHER_MASTER_KEY', 'TKEY_' + generateRandomToken(24));
+    props.setProperty('TEMP_PC_CODE', generateNumericCode(6));
+    props.setProperty('TEMP_PC_EXPIRES', String(Date.now() + 7200000));
+    props.setProperty('FAILED_AUTH_COUNT', '0');
+  }
+
+  props.setProperty('FAILED_AUTH_COUNT', '0');
+  props.deleteProperty('AUTH_LOCKOUT_UNTIL');
+
+  let installId = props.getProperty('INSTALLATION_ID');
+  if (!installId) {
+    installId = 'INST_' + generateRandomToken(10);
+    props.setProperty('INSTALLATION_ID', installId);
+  }
+  let teacherKey = props.getProperty('TEACHER_MASTER_KEY') || props.getProperty('TEACHER_MASTER_Key');
+  if (!teacherKey) {
+    teacherKey = 'TKEY_' + generateRandomToken(24);
+    props.setProperty('TEACHER_MASTER_KEY', teacherKey);
+  }
+
+  ensureDashboardTab(ss, installId, teacherKey);
+  ensureClassesTab(ss);
+  ensureDevicesTab(ss);
+  ensureSessionsTab(ss);
+  ensureAttendanceTab(ss);
+  ensureAuditTab(ss);
+
+  const classesSheet = ss.getSheetByName(TAB_CLASSES);
+  if (classesSheet.getLastRow() >= 2) {
+    const classIds = classesSheet.getRange(2, 1, classesSheet.getLastRow() - 1, 1).getValues().flat();
+    classIds.forEach(cid => {
+      if (cid && !ss.getSheetByName(String(cid).trim())) {
+        createFormattedRosterTab(ss, String(cid).trim(), true);
+      }
+    });
+  }
+
+  invalidateSystemCache();
+  updateDashboardQRs(ss);
+
+  ui.alert(
+    '✅ System Initialized & Verified (v' + SYSTEM_VERSION + ')',
+    'All system tabs and security credentials are ready.\n\n' +
+    'NEXT STEPS:\n' +
+    '1. If Cell B4 (Deployed Web App URL) is still blank, deploy this script as a Web App and paste the URL into Cell B4.\n' +
+    '2. Ensure your Frontend (GitHub Pages) URL is in Cell B5.\n' +
+    '3. Run this button again after updating B4/B5 to refresh your QR codes.',
+    ui.ButtonSet.OK
+  );
+}
+
+/**
+ * TAB BUILDERS (Safe & Non-Destructive)
+ */
+function ensureDashboardTab(ss, installId, teacherKey) {
+  let sheet = ss.getSheetByName(TAB_DASHBOARD);
+  if (!sheet) {
+    sheet = ss.insertSheet(TAB_DASHBOARD, 0);
+    sheet.setColumnWidth(1, 260);
+    sheet.setColumnWidth(2, 420);
+    sheet.setColumnWidth(3, 280);
+
+    const initialData = [
+      ['🎓 QR ATTENDANCE SYSTEM — SETUP & DASHBOARD', '', ''],
+      ['Lecturer Name / Tên Giảng viên:', 'Tran Nguyen Trung', 'Edit your display name in B2'],
+      ['Installation ID (Auto-Generated):', installId, 'Unique ID for this Google Sheet'],
+      ['Deployed Apps Script Web App URL:', '', 'REQUIRED: Paste your https://script.google.com/.../exec URL here'],
+      ['Frontend Web App URL (GitHub Pages):', 'https://tntrung8321.github.io/ClassCheck-GPS/', 'Paste your GitHub Pages URL here'],
+      ['System Status / Trạng thái:', '⚠️ Waiting for Web App URL in B4', 'Run Initialize menu after updating B4/B5'],
+      ['', '', ''],
+      ['📱 1. STUDENT COURSE ONBOARDING QR', '🔐 2. LECTURER PHONE PAIRING QR (PRIVATE)', '💻 3. TEMP CLASSROOM PC CODE (2-HR)'],
+      ['(Paste URLs in B4 & B5, then click Initialize)', '(Do NOT show Column B to students)', 'Click "Attendance Admin -> View Teacher Pairing"']
+    ];
+    sheet.getRange(1, 1, initialData.length, 3).setValues(initialData);
+
+    sheet.getRange('A1:C1').merge().setBackground('#1e3a8a').setFontColor('#ffffff').setFontWeight('bold').setFontSize(13);
+    sheet.getRange('A2:A6').setFontWeight('bold').setBackground('#f1f5f9');
+    sheet.getRange('B4:B5').setBackground('#fef9c3').setFontWeight('bold');
+    sheet.getRange('A8:C8').setBackground('#0f172a').setFontColor('#ffffff').setFontWeight('bold').setHorizontalAlignment('center');
+    sheet.setRowHeight(9, 220);
+    sheet.getRange('A9:C9').setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
+  } else {
+    sheet.getRange('B3').setValue(installId);
+  }
+}
+
+function updateDashboardQRs(ss) {
+  const sheet = ss.getSheetByName(TAB_DASHBOARD);
+  if (!sheet) return;
+  const props = PropertiesService.getScriptProperties();
+
+  const lecturerName = String(sheet.getRange('B2').getValue()).trim();
+  const installId    = String(sheet.getRange('B3').getValue()).trim();
+  const apiUrl       = String(sheet.getRange('B4').getValue()).trim();
+  const frontendUrl  = String(sheet.getRange('B5').getValue()).trim().replace(/\/$/, '');
+  const teacherKey   = props.getProperty('TEACHER_MASTER_KEY');
+
+  if (!apiUrl || !apiUrl.startsWith('https://script.google.com/')) {
+    sheet.getRange('B6').setValue('⚠️ Waiting for valid Apps Script URL in Cell B4').setFontColor('#b45309');
+    return;
+  }
+
+  sheet.getRange('B6').setValue('✅ Verified & Ready (v' + SYSTEM_VERSION + ')').setFontColor('#15803d').setFontWeight('bold');
+
+  const studentPayload = JSON.stringify({
+    type: 'ONBOARD',
+    inst: installId,
+    name: lecturerName,
+    api: apiUrl
+  });
+  const studentDeepLink = frontendUrl
+    ? frontendUrl + '/?onboard=' + encodeURIComponent(Utilities.base64EncodeWebSafe(studentPayload))
+    : studentPayload;
+
+  const teacherPayload = JSON.stringify({
+    type: 'TEACHER_PAIR',
+    inst: installId,
+    name: lecturerName,
+    api: apiUrl,
+    tkey: teacherKey
+  });
+  const teacherDeepLink = frontendUrl
+    ? frontendUrl + '/?pair=' + encodeURIComponent(Utilities.base64EncodeWebSafe(teacherPayload))
+    : teacherPayload;
+
+  const studentQrUrl = 'https://quickchart.io/qr?size=220&margin=2&text=' + encodeURIComponent(studentDeepLink);
+  const teacherQrUrl = 'https://quickchart.io/qr?size=220&margin=2&dark=1e3a8a&text=' + encodeURIComponent(teacherDeepLink);
+
+  sheet.getRange('A9').setFormula('=IMAGE("' + studentQrUrl + '")');
+  sheet.getRange('B9').setFormula('=IMAGE("' + teacherQrUrl + '")');
+
+  const tempCode = refreshTempPcCode(ss, false);
+  sheet.getRange('C9').setValue('Temp PC Code:\n' + tempCode + '\n(Valid 2 Hours)').setFontSize(14).setFontWeight('bold');
+}
+
+function ensureClassesTab(ss) {
+  let sheet = ss.getSheetByName(TAB_CLASSES);
+  if (!sheet) {
+    sheet = ss.insertSheet(TAB_CLASSES);
+    const headers = [
+      'Class_ID', 'Class_Name', 'Active_QR_Secret', 'Room_Lat', 'Room_Lng',
+      'Radius_Meters', 'Present_Mins', 'Late_Mins', 'Registration_Open'
+    ];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+      .setBackground('#1e3a8a').setFontColor('#ffffff').setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    sheet.autoResizeColumns(1, headers.length);
+  }
+}
+
+function ensureDevicesTab(ss) {
+  let sheet = ss.getSheetByName(TAB_DEVICES);
+  if (!sheet) {
+    sheet = ss.insertSheet(TAB_DEVICES);
+    const headers = [
+      'Student_ID', 'Canonical_Name', 'Credential_Verifier',
+      'Registered_At', 'Status', 'Reset_Count', 'Last_Reset_At'
+    ];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+      .setBackground('#334155').setFontColor('#ffffff').setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    sheet.getRange('A:A').setNumberFormat('@');
+  }
+}
+
+function ensureSessionsTab(ss) {
+  let sheet = ss.getSheetByName(TAB_SESSIONS);
+  if (!sheet) {
+    sheet = ss.insertSheet(TAB_SESSIONS);
+    const headers = [
+      'Session_ID', 'Class_ID', 'Session_Label', 'Opened_At', 'Present_Until',
+      'Closes_At', 'Closed_Manually_At', 'Room_Lat', 'Room_Lng', 'Radius_m', 'QR_Mode'
+    ];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+      .setBackground('#334155').setFontColor('#ffffff').setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+}
+
+function ensureAttendanceTab(ss) {
+  let sheet = ss.getSheetByName(TAB_ATTEND);
+  if (!sheet) {
+    sheet = ss.insertSheet(TAB_ATTEND);
+    const headers = [
+      'Attendance_ID', 'Request_ID', 'Session_ID', 'Class_ID', 'Student_ID',
+      'Status', 'Recorded_At', 'Distance_m', 'Accuracy_m', 'Source'
+    ];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+      .setBackground('#334155').setFontColor('#ffffff').setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    sheet.getRange('E:E').setNumberFormat('@');
+  }
+}
+
+function ensureAuditTab(ss) {
+  let sheet = ss.getSheetByName(TAB_AUDIT);
+  if (!sheet) {
+    sheet = ss.insertSheet(TAB_AUDIT);
+    const headers = ['Timestamp', 'Actor', 'Action', 'Target', 'Details'];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+      .setBackground('#475569').setFontColor('#ffffff').setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+}
+
+function createFormattedRosterTab(ss, classId, addSampleStudents) {
+  let sheet = ss.getSheetByName(classId);
+  if (sheet) return sheet;
+
+  sheet = ss.insertSheet(classId);
+  const headers = ['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late'];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+    .setBackground('#0f766e').setFontColor('#ffffff').setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(3);
+  sheet.getRange('B:B').setNumberFormat('@');
+
+  if (addSampleStudents) {
+    const sampleRoster = [
+      [1, '22001001', 'Nguyễn Văn An', 0, 0],
+      [2, '22001002', 'Trần Thị Bích Ngọc', 0, 0],
+      [3, '02200103', 'Lê Hoàng Minh Khôi', 0, 0]
+    ];
+    sheet.getRange(2, 1, sampleRoster.length, 5).setValues(sampleRoster);
+  }
+  sheet.autoResizeColumns(1, 5);
+  return sheet;
+}
+
+/**
+ * 3. MENU WIZARDS (Add Class, Reset Device, Rebuild Grids, New Semester)
+ */
+function showAddClassWizard() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const resId = ui.prompt(
+    '➕ Add New Class (Step 1/2)',
+    'Enter a short Class_ID (letters, numbers, underscore only, e.g., ENG102_G1):',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resId.getSelectedButton() !== ui.Button.OK) return;
+  const classId = resId.getResponseText().trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+  if (!classId || SYSTEM_TABS.includes(classId)) {
+    ui.alert('Invalid or reserved Class_ID.');
+    return;
+  }
+
+  const resName = ui.prompt(
+    '➕ Add New Class (Step 2/2)',
+    'Enter the full Class Name (e.g., Academic Writing - Group 1):',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resName.getSelectedButton() !== ui.Button.OK) return;
+  const className = resName.getResponseText().trim() || classId;
+
+  const classesSheet = ss.getSheetByName(TAB_CLASSES);
+  const newSecret = 'QR_' + classId.toUpperCase() + '_' + generateRandomToken(6).toUpperCase();
+  classesSheet.appendRow([classId, className, newSecret, 10.8221, 106.6868, 100, 3, 15, 'YES']);
+
+  createFormattedRosterTab(ss, classId, false);
+  invalidateSystemCache();
+  ui.alert('✅ Class "' + classId + '" created!\n\nYou can now paste or sync your Student_ID and Full_Name list into the "' + classId + '" tab.');
+}
+
+function showTeacherPairingDialog() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const props = PropertiesService.getScriptProperties();
+  const tempCode = refreshTempPcCode(ss, true);
+  const masterKey = props.getProperty('TEACHER_MASTER_KEY');
+  updateDashboardQRs(ss);
+
+  SpreadsheetApp.getUi().alert(
+    '🔑 Lecturer Authentication Credentials',
+    '1. TEMPORARY CLASSROOM PC CODE (Valid for 2 Hours):\n' +
+    '   👉  ' + tempCode + '\n' +
+    '   (Use this 6-digit code to log into Teacher Mode on a shared classroom computer).\n\n' +
+    '2. PERSONAL PHONE PAIRING (All Semester):\n' +
+    '   Scan the "Lecturer Phone Pairing QR" in Cell B9 of Setup_&_Dashboard,\n' +
+    '   OR enter Master Key once on your personal phone:\n' +
+    '   ' + masterKey,
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
+
+function resetStudentDeviceMenu() {
+  const ui = SpreadsheetApp.getUi();
+  const res = ui.prompt(
+    '🔓 Reset Student Device Lock',
+    'Enter the Student_ID whose browser/phone registration you want to reset:',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  const studentId = normalizeId(res.getResponseText());
+  if (!studentId) return;
+
+  const result = resetStudentCredentialInternal(studentId, 'SHEET_MENU');
+  if (result.ok) {
+    ui.alert('✅ Success: Device registration for Student ID "' + studentId + '" has been reset. Their past attendance history is preserved, and they can now register their new phone.');
+  } else {
+    ui.alert('ℹ️ ' + result.message);
+  }
+}
+
+function rebuildAllClassGridsMenu() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  invalidateSystemCache();
+  const classes = getClassesMap(ss, true);
+  Object.keys(classes).forEach(cid => rebuildSingleClassGrid(ss, cid));
+  SpreadsheetApp.getUi().alert('✅ All Class Roster tabs have been synchronized with the Attendance_Log!');
+}
+
+function startNewSemesterWizard() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const confirm = ui.alert(
+    '📦 Start New Semester (Archive & Reset)',
+    'This wizard will:\n' +
+    '1. Save a complete backup copy of this entire Google Sheet into your Google Drive.\n' +
+    '2. Clear Sessions_Log, Attendance_Log, and Device_Registry for the new semester.\n' +
+    '3. Keep your Deployed Web App URL and Lecturer Phone Pairing intact!\n\n' +
+    'Do you want to proceed?',
+    ui.ButtonSet.YES_NO
+  );
+  if (confirm !== ui.Button.YES) return;
+
+  const dateStamp = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd_HHmm');
+  const backupName = ss.getName() + ' [ARCHIVE ' + dateStamp + ']';
+  const backupFile = DriveApp.getFileById(ss.getId()).makeCopy(backupName);
+
+  [TAB_DEVICES, TAB_SESSIONS, TAB_ATTEND].forEach(tabName => {
+    const sh = ss.getSheetByName(tabName);
+    if (sh && sh.getLastRow() > 1) {
+      sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).clearContent();
+    }
+  });
+
+  invalidateSystemCache();
+  logAudit(ss, 'LECTURER_MENU', 'NEW_SEMESTER_ARCHIVE', backupName, 'Backup File ID: ' + backupFile.getId());
+
+  ui.alert(
+    '✅ New Semester Ready!',
+    '1. Backup saved to your Google Drive as:\n   "' + backupName + '"\n\n' +
+    '2. Session, Attendance, and Device logs have been cleared.\n' +
+    '3. You can now update Classes_Config or use "Add New Class Wizard" for your new semester courses.',
+    ui.ButtonSet.OK
+  );
+}
+
+/**
+ * ============================================================================
+ * 4. WEB APP HTTP ENDPOINTS (doGet & doPost)
+ * ============================================================================
+ */
+function doGet(e) {
+  const props = PropertiesService.getScriptProperties();
+  return jsonResponse({
+    ok: true,
+    service: 'QR_Attendance_Backend',
+    version: SYSTEM_VERSION,
+    installationId: props.getProperty('INSTALLATION_ID') || 'UNINITIALIZED',
+    serverTime: new Date().toISOString()
+  });
+}
+
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return jsonResponse({ ok: false, code: 'ERR_EMPTY_BODY', message: 'Empty request payload.' });
+    }
+
+    const body = JSON.parse(e.postData.contents);
+    const action = String(body.action || '').trim().toUpperCase();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    switch (action) {
+      // --- PUBLIC / STUDENT ACTIONS ---
+      case 'PING':
+        return handlePing(ss);
+      case 'STUDENT_ONBOARD':
+        return handleStudentOnboard(ss, body);
+      case 'STUDENT_CHECKIN':
+        return handleStudentCheckIn(ss, body);
+      case 'CHECK_RECEIPT':
+        return handleCheckReceipt(ss, body);
+
+      // --- PROTECTED TEACHER ACTIONS ---
+      case 'TEACHER_AUTH':
+        return handleTeacherAuth(ss, body);
+      case 'TEACHER_GET_STATE':
+        return requireTeacherAuth(ss, body, () => handleTeacherGetState(ss, body));
+      case 'TEACHER_START_SESSION':
+        return requireTeacherAuth(ss, body, () => handleTeacherStartSession(ss, body));
+      case 'TEACHER_CONTROL_SESSION':
+        return requireTeacherAuth(ss, body, () => handleTeacherControlSession(ss, body));
+      case 'TEACHER_MANUAL_MARK':
+        return requireTeacherAuth(ss, body, () => handleTeacherManualMark(ss, body));
+      case 'TEACHER_RESET_DEVICE':
+        return requireTeacherAuth(ss, body, () => handleTeacherResetDevice(ss, body));
+      case 'TEACHER_ROTATE_STATIC_QR':
+        return requireTeacherAuth(ss, body, () => handleTeacherRotateStaticQr(ss, body));
+      case 'TEACHER_TOGGLE_REG':
+        return requireTeacherAuth(ss, body, () => handleTeacherToggleReg(ss, body));
+      case 'TEACHER_REBUILD_REPORT':
+        return requireTeacherAuth(ss, body, () => handleTeacherRebuildReport(ss, body));
+
+      default:
+        return jsonResponse({ ok: false, code: 'ERR_UNKNOWN_ACTION', message: 'Unknown action: ' + action });
+    }
+  } catch (err) {
+    return jsonResponse({
+      ok: false,
+      code: 'ERR_SERVER_EXCEPTION',
+      message: err && err.message ? err.message : String(err)
+    });
+  }
+}
+
+/**
+ * ============================================================================
+ * 5. STUDENT HANDLERS (High-Concurrency Cache + Anti-Sabotage + Soft-Flag)
+ * ============================================================================
+ */
+function handlePing(ss) {
+  const dash = ss.getSheetByName(TAB_DASHBOARD);
+  const lecturerName = dash ? String(dash.getRange('B2').getValue()).trim() : 'Lecturer';
+  const installId = PropertiesService.getScriptProperties().getProperty('INSTALLATION_ID');
+  const classes = getClassesMap(ss, false);
+  const scheduleMetaMap = getStoredClassSchedulesMap();
+  const publicClasses = Object.values(classes).map(c => ({
+    classId: c.classId,
+    className: c.className,
+    regOpen: c.regOpen,
+    sessionOpenNow: Boolean(getLatestOpenSession(ss, c.classId)),
+    scheduleInfo: scheduleMetaMap[c.classId] || parseClassScheduleInfoBackend(c.className)
+  }));
+
+  return jsonResponse({
+    ok: true,
+    code: 'PONG',
+    version: SYSTEM_VERSION,
+    installationId: installId,
+    lecturerName: lecturerName,
+    classes: publicClasses,
+    calendarEvents: getTodayCalendarEventsCached(),
+    classSchedules: scheduleMetaMap,
+    serverTime: new Date().toISOString()
+  });
+}
+
+function handleStudentOnboard(ss, body) {
+  const studentId = normalizeId(body.studentId);
+  const clientCred = String(body.credential || '').trim();
+
+  if (!studentId || clientCred.length < 16) {
+    return jsonResponse({ ok: false, code: 'ERR_INVALID_INPUT', message: 'Invalid Student ID or device credential.' });
+  }
+
+  // Anti-spam rate limit per device credential (prevents automated ID harvesting/hijacking scripts)
+  const cache = CacheService.getScriptCache();
+  const credHash = sha256Hex(clientCred);
+  const rateKey = 'RL_ONB_' + credHash.slice(0, 16);
+  const recentAttempts = Number(cache.get(rateKey) || '0');
+  if (recentAttempts >= 10) {
+    return jsonResponse({
+      ok: false,
+      code: 'ERR_SERVER_BUSY',
+      message: 'Thao tác quá nhanh. Vui lòng đợi 20 giây rồi thử lại.'
+    });
+  }
+  cache.put(rateKey, String(recentAttempts + 1), 20);
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY', message: 'Server is busy. Please tap retry in 2 seconds.' });
+  }
+
+  try {
+    // Always bypass cache during onboarding so changes made by external Sync.gs are reflected immediately
+    const classes = getClassesMap(ss, true);
+    const scheduleMetaMap = getStoredClassSchedulesMap();
+    const enrolledClasses = [];
+    let canonicalName = '';
+    let anyRegOpen = false;
+
+    Object.keys(classes).forEach(cid => {
+      const roster = getClassRosterMap(ss, cid, true);
+      if (roster[studentId]) {
+        enrolledClasses.push({
+          classId: cid,
+          className: classes[cid].className,
+          activeQrSecret: classes[cid].activeQrSecret,
+          sessionOpenNow: Boolean(getLatestOpenSession(ss, cid)),
+          scheduleInfo: scheduleMetaMap[cid] || parseClassScheduleInfoBackend(classes[cid].className)
+        });
+        canonicalName = roster[studentId].fullName;
+        if (classes[cid].regOpen) anyRegOpen = true;
+      }
+    });
+
+    if (enrolledClasses.length === 0) {
+      return jsonResponse({
+        ok: false,
+        code: 'ERR_NOT_ON_ROSTER',
+        params: { id: studentId }
+      });
+    }
+
+    const devSheet = ss.getSheetByName(TAB_DEVICES);
+    const devData = devSheet.getLastRow() > 1
+      ? devSheet.getRange(2, 1, devSheet.getLastRow() - 1, 7).getValues()
+      : [];
+
+    let existingStudentRow = -1;
+
+    for (let i = 0; i < devData.length; i++) {
+      const rowSid = normalizeId(devData[i][0]);
+      const rowHash = String(devData[i][2]);
+      const rowStatus = String(devData[i][4]);
+
+      // Rule A: Has this browser credential already been bound to ANOTHER student?
+      if (rowStatus === 'ACTIVE' && rowHash === credHash && rowSid !== studentId) {
+        return jsonResponse({
+          ok: false,
+          code: 'ERR_DEVICE_BOUND_OTHER'
+        });
+      }
+      if (rowSid === studentId) {
+        existingStudentRow = i + 2;
+      }
+    }
+
+    const nowIso = formatIsoNow();
+
+    if (existingStudentRow !== -1) {
+      const savedRow = devData[existingStudentRow - 2];
+      const savedHash = String(savedRow[2]);
+      const savedStatus = String(savedRow[4]);
+
+      if (savedStatus === 'ACTIVE') {
+        if (savedHash === credHash) {
+          cache.put('DEV_HASH_' + studentId, credHash, 180);
+          return jsonResponse({
+            ok: true,
+            code: 'ONBOARD_CONFIRMED',
+            studentId: studentId,
+            fullName: canonicalName,
+            enrolledClasses: enrolledClasses
+          });
+        } else {
+          // Per-Student First-Come Lock: Once registered, no 2nd browser can overwrite without Lecturer Reset
+          return jsonResponse({
+            ok: false,
+            code: 'ERR_CREDENTIAL_MISMATCH',
+            params: { id: studentId }
+          });
+        }
+      } else {
+        // Status was REVOKED by Lecturer -> allow re-bind
+        devSheet.getRange(existingStudentRow, 2, 1, 4).setValues([[canonicalName, credHash, nowIso, 'ACTIVE']]);
+        cache.put('DEV_HASH_' + studentId, credHash, 180);
+        return jsonResponse({
+          ok: true,
+          code: 'ONBOARD_CONFIRMED',
+          studentId: studentId,
+          fullName: canonicalName,
+          enrolledClasses: enrolledClasses
+        });
+      }
+    }
+
+    if (!anyRegOpen && !isAnySessionOpenForClasses(ss, enrolledClasses.map(c => c.classId))) {
+      return jsonResponse({
+        ok: false,
+        code: 'ERR_REG_LOCKED'
+      });
+    }
+
+    devSheet.appendRow([studentId, canonicalName, credHash, nowIso, 'ACTIVE', 0, '']);
+    cache.put('DEV_HASH_' + studentId, credHash, 180);
+
+    return jsonResponse({
+      ok: true,
+      code: 'ONBOARD_CONFIRMED',
+      studentId: studentId,
+      fullName: canonicalName,
+      enrolledClasses: enrolledClasses
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function handleStudentCheckIn(ss, body) {
+  const studentId  = normalizeId(body.studentId);
+  const classId    = String(body.classId || '').trim();
+  const clientCred = String(body.credential || '').trim();
+  const deviceFp   = String(body.deviceFp || '').trim();
+  const qrPayload  = String(body.qrPayload || 'BUTTON_GPS_CHECKIN').trim();
+  const requestId  = String(body.requestId || '').trim() || ('REQ_' + generateRandomToken(12));
+  const lat        = Number(body.lat);
+  const lng        = Number(body.lng);
+  const accuracy   = Number(body.accuracy || 999);
+  const clientMeta = body.clientMeta || {};
+
+  if (!studentId || !classId || !clientCred || !qrPayload) {
+    return jsonResponse({ ok: false, code: 'ERR_MISSING_FIELDS' });
+  }
+
+  const cache = CacheService.getScriptCache();
+  const credHash = sha256Hex(clientCred);
+
+  // 0A. FAST PRE-LOCK IDEMPOTENCY CHECK (Returns in ~2ms if double-tapped)
+  const cachedByReq = cache.get('REQ_REC_' + requestId);
+  if (cachedByReq) {
+    try {
+      const rec = JSON.parse(cachedByReq);
+      return jsonResponse({
+        ok: true,
+        code: 'CONFIRMED_' + (rec.status === 'P' ? 'PRESENT' : 'LATE'),
+        receipt: rec
+      });
+    } catch (e) {}
+  }
+
+  // 0B. ANTI-SPAM RATE LIMIT BEFORE LOCKSERVICE (Blocks F12 infinite loops in RAM)
+  const spamKey = 'RL_CHK_' + credHash.slice(0, 16);
+  if (cache.get(spamKey)) {
+    return jsonResponse({
+      ok: false,
+      code: 'ERR_SERVER_BUSY',
+      message: 'Vui lòng chờ 2 giây giữa các lần bấm.'
+    });
+  }
+  cache.put(spamKey, '1', 2);
+
+  // 1. Validate Class & Roster using row-aware micro-cache (auto-updates if Sync.gs changed rows)
+  const classes = getClassesMap(ss, false);
+  const classConfig = classes[classId];
+  if (!classConfig) {
+    return jsonResponse({ ok: false, code: 'ERR_INVALID_CLASS' });
+  }
+
+  const roster = getClassRosterMap(ss, classId, false);
+  if (!roster[studentId]) {
+    return jsonResponse({ ok: false, code: 'ERR_NOT_ON_ROSTER', params: { id: studentId } });
+  }
+  const canonicalName = roster[studentId].fullName;
+
+  // 2. Find Active Open Session
+  const activeSession = getLatestOpenSession(ss, classId);
+  if (!activeSession) {
+    return jsonResponse({ ok: false, code: 'ERR_SESSION_CLOSED' });
+  }
+
+  // Fast Session + Student Idempotency Check in Cache before LockService
+  const sesStuKey = 'SES_ATT_' + activeSession.sessionId + '_' + studentId;
+  const cachedSesRec = cache.get(sesStuKey);
+  if (cachedSesRec) {
+    try {
+      const rec = JSON.parse(cachedSesRec);
+      if (rec && rec.status === '-' && rec.source === 'TEACHER_MANUAL') {
+        return jsonResponse({
+          ok: false,
+          code: 'ERR_REVOKED_BY_TEACHER',
+          message: '[ĐÃ HỦY] Kết quả điểm danh của bạn trong phiên này đã bị Giảng viên hủy khi kiểm tra sĩ số.'
+        });
+      }
+      if (rec && rec.status && rec.status !== '-') {
+        return jsonResponse({
+          ok: true,
+          code: rec.requestId === requestId ? ('CONFIRMED_' + (rec.status === 'P' ? 'PRESENT' : 'LATE')) : 'ALREADY_RECORDED',
+          receipt: rec
+        });
+      }
+    } catch (e) {}
+  }
+
+  // 3. Verify QR Code / 1-Tap GPS Token
+  const qrValid = verifyClassroomQr(qrPayload, classConfig, activeSession);
+  if (!qrValid) {
+    return jsonResponse({ ok: false, code: 'ERR_INVALID_QR' });
+  }
+
+  // 4. Verify Geolocation Proximity (Accuracy-Aware Haversine Distance)
+  if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0 || accuracy <= 0) {
+    return jsonResponse({ ok: false, code: 'ERR_GPS_UNAVAILABLE' });
+  }
+  const rawDist = Math.round(calculateHaversineMeters(lat, lng, activeSession.roomLat, activeSession.roomLng));
+  const accuracyAllowance = Math.min(Math.max(0, accuracy), 50);
+  const effectiveDist = Math.max(0, rawDist - accuracyAllowance);
+
+  if (effectiveDist > activeSession.radiusMeters) {
+    return jsonResponse({
+      ok: false,
+      code: 'ERR_LOCATION_OUT_OF_RANGE',
+      params: {
+        dist: rawDist,
+        max: activeSession.radiusMeters,
+        acc: Math.round(accuracy)
+      }
+    });
+  }
+
+  // 5. Acquire LockService ONLY for final credential check & appendRow
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(12000)) {
+    return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
+  }
+
+  try {
+    const credCheck = verifyStudentCredential(ss, studentId, clientCred, credHash);
+    if (!credCheck.ok) {
+      return jsonResponse({ ok: false, code: credCheck.code, params: { id: studentId } });
+    }
+
+    const existingRecord = findExistingAttendance(ss, activeSession.sessionId, studentId, requestId);
+    if (existingRecord) {
+      if (existingRecord.status === '-' && existingRecord.source === 'TEACHER_MANUAL') {
+        cache.put(sesStuKey, JSON.stringify(existingRecord), 1800);
+        return jsonResponse({
+          ok: false,
+          code: 'ERR_REVOKED_BY_TEACHER',
+          message: '[ĐÃ HỦY] Kết quả điểm danh của bạn trong phiên này đã bị Giảng viên hủy khi kiểm tra sĩ số.'
+        });
+      }
+      if (existingRecord.status !== '-') {
+        cache.put(sesStuKey, JSON.stringify(existingRecord), 1800);
+        return jsonResponse({
+          ok: true,
+          code: existingRecord.requestId === requestId ? ('CONFIRMED_' + (existingRecord.status === 'P' ? 'PRESENT' : 'LATE')) : 'ALREADY_RECORDED',
+          receipt: existingRecord
+        });
+      }
+    }
+
+    // 6. Server-Side Anti-Cheat & Multi-Browser (Safari + Chrome) Soft-Flag Evaluation
+    const nowMs = Date.now();
+    let sourceLabel = 'STUDENT_APP';
+    const suspectReasons = [];
+
+    if (clientMeta && clientMeta.mockGpsSuspect) {
+      suspectReasons.push('SUSPECT_WITH_DEVTOOLS|Can thiệp định vị (' + (clientMeta.mockReason || 'Mock') + ')');
+    }
+
+    const recentKey = 'RECENT_CHK_' + activeSession.sessionId;
+    let recentList = [];
+    try {
+      const rawRecent = cache.get(recentKey);
+      if (rawRecent) recentList = JSON.parse(rawRecent);
+    } catch (e) {
+      recentList = [];
+    }
+
+    recentList = recentList.filter(item => (nowMs - item.timeMs) <= 45000 && item.studentId !== studentId);
+
+    for (let i = 0; i < recentList.length; i++) {
+      const prev = recentList[i];
+      const diffSec = Math.max(0, Math.round((nowMs - prev.timeMs) / 1000));
+      const sameExactCoords = Math.abs(prev.lat - lat) < 0.000001 && Math.abs(prev.lng - lng) < 0.000001;
+      const sameHardwareFp  = Boolean(deviceFp && prev.deviceFp && deviceFp === prev.deviceFp && deviceFp !== 'FP_DEFAULT');
+      const pairDist        = calculateHaversineMeters(lat, lng, prev.lat, prev.lng);
+
+      if (sameExactCoords) {
+        suspectReasons.push('SUSPECT_WITH_' + prev.studentId + '|Trùng tọa độ tuyệt đối với ' + prev.studentId);
+        break;
+      } else if (sameHardwareFp && diffSec <= 20 && pairDist <= 5) {
+        suspectReasons.push('SUSPECT_WITH_' + prev.studentId + '|Cùng cấu hình máy (' + diffSec + 's) với ' + prev.studentId);
+        break;
+      } else if (diffSec <= 2 && Math.abs(prev.rawDist - rawDist) <= 1) {
+        suspectReasons.push('SUSPECT_WITH_' + prev.studentId + '|Bấm cùng lúc (' + diffSec + 's) với ' + prev.studentId);
+        break;
+      }
+    }
+
+    if (suspectReasons.length > 0) {
+      sourceLabel = suspectReasons[0];
+    }
+
+    recentList.push({
+      studentId: studentId,
+      fullName: canonicalName,
+      deviceFp: deviceFp,
+      lat: lat,
+      lng: lng,
+      rawDist: rawDist,
+      timeMs: nowMs
+    });
+    if (recentList.length > 40) recentList = recentList.slice(-40);
+    try { cache.put(recentKey, JSON.stringify(recentList), 600); } catch (e) {}
+
+    // 7. Determine Status (P = Present, L = Late) from authoritative server clock
+    const status = nowMs <= activeSession.presentUntilMs ? 'P' : 'L';
+    const timeStr = Utilities.formatDate(new Date(nowMs), TIMEZONE, 'HH:mm:ss');
+    const attendanceId = 'ATT_' + generateRandomToken(10);
+
+    // 8. Append Authoritative Record to Attendance_Log
+    const attSheet = ss.getSheetByName(TAB_ATTEND);
+    attSheet.appendRow([
+      attendanceId,
+      requestId,
+      activeSession.sessionId,
+      classId,
+      studentId,
+      status,
+      formatIso(nowMs),
+      rawDist,
+      Math.round(accuracy),
+      sourceLabel
+    ]);
+
+    const receipt = {
+      attendanceId: attendanceId,
+      requestId: requestId,
+      sessionId: activeSession.sessionId,
+      sessionLabel: activeSession.sessionLabel,
+      classId: classId,
+      studentId: studentId,
+      fullName: canonicalName,
+      status: status,
+      time: timeStr,
+      distanceMeters: rawDist,
+      accuracyMeters: Math.round(accuracy),
+      source: sourceLabel
+    };
+
+    try {
+      cache.put(sesStuKey, JSON.stringify(receipt), 1800);
+      cache.put('REQ_REC_' + requestId, JSON.stringify(receipt), 600);
+    } catch (e) {}
+
+    return jsonResponse({
+      ok: true,
+      code: status === 'P' ? 'CONFIRMED_PRESENT' : 'CONFIRMED_LATE',
+      receipt: receipt
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function handleCheckReceipt(ss, body) {
+  const requestId = String(body.requestId || '').trim();
+  const studentId = normalizeId(body.studentId);
+  if (!requestId || !studentId) {
+    return jsonResponse({ ok: false, code: 'ERR_MISSING_FIELDS' });
+  }
+
+  const cache = CacheService.getScriptCache();
+  const cachedByReq = cache.get('REQ_REC_' + requestId);
+  if (cachedByReq) {
+    try {
+      return jsonResponse({
+        ok: true,
+        code: 'RECEIPT_FOUND',
+        receipt: JSON.parse(cachedByReq)
+      });
+    } catch (e) {}
+  }
+
+  const attSheet = ss.getSheetByName(TAB_ATTEND);
+  if (attSheet.getLastRow() < 2) {
+    return jsonResponse({ ok: false, code: 'ERR_NOT_FOUND' });
+  }
+  const data = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 10).getValues();
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (String(data[i][1]) === requestId && normalizeId(data[i][4]) === studentId) {
+      return jsonResponse({
+        ok: true,
+        code: 'RECEIPT_FOUND',
+        receipt: {
+          attendanceId: data[i][0],
+          requestId: data[i][1],
+          sessionId: data[i][2],
+          classId: data[i][3],
+          studentId: data[i][4],
+          status: data[i][5],
+          time: String(data[i][6]).slice(11, 19),
+          distanceMeters: data[i][7]
+        }
+      });
+    }
+  }
+  return jsonResponse({ ok: false, code: 'ERR_NOT_FOUND' });
+}
+
+/**
+ * ============================================================================
+ * 6. LECTURER AUTHENTICATION & SESSION / ROSTER CONTROLLERS
+ * ============================================================================
+ */
+function requireTeacherAuth(ss, body, callback) {
+  const authResult = verifyTeacherToken(ss, body.teacherToken);
+  if (!authResult.ok) {
+    return jsonResponse(authResult);
+  }
+  return callback();
+}
+
+function verifyTeacherToken(ss, submittedToken) {
+  const props = PropertiesService.getScriptProperties();
+  const cache = CacheService.getScriptCache();
+  const cleanToken = String(submittedToken || '').trim();
+  if (!cleanToken) {
+    return { ok: false, code: 'ERR_UNAUTHORIZED', message: 'Vui lòng nhập mật khẩu Giảng viên.' };
+  }
+
+  // 1. Master Key ALWAYS works (bypasses and clears any 10-min lockout)
+  const masterKey = props.getProperty('TEACHER_MASTER_KEY') || props.getProperty('TEACHER_MASTER_Key');
+  if (masterKey && cleanToken === masterKey) {
+    props.setProperty('FAILED_AUTH_COUNT', '0');
+    props.deleteProperty('AUTH_LOCKOUT_UNTIL');
+    cache.remove('AUTH_LOCKOUT_UNTIL');
+    return { ok: true, mode: 'MASTER' };
+  }
+
+  // 2. Check 10-minute brute-force lockout for 6-digit code attempts
+  const lockoutUntil = Number(cache.get('AUTH_LOCKOUT_UNTIL') || props.getProperty('AUTH_LOCKOUT_UNTIL') || '0');
+  if (Date.now() < lockoutUntil) {
+    const waitMins = Math.ceil((lockoutUntil - Date.now()) / 60000);
+    return {
+      ok: false,
+      code: 'ERR_AUTH_LOCKED',
+      message: '[TẠM KHÓA] Nhập sai quá 5 lần. Tạm khóa mã 6 số trong ' + waitMins + ' phút (Dùng Master Key hoặc đổi mã mới trên Sheet để vào ngay).'
+    };
+  }
+
+  // 3. Read active 6-digit password from Cell C9 of Setup_&_Dashboard AND ScriptProperties
+  let sheetCode = '';
+  const dashSheet = ss.getSheetByName(TAB_DASHBOARD);
+  if (dashSheet) {
+    const c9Text = String(dashSheet.getRange('C9').getValue() || '').trim();
+    const match6 = c9Text.match(/\b(\d{6})\b/);
+    if (match6) {
+      sheetCode = match6[1];
+    } else if (c9Text && c9Text.indexOf('Attendance Admin') === -1) {
+      sheetCode = c9Text;
+    }
+  }
+
+  const tempCode = String(props.getProperty('TEMP_PC_CODE') || '').trim();
+
+  // Accept if submitted token matches either the visible C9 code on the Sheet OR the stored TEMP_PC_CODE
+  if ((sheetCode && cleanToken === sheetCode) || (tempCode && cleanToken === tempCode)) {
+    props.setProperty('FAILED_AUTH_COUNT', '0');
+    props.deleteProperty('AUTH_LOCKOUT_UNTIL');
+    cache.remove('AUTH_LOCKOUT_UNTIL');
+    return { ok: true, mode: 'TEMP_PC' };
+  }
+
+  // 4. Record failed attempt & lock for 10 mins on 5th consecutive wrong try
+  const failedCount = Number(props.getProperty('FAILED_AUTH_COUNT') || '0');
+  const newFailed = failedCount + 1;
+  props.setProperty('FAILED_AUTH_COUNT', String(newFailed));
+  if (newFailed >= 5) {
+    const lockUntilMs = String(Date.now() + 10 * 60 * 1000);
+    props.setProperty('AUTH_LOCKOUT_UNTIL', lockUntilMs);
+    cache.put('AUTH_LOCKOUT_UNTIL', lockUntilMs, 600);
+    logAudit(ss, 'UNKNOWN', 'TEACHER_AUTH_LOCKOUT', 'API', '5 failed teacher auth attempts');
+    return {
+      ok: false,
+      code: 'ERR_AUTH_LOCKED',
+      message: '[ĐÃ KHÓA] Nhập sai 5/5 lần. Đã khóa mã 6 số trong 10 phút (Dùng Master Key hoặc đổi mã mới trên Sheet để vào ngay).'
+    };
+  }
+
+  return {
+    ok: false,
+    code: 'ERR_UNAUTHORIZED',
+    message: '[TỪ CHỐI] Mật khẩu Giảng viên không đúng (' + newFailed + '/5 lần thử).'
+  };
+}
+
+function handleTeacherAuth(ss, body) {
+  const check = verifyTeacherToken(ss, body.teacherToken);
+  if (!check.ok) return jsonResponse(check);
+  return handleTeacherGetState(ss, body);
+}
+
+function handleTeacherGetState(ss, body) {
+  const classId = String(body.classId || '').trim();
+  const classes = getClassesMap(ss, true);
+  const scheduleMetaMap = getStoredClassSchedulesMap();
+  const classList = Object.values(classes).map(c => Object.assign({}, c, {
+    sessionOpenNow: Boolean(getLatestOpenSession(ss, c.classId)),
+    scheduleInfo: scheduleMetaMap[c.classId] || parseClassScheduleInfoBackend(c.className)
+  }));
+  const selectedId = classId && classes[classId] ? classId : (classList[0] ? classList[0].classId : '');
+
+  let sessionInfo = null;
+  let rosterSummary = [];
+
+  if (selectedId) {
+    sessionInfo = getLatestSessionForDashboard(ss, selectedId, true);
+    const rosterMap = getClassRosterMap(ss, selectedId, true);
+    const sessionChecks = sessionInfo ? getSessionAttendanceMap(ss, sessionInfo.sessionId) : {};
+
+    rosterSummary = Object.values(rosterMap).map(st => {
+      const rec = sessionChecks[st.studentId];
+      return {
+        studentId: st.studentId,
+        fullName: st.fullName,
+        status: rec ? rec.status : '-',
+        time: rec ? rec.time : '',
+        distance: rec ? rec.distance : '',
+        accuracy: rec ? rec.accuracy : '',
+        source: rec ? rec.source : ''
+      };
+    });
+  }
+
+  return jsonResponse({
+    ok: true,
+    code: 'TEACHER_STATE',
+    serverTimeMs: Date.now(),
+    classes: classList,
+    calendarEvents: getTodayCalendarEventsCached(),
+    classSchedules: scheduleMetaMap,
+    selectedClassId: selectedId,
+    activeSession: sessionInfo,
+    roster: rosterSummary
+  });
+}
+
+function handleTeacherStartSession(ss, body) {
+  const classId       = String(body.classId || '').trim();
+  const qrMode        = String(body.qrMode || 'STATIC').toUpperCase();
+  const usePhoneGps   = Boolean(body.usePhoneGps);
+  const calibrateOnly = Boolean(body.calibrateOnly);
+  const phoneLat      = Number(body.lat);
+  const phoneLng      = Number(body.lng);
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
+
+  try {
+    const classes = getClassesMap(ss, true);
+    const cfg = classes[classId];
+    if (!cfg) return jsonResponse({ ok: false, code: 'ERR_INVALID_CLASS' });
+
+    const existingOpen = getLatestOpenSession(ss, classId);
+
+    // If lecturer clicked "Set this device as Room Center" without opening a new session
+    if (calibrateOnly && !existingOpen) {
+      if (!isNaN(phoneLat) && !isNaN(phoneLng) && phoneLat !== 0) {
+        ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[phoneLat, phoneLng]]);
+        const latestSes = getLatestSessionForDashboard(ss, classId, true);
+        if (latestSes && latestSes.rowIndex) {
+          ss.getSheetByName(TAB_SESSIONS).getRange(latestSes.rowIndex, 8, 1, 2).setValues([[phoneLat, phoneLng]]);
+        }
+        invalidateClassCache(classId);
+      }
+      return handleTeacherGetState(ss, { classId: classId });
+    }
+
+    if (existingOpen) {
+      if (usePhoneGps && !isNaN(phoneLat) && !isNaN(phoneLng) && phoneLat !== 0) {
+        ss.getSheetByName(TAB_SESSIONS).getRange(existingOpen.rowIndex, 8, 1, 2).setValues([[phoneLat, phoneLng]]);
+        ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[phoneLat, phoneLng]]);
+        invalidateClassCache(classId);
+      }
+      return handleTeacherGetState(ss, { classId: classId });
+    }
+
+    let roomLat = cfg.roomLat;
+    let roomLng = cfg.roomLng;
+
+    if (usePhoneGps && !isNaN(phoneLat) && !isNaN(phoneLng) && phoneLat !== 0) {
+      roomLat = phoneLat;
+      roomLng = phoneLng;
+      const clSheet = ss.getSheetByName(TAB_CLASSES);
+      clSheet.getRange(cfg.rowIndex, 4, 1, 2).setValues([[roomLat, roomLng]]);
+    }
+
+    const nowMs = Date.now();
+    const presentUntilMs = nowMs + cfg.presentMins * 60 * 1000;
+    const closesAtMs     = nowMs + cfg.lateMins * 60 * 1000;
+
+    const dateLabel = Utilities.formatDate(new Date(nowMs), TIMEZONE, 'ddMMM_HHmm');
+    const sessionId = 'SES_' + classId + '_' + Utilities.formatDate(new Date(nowMs), TIMEZONE, 'yyyyMMdd_HHmmss');
+
+    const sesSheet = ss.getSheetByName(TAB_SESSIONS);
+    sesSheet.appendRow([
+      sessionId,
+      classId,
+      dateLabel,
+      formatIso(nowMs),
+      formatIso(presentUntilMs),
+      formatIso(closesAtMs),
+      '',
+      roomLat,
+      roomLng,
+      cfg.radiusMeters,
+      qrMode
+    ]);
+
+    invalidateClassCache(classId);
+    return handleTeacherGetState(ss, { classId: classId });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function handleTeacherControlSession(ss, body) {
+  const classId   = String(body.classId || '').trim();
+  const subAction = String(body.subAction || '').toUpperCase();
+  const sesSheet  = ss.getSheetByName(TAB_SESSIONS);
+
+  if (sesSheet.getLastRow() < 2) return jsonResponse({ ok: false, code: 'ERR_NO_SESSION' });
+  const data = sesSheet.getRange(2, 1, sesSheet.getLastRow() - 1, 11).getValues();
+
+  let targetRow = -1;
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (String(data[i][1]) === classId) {
+      targetRow = i + 2;
+      break;
+    }
+  }
+  if (targetRow === -1) return jsonResponse({ ok: false, code: 'ERR_NO_SESSION' });
+
+  const rowVals = data[targetRow - 2];
+  const nowMs = Date.now();
+
+  if (subAction === 'CLOSE_NOW') {
+    sesSheet.getRange(targetRow, 7).setValue(formatIso(nowMs));
+    invalidateClassCache(classId);
+    rebuildSingleClassGrid(ss, classId);
+    refreshTempPcCode(ss, true);
+  } else if (subAction === 'EXTEND_2M') {
+    const curClose = parseSheetTimeMs(rowVals[5]);
+    const newClose = Math.max(nowMs, curClose) + 2 * 60 * 1000;
+    sesSheet.getRange(targetRow, 6).setValue(formatIso(newClose));
+    sesSheet.getRange(targetRow, 7).setValue('');
+    invalidateClassCache(classId);
+  } else if (subAction === 'REOPEN_5M') {
+    const newPresent = nowMs + 2 * 60 * 1000;
+    const newClose   = nowMs + 5 * 60 * 1000;
+    sesSheet.getRange(targetRow, 5, 1, 3).setValues([[formatIso(newPresent), formatIso(newClose), '']]);
+    invalidateClassCache(classId);
+  } else if (subAction === 'SET_QR_MODE') {
+    const newMode = String(body.qrMode || 'STATIC').toUpperCase();
+    sesSheet.getRange(targetRow, 11).setValue(newMode);
+    invalidateClassCache(classId);
+  }
+
+  return handleTeacherGetState(ss, { classId: classId });
+}
+
+function handleTeacherManualMark(ss, body) {
+  const classId   = String(body.classId || '').trim();
+  const studentId = normalizeId(body.studentId);
+  const status    = String(body.status || 'P').toUpperCase(); // P | L | E | -
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
+
+  try {
+    const session = getLatestSessionForDashboard(ss, classId, true);
+    if (!session) {
+      return jsonResponse({ ok: false, code: 'ERR_NO_SESSION', message: 'Start a session first before marking students.' });
+    }
+
+    const attSheet = ss.getSheetByName(TAB_ATTEND);
+    const data = attSheet.getLastRow() > 1
+      ? attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 10).getValues()
+      : [];
+
+    let foundRow = -1;
+    for (let i = 0; i < data.length; i++) {
+      if (String(data[i][2]) === session.sessionId && normalizeId(data[i][4]) === studentId) {
+        foundRow = i + 2;
+        break;
+      }
+    }
+
+    const nowIso = formatIsoNow();
+    if (foundRow !== -1) {
+      attSheet.getRange(foundRow, 6, 1, 5).setValues([[status, nowIso, 0, 0, 'TEACHER_MANUAL']]);
+    } else {
+      attSheet.appendRow([
+        'ATT_M_' + generateRandomToken(8),
+        'MANUAL_' + Date.now(),
+        session.sessionId,
+        classId,
+        studentId,
+        status,
+        nowIso,
+        0,
+        0,
+        'TEACHER_MANUAL'
+      ]);
+    }
+
+    const cache = CacheService.getScriptCache();
+    cache.put('SES_ATT_' + session.sessionId + '_' + studentId, JSON.stringify({
+      attendanceId: 'ATT_M',
+      requestId: 'MANUAL',
+      sessionId: session.sessionId,
+      classId: classId,
+      studentId: studentId,
+      status: status,
+      time: nowIso.slice(11, 19),
+      distanceMeters: 0,
+      source: 'TEACHER_MANUAL'
+    }), 1800);
+
+    logAudit(ss, 'TEACHER_APP', 'MANUAL_MARK', studentId, classId + ' -> ' + status);
+    return handleTeacherGetState(ss, { classId: classId });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function handleTeacherResetDevice(ss, body) {
+  const studentId = normalizeId(body.studentId);
+  const res = resetStudentCredentialInternal(studentId, 'TEACHER_APP');
+  return jsonResponse(res);
+}
+
+function handleTeacherRotateStaticQr(ss, body) {
+  const classId = String(body.classId || '').trim();
+  const classes = getClassesMap(ss, true);
+  const cfg = classes[classId];
+  if (!cfg) return jsonResponse({ ok: false, code: 'ERR_INVALID_CLASS' });
+
+  const newSecret = 'QR_' + classId.toUpperCase() + '_' + generateRandomToken(6).toUpperCase();
+  ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 3).setValue(newSecret);
+  invalidateClassCache(classId);
+  logAudit(ss, 'TEACHER_APP', 'ROTATE_STATIC_QR', classId, 'New secret generated');
+
+  return handleTeacherGetState(ss, { classId: classId });
+}
+
+function handleTeacherToggleReg(ss, body) {
+  const classId = String(body.classId || '').trim();
+  const classes = getClassesMap(ss, true);
+  const cfg = classes[classId];
+  if (!cfg) return jsonResponse({ ok: false, code: 'ERR_INVALID_CLASS' });
+
+  const nextVal = cfg.regOpen ? 'NO' : 'YES';
+  ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 9).setValue(nextVal);
+  invalidateClassCache(classId);
+  return handleTeacherGetState(ss, { classId: classId });
+}
+
+function handleTeacherRebuildReport(ss, body) {
+  const classId = String(body.classId || '').trim();
+  invalidateSystemCache();
+  if (classId) {
+    rebuildSingleClassGrid(ss, classId);
+  } else {
+    const classes = getClassesMap(ss, true);
+    Object.keys(classes).forEach(cid => rebuildSingleClassGrid(ss, cid));
+  }
+  return jsonResponse({ ok: true, code: 'REPORT_REBUILT' });
+}
+
+/**
+ * ============================================================================
+ * 7. INTERNAL HELPERS & ROW-AWARE MICRO-CACHE LAYER
+ * ============================================================================
+ */
+function invalidateSystemCache() {
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.removeAll(['CLASSES_MAP_V32', 'PING_STATE_V32']);
+  } catch (e) {}
+}
+
+function invalidateClassCache(classId) {
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.removeAll(['CLASSES_MAP_V32', 'PING_STATE_V32', 'LATEST_SES_' + classId]);
+  } catch (e) {}
+}
+
+function verifyClassroomQr(scannedText, classConfig, activeSession) {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(scannedText);
+  } catch (e) {
+    parsed = null;
+  }
+
+  const secret = classConfig.activeQrSecret;
+
+  if (!parsed) {
+    if (activeSession.qrMode === 'ROTATING') return false;
+    const prefix = 'QR_' + classConfig.classId.toUpperCase() + '_';
+    return (
+      scannedText === secret ||
+      scannedText === 'BUTTON_GPS_CHECKIN' ||
+      scannedText.toUpperCase().indexOf(prefix) === 0
+    );
+  }
+
+  if (parsed.cid && parsed.cid !== classConfig.classId) return false;
+
+  if (parsed.mode === 'ROTATING') {
+    const bucketNow = Math.floor(Date.now() / 15000);
+    const expectedNow  = sha256Hex(secret + '|' + bucketNow).slice(0, 12);
+    const expectedPrev = sha256Hex(secret + '|' + (bucketNow - 1)).slice(0, 12);
+    return parsed.tok === expectedNow || parsed.tok === expectedPrev;
+  }
+
+  if (activeSession.qrMode === 'ROTATING') return false;
+  return parsed.sec === secret;
+}
+
+function verifyStudentCredential(ss, studentId, clientCred, precomputedHash) {
+  const credHash = precomputedHash || sha256Hex(clientCred);
+  const cache = CacheService.getScriptCache();
+  const cachedHash = cache.get('DEV_HASH_' + studentId);
+  if (cachedHash && cachedHash === credHash) {
+    return { ok: true };
+  }
+
+  const devSheet = ss.getSheetByName(TAB_DEVICES);
+  if (devSheet.getLastRow() < 2) {
+    return { ok: false, code: 'ERR_CREDENTIAL_MISMATCH' };
+  }
+  const data = devSheet.getRange(2, 1, devSheet.getLastRow() - 1, 5).getValues();
+
+  for (let i = 0; i < data.length; i++) {
+    const rowSid = normalizeId(data[i][0]);
+    const rowHash = String(data[i][2]);
+    const rowStatus = String(data[i][4]);
+
+    if (rowStatus === 'ACTIVE' && rowHash === credHash && rowSid !== studentId) {
+      return { ok: false, code: 'ERR_DEVICE_BOUND_OTHER' };
+    }
+    if (rowSid === studentId) {
+      if (rowStatus === 'ACTIVE' && rowHash === credHash) {
+        cache.put('DEV_HASH_' + studentId, credHash, 180);
+        return { ok: true };
+      }
+      return { ok: false, code: 'ERR_CREDENTIAL_MISMATCH' };
+    }
+  }
+  return { ok: false, code: 'ERR_CREDENTIAL_MISMATCH' };
+}
+
+function resetStudentCredentialInternal(studentId, actor) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const devSheet = ss.getSheetByName(TAB_DEVICES);
+  if (devSheet.getLastRow() < 2) {
+    return { ok: false, code: 'ERR_STUDENT_NOT_REGISTERED', message: 'Student has not registered a device yet.' };
+  }
+  const data = devSheet.getRange(2, 1, devSheet.getLastRow() - 1, 7).getValues();
+  for (let i = 0; i < data.length; i++) {
+    if (normalizeId(data[i][0]) === studentId) {
+      const resets = Number(data[i][5] || 0) + 1;
+      devSheet.getRange(i + 2, 5, 1, 3).setValues([['REVOKED', resets, formatIsoNow()]]);
+      CacheService.getScriptCache().remove('DEV_HASH_' + studentId);
+      logAudit(ss, actor, 'RESET_DEVICE_LOCK', studentId, 'Reset count: ' + resets);
+      return { ok: true, code: 'DEVICE_RESET_OK', studentId: studentId };
+    }
+  }
+  return { ok: false, code: 'ERR_STUDENT_NOT_REGISTERED', message: 'Student ID ' + studentId + ' not found in Device_Registry.' };
+}
+
+function rebuildSingleClassGrid(ss, classId) {
+  const rosterSheet = ss.getSheetByName(classId);
+  if (!rosterSheet || rosterSheet.getLastRow() < 2) return;
+
+  const sesSheet = ss.getSheetByName(TAB_SESSIONS);
+  const sesData = sesSheet.getLastRow() > 1
+    ? sesSheet.getRange(2, 1, sesSheet.getLastRow() - 1, 4).getValues()
+    : [];
+  const classSessions = sesData
+    .filter(r => String(r[1]) === classId)
+    .map(r => ({ sessionId: String(r[0]), label: String(r[2]) }));
+
+  const attSheet = ss.getSheetByName(TAB_ATTEND);
+  const attData = attSheet.getLastRow() > 1
+    ? attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 6).getValues()
+    : [];
+
+  const lookup = {};
+  attData.forEach(r => {
+    if (String(r[3]) === classId) {
+      const sid = String(r[2]);
+      const stId = normalizeId(r[4]);
+      if (!lookup[sid]) lookup[sid] = {};
+      lookup[sid][stId] = String(r[5]);
+    }
+  });
+
+  const numStudents = rosterSheet.getLastRow() - 1;
+  const studentRows = rosterSheet.getRange(2, 1, numStudents, 3).getValues();
+
+  const headers = ['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']
+    .concat(classSessions.map((s, idx) => 'S' + (idx + 1) + '_' + s.label));
+
+  const outRows = studentRows.map(sRow => {
+    const stId = normalizeId(sRow[1]);
+    let pCount = 0;
+    let lCount = 0;
+    const sessionCells = classSessions.map(ses => {
+      const st = (lookup[ses.sessionId] && lookup[ses.sessionId][stId]) ? lookup[ses.sessionId][stId] : '-';
+      if (st === 'P') pCount++;
+      if (st === 'L') lCount++;
+      return st;
+    });
+    return [sRow[0], stId, sRow[2], pCount, lCount].concat(sessionCells);
+  });
+
+  rosterSheet.getRange(1, 1, 1, headers.length).setValues([headers])
+    .setBackground('#0f766e').setFontColor('#ffffff').setFontWeight('bold');
+  rosterSheet.getRange(2, 1, outRows.length, headers.length).setValues(outRows);
+}
+
+function getClassesMap(ss, bypassCache) {
+  const sheet = ss.getSheetByName(TAB_CLASSES);
+  const map = {};
+  if (!sheet || sheet.getLastRow() < 2) return map;
+
+  const lastRow = sheet.getLastRow();
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'CLASSES_MAP_V32_' + lastRow;
+
+  if (!bypassCache) {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      try { return JSON.parse(cached); } catch (e) {}
+    }
+  }
+
+  const data = sheet.getRange(2, 1, lastRow - 1, 9).getValues();
+  data.forEach((r, idx) => {
+    const cid = String(r[0]).trim();
+    if (cid) {
+      map[cid] = {
+        rowIndex: idx + 2,
+        classId: cid,
+        className: String(r[1]).trim(),
+        activeQrSecret: String(r[2]).trim(),
+        roomLat: Number(r[3]),
+        roomLng: Number(r[4]),
+        radiusMeters: Number(r[5] || 100),
+        presentMins: Number(r[6] || 3),
+        lateMins: Number(r[7] || 15),
+        regOpen: String(r[8]).trim().toUpperCase() === 'YES'
+      };
+    }
+  });
+
+  try { cache.put(cacheKey, JSON.stringify(map), 10); } catch (e) {}
+  return map;
+}
+
+function getClassRosterMap(ss, classId, bypassCache) {
+  const sheet = ss.getSheetByName(classId);
+  const map = {};
+  if (!sheet || sheet.getLastRow() < 2) return map;
+
+  const lastRow = sheet.getLastRow();
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'ROSTER_MAP_' + classId + '_' + lastRow;
+
+  if (!bypassCache) {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      try { return JSON.parse(cached); } catch (e) {}
+    }
+  }
+
+  const data = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  data.forEach((r, idx) => {
+    const sid = normalizeId(r[1]);
+    if (sid) {
+      map[sid] = {
+        row: idx + 2,
+        studentId: sid,
+        fullName: String(r[2]).trim()
+      };
+    }
+  });
+
+  try { cache.put(cacheKey, JSON.stringify(map), 12); } catch (e) {}
+  return map;
+}
+
+function getLatestOpenSession(ss, classId) {
+  const ses = getLatestSessionForDashboard(ss, classId, false);
+  return (ses && ses.isOpen) ? ses : null;
+}
+
+function getLatestSessionForDashboard(ss, classId, bypassCache) {
+  const sheet = ss.getSheetByName(TAB_SESSIONS);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+
+  const lastRow = sheet.getLastRow();
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'LATEST_SES_' + classId + '_' + lastRow;
+
+  if (!bypassCache) {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      try {
+        const ses = JSON.parse(cached);
+        ses.isOpen = !ses.closedManual && Date.now() <= ses.closesAtMs;
+        return ses;
+      } catch (e) {}
+    }
+  }
+
+  const data = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+  const nowMs = Date.now();
+
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (String(data[i][1]) === classId) {
+      const openedAtMs     = parseSheetTimeMs(data[i][3]);
+      const presentUntilMs = parseSheetTimeMs(data[i][4]);
+      const closesAtMs     = parseSheetTimeMs(data[i][5]);
+      const closedManual   = String(data[i][6]).trim();
+      const isOpen         = !closedManual && nowMs <= closesAtMs;
+
+      const sesObj = {
+        rowIndex: i + 2,
+        sessionId: String(data[i][0]),
+        classId: classId,
+        sessionLabel: String(data[i][2]),
+        openedAtMs: openedAtMs,
+        presentUntilMs: presentUntilMs,
+        closesAtMs: closesAtMs,
+        closedManual: closedManual,
+        isOpen: isOpen,
+        roomLat: Number(data[i][7]),
+        roomLng: Number(data[i][8]),
+        radiusMeters: Number(data[i][9] || 100),
+        qrMode: String(data[i][10] || 'STATIC')
+      };
+
+      try { cache.put(cacheKey, JSON.stringify(sesObj), 10); } catch (e) {}
+      return sesObj;
+    }
+  }
+  return null;
+}
+
+function parseSheetTimeMs(val) {
+  if (!val) return 0;
+  if (typeof val.getTime === 'function') return val.getTime();
+  if (typeof val === 'number') return val;
+  const ms = new Date(val).getTime();
+  return isNaN(ms) ? 0 : ms;
+}
+
+function isAnySessionOpenForClasses(ss, classIds) {
+  return classIds.some(cid => Boolean(getLatestOpenSession(ss, cid)));
+}
+
+function findExistingAttendance(ss, sessionId, studentId, requestId) {
+  const sheet = ss.getSheetByName(TAB_ATTEND);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).getValues();
+  for (let i = data.length - 1; i >= 0; i--) {
+    const rReqId = String(data[i][1]);
+    const rSesId = String(data[i][2]);
+    const rStdId = normalizeId(data[i][4]);
+    if ((rSesId === sessionId && rStdId === studentId) || rReqId === requestId) {
+      return {
+        attendanceId: String(data[i][0]),
+        requestId: rReqId,
+        sessionId: rSesId,
+        classId: String(data[i][3]),
+        studentId: rStdId,
+        status: String(data[i][5]),
+        time: String(data[i][6]).slice(11, 19),
+        distanceMeters: Number(data[i][7]),
+        accuracyMeters: Number(data[i][8] || 0),
+        source: String(data[i][9] || '')
+      };
+    }
+  }
+  return null;
+}
+
+function getSessionAttendanceMap(ss, sessionId) {
+  const sheet = ss.getSheetByName(TAB_ATTEND);
+  const map = {};
+  if (!sheet || sheet.getLastRow() < 2) return map;
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).getValues();
+  data.forEach(r => {
+    if (String(r[2]) === sessionId) {
+      map[normalizeId(r[4])] = {
+        status: String(r[5]),
+        time: String(r[6]).slice(11, 19),
+        distance: r[7],
+        accuracy: r[8],
+        source: String(r[9] || '')
+      };
+    }
+  });
+  return map;
+}
+
+function calculateHaversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = deg => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function refreshTempPcCode(ss, forceNew) {
+  const props = PropertiesService.getScriptProperties();
+  const cache = CacheService.getScriptCache();
+  let code = props.getProperty('TEMP_PC_CODE');
+  let exp  = Number(props.getProperty('TEMP_PC_EXPIRES') || '0');
+  if (forceNew || !code || Date.now() > exp) {
+    code = generateNumericCode(6);
+    exp  = Date.now() + 2 * 60 * 60 * 1000;
+    props.setProperty('TEMP_PC_CODE', code);
+    props.setProperty('TEMP_PC_EXPIRES', String(exp));
+    props.setProperty('FAILED_AUTH_COUNT', '0');
+    props.deleteProperty('AUTH_LOCKOUT_UNTIL');
+    cache.remove('AUTH_LOCKOUT_UNTIL');
+    const doc = ss || SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = doc ? doc.getSheetByName(TAB_DASHBOARD) : null;
+    if (sheet) {
+      sheet.getRange('C9').setValue('Temp PC Code:\n' + code + '\n(Valid 2 Hours)').setFontSize(14).setFontWeight('bold');
+    }
+  }
+  return code;
+}
+
+function logAudit(ss, actor, action, target, details) {
+  const sheet = ss.getSheetByName(TAB_AUDIT);
+  if (sheet) {
+    sheet.appendRow([formatIsoNow(), actor, action, target, details]);
+  }
+}
+
+function normalizeId(val) {
+  return String(val || '').trim().toUpperCase();
+}
+
+function formatIsoNow() {
+  return formatIso(Date.now());
+}
+
+function formatIso(ms) {
+  return Utilities.formatDate(new Date(ms), TIMEZONE, "yyyy-MM-dd'T'HH:mm:ss");
+}
+
+function generateRandomToken(len) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  let out = '';
+  for (let i = 0; i < len; i++) {
+    out += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return out;
+}
+
+function generateNumericCode(len) {
+  let out = '';
+  for (let i = 0; i < len; i++) {
+    out += Math.floor(Math.random() * 10);
+  }
+  return out;
+}
+
+function sha256Hex(input) {
+  const raw = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, input, Utilities.Charset.UTF_8);
+  return raw.map(b => ('0' + (b & 0xff).toString(16)).slice(-2)).join('');
+}
+
+function jsonResponse(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * ============================================================================
+ * 8. GOOGLE CALENDAR & PERIOD SCHEDULE HELPERS (123 / 456 / 789 / 10-12 / 13-15)
+ * ============================================================================
+ */
+function getTodayCalendarEventsCached() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const todayKey = 'CAL_EVENTS_' + Utilities.formatDate(new Date(), TIMEZONE, 'yyyyMMdd');
+    const cached = cache.get(todayKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    const cal = CalendarApp.getDefaultCalendar();
+    if (!cal) return [];
+    const events = cal.getEventsForDay(new Date());
+    const out = events.map(ev => ({
+      title: String(ev.getTitle() || '').trim(),
+      startTime: Utilities.formatDate(ev.getStartTime(), TIMEZONE, 'HH:mm'),
+      endTime: Utilities.formatDate(ev.getEndTime(), TIMEZONE, 'HH:mm')
+    }));
+    cache.put(todayKey, JSON.stringify(out), 600);
+    return out;
+  } catch (e) {
+    return [];
+  }
+}
+
+function getStoredClassSchedulesMap() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty('QR_CLASS_SCHEDULE_META_MAP');
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+/**
+ * Parses period blocks from Class_Name or metadata text:
+ *  - 123 / 1-3: 06:30 - 09:00
+ *  - 456 / 4-6: 09:00 - 11:30
+ *  - 789 / 7-9: 12:30 - 15:00
+ *  - 101112 / 10-12: 15:00 - 17:30
+ *  - 131415 / 13-15: 17:30 - 20:00
+ */
+function parseClassScheduleInfoBackend(text) {
+  const s = String(text || '').trim();
+  if (!s) return null;
+
+  let startPeriod = null;
+  let endPeriod = null;
+
+  const compactMatch = s.match(/(?:ti[eế]t|t|ca)?\s*\b(123|456|789|101112|131415|161718)\b/i);
+  if (compactMatch) {
+    const map = {
+      '123': [1, 3],
+      '456': [4, 6],
+      '789': [7, 9],
+      '101112': [10, 12],
+      '131415': [13, 15],
+      '161718': [16, 18]
+    };
+    const pair = map[compactMatch[1]];
+    if (pair) {
+      startPeriod = pair[0];
+      endPeriod = pair[1];
+    }
+  } else {
+    const rangeMatch = s.match(/(?:ti[eế]t|t|periods?)?\s*\b(\d{1,2})\s*[-–→to]\s*(\d{1,2})\b/i);
+    if (rangeMatch) {
+      const sp = parseInt(rangeMatch[1], 10);
+      const ep = parseInt(rangeMatch[2], 10);
+      if (sp >= 1 && ep >= sp && ep <= 18 && (ep - sp) <= 6) {
+        startPeriod = sp;
+        endPeriod = ep;
+      }
+    }
+  }
+
+  const daysOfWeek = [];
+  const addDay = d => {
+    if (typeof d === 'number' && d >= 0 && d <= 6 && daysOfWeek.indexOf(d) === -1) {
+      daysOfWeek.push(d);
+    }
+  };
+  const thuRegex = /(?:^|[\s,;|(\[/])(?:th[uứ]\s*|t)([2-7](?:\s*(?:[&,+]\s*(?:th[uứ]\s*|t)?|[-–]\s*(?:th[uứ]\s*|t))[2-7])*)\b(?!\s*[-–→to]\s*\d)/ig;
+  let m;
+  while ((m = thuRegex.exec(s)) !== null) {
+    const digits = m[1].match(/[2-7]/g) || [];
+    digits.forEach(d => addDay(parseInt(d, 10) - 1));
+  }
+  if (/\b(ch[uủ]\s*nh[aậ]t|cn|sunday|sun)\b/i.test(s)) addDay(0);
+  if (/\b(monday|mon)\b/i.test(s)) addDay(1);
+  if (/\b(tuesday|tue)\b/i.test(s)) addDay(2);
+  if (/\b(wednesday|wed)\b/i.test(s)) addDay(3);
+  if (/\b(thursday|thu)\b/i.test(s)) addDay(4);
+  if (/\b(friday|fri)\b/i.test(s)) addDay(5);
+  if (/\b(saturday|sat)\b/i.test(s)) addDay(6);
+
+  const dayOfWeek = daysOfWeek.length > 0 ? daysOfWeek[0] : null;
+
+  if (startPeriod === null && dayOfWeek === null) return null;
+  return {
+    startPeriod: startPeriod,
+    endPeriod: endPeriod,
+    dayOfWeek: dayOfWeek,
+    daysOfWeek: daysOfWeek,
+    rawText: s
+  };
+}

@@ -6,415 +6,102 @@
   <meta name="theme-color" content="#1e3a8a" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>ClassCheck — Điểm Danh Lớp Học</title>
+  <title>ClassCheck — Hệ Thống Điểm Danh Định Vị</title>
 
   <!-- Version-Pinned QR Scanner & QR Generator Libraries -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
-  <style>
-    :root {
-      --primary: #1e3a8a;
-      --primary-hover: #1d4ed8;
-      --accent: #0f766e;
-      --accent-hover: #0d9488;
-      --bg: #f8fafc;
-      --card: #ffffff;
-      --text: #0f172a;
-      --muted: #64748b;
-      --border: #e2e8f0;
-      --success-bg: #dcfce7;
-      --success-text: #166534;
-      --warn-bg: #fef9c3;
-      --warn-text: #854d0e;
-      --err-bg: #fee2e2;
-      --err-text: #991b1b;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.5;
-      padding-bottom: 48px;
-    }
-
-    /* Top Navigation Bar */
-    .topbar {
-      background: var(--primary);
-      color: #fff;
-      padding: 12px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      position: sticky;
-      top: 0;
-      z-index: 50;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-    }
-    .brand {
-      font-weight: 700;
-      font-size: 1.02rem;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .top-actions {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .pill-btn {
-      background: rgba(255,255,255,0.16);
-      color: #fff;
-      border: 1px solid rgba(255,255,255,0.28);
-      padding: 5px 11px;
-      border-radius: 999px;
-      font-size: 0.78rem;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .pill-btn.active {
-      background: #fff;
-      color: var(--primary);
-    }
-
-    /* Main Container */
-    .container {
-      max-width: 520px;
-      margin: 18px auto;
-      padding: 0 14px;
-    }
-    .container.wide {
-      max-width: 1080px;
-    }
-
-    /* Cards */
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 18px;
-      margin-bottom: 14px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    }
-    .card-title {
-      font-size: 1.02rem;
-      font-weight: 700;
-      margin-bottom: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .subtext {
-      font-size: 0.84rem;
-      color: var(--muted);
-      margin-bottom: 10px;
-    }
-
-    /* Form Controls */
-    label {
-      display: block;
-      font-size: 0.82rem;
-      font-weight: 600;
-      color: #334155;
-      margin-bottom: 5px;
-    }
-    input[type="text"], input[type="password"], select {
-      width: 100%;
-      padding: 11px 12px;
-      border: 1px solid #cbd5e1;
-      border-radius: 10px;
-      font-size: 0.95rem;
-      margin-bottom: 12px;
-      background: #fff;
-    }
-    input:focus, select:focus {
-      outline: 2px solid var(--primary);
-      border-color: transparent;
-    }
-
-    /* Buttons */
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      width: 100%;
-      padding: 12px 16px;
-      border: none;
-      border-radius: 10px;
-      font-size: 0.96rem;
-      font-weight: 700;
-      cursor: pointer;
-      transition: opacity 0.15s, transform 0.08s, background 0.15s;
-    }
-    .btn:active { transform: scale(0.99); }
-    .btn:disabled { opacity: 0.52; cursor: not-allowed; }
-    .btn-primary { background: var(--primary); color: #fff; }
-    .btn-accent { background: var(--accent); color: #fff; }
-    .btn-checkin-hero {
-      background: linear-gradient(135deg, #0f766e 0%, #059669 100%);
-      color: #fff;
-      padding: 18px 20px;
-      font-size: 1.08rem;
-      border-radius: 14px;
-      box-shadow: 0 8px 20px rgba(15, 118, 110, 0.25);
-    }
-    .btn-checkin-hero:hover:not(:disabled) {
-      background: linear-gradient(135deg, #0d9488 0%, #10b981 100%);
-    }
-    .btn-outline {
-      background: #f8fafc;
-      color: var(--text);
-      border: 1px solid #cbd5e1;
-    }
-    .btn-danger { background: #dc2626; color: #fff; }
-    .btn-sm {
-      width: auto;
-      padding: 6px 11px;
-      font-size: 0.8rem;
-      border-radius: 8px;
-    }
-    .btn-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-top: 8px;
-    }
-    .btn-row > .btn { flex: 1; min-width: 110px; }
-
-    /* Alerts & Badges */
-    .alert {
-      padding: 12px 14px;
-      border-radius: 10px;
-      font-size: 0.88rem;
-      font-weight: 600;
-      margin-bottom: 14px;
-      word-break: break-word;
-    }
-    .alert-success { background: var(--success-bg); color: var(--success-text); border: 1px solid #86efac; }
-    .alert-warn { background: var(--warn-bg); color: var(--warn-text); border: 1px solid #fde047; }
-    .alert-err { background: var(--err-bg); color: var(--err-text); border: 1px solid #fca5a5; }
-
-    .badge-ok {
-      background: #dcfce7;
-      color: #166534;
-      padding: 3px 10px;
-      border-radius: 999px;
-      font-weight: 700;
-      font-size: 0.75rem;
-      white-space: nowrap;
-    }
-    .badge-err {
-      background: #fee2e2;
-      color: #991b1b;
-      padding: 3px 10px;
-      border-radius: 999px;
-      font-weight: 700;
-      font-size: 0.75rem;
-      white-space: nowrap;
-    }
-    .badge-warn {
-      background: #fef9c3;
-      color: #854d0e;
-      padding: 3px 10px;
-      border-radius: 999px;
-      font-weight: 700;
-      font-size: 0.75rem;
-      white-space: nowrap;
-    }
-
-    /* Student Identity Pill */
-    .student-id-pill {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: #f1f5f9;
-      padding: 9px 12px;
-      border-radius: 10px;
-      font-size: 0.88rem;
-      font-weight: 600;
-      color: var(--primary);
-    }
-
-    /* Camera Box */
-    #qr-reader {
-      width: 100%;
-      border-radius: 12px;
-      overflow: hidden;
-      background: #000;
-      margin-bottom: 12px;
-    }
-
-    /* Lecturer Dashboard Grid */
-    .projector-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 18px;
-      align-items: stretch;
-    }
-    @media (min-width: 768px) {
-      .projector-grid { grid-template-columns: 1fr 1fr; }
-    }
-    .gps-station-box {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 18px;
-      background: linear-gradient(135deg, #f0fdfa 0%, #eff6ff 100%);
-      border: 2px solid #99f6e4;
-      border-radius: 16px;
-      text-align: center;
-    }
-    .radar-circle {
-      width: 68px;
-      height: 68px;
-      border-radius: 50%;
-      background: rgba(15, 118, 110, 0.14);
-      border: 2px solid #0f766e;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.8rem;
-      margin-bottom: 8px;
-    }
-    .timer-big {
-      font-size: 3rem;
-      font-weight: 800;
-      font-variant-numeric: tabular-nums;
-      color: var(--primary);
-      text-align: center;
-      line-height: 1.1;
-      margin: 6px 0;
-    }
-    .counter-badge {
-      background: #f1f5f9;
-      border-radius: 12px;
-      padding: 12px;
-      text-align: center;
-      font-size: 1.2rem;
-      font-weight: 700;
-      margin: 8px 0;
-    }
-
-    /* Roster Table */
-    .roster-list {
-      max-height: 360px;
-      overflow-y: auto;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-    }
-    .roster-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--border);
-      font-size: 0.88rem;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .roster-item:last-child { border-bottom: none; }
-    .roster-item.suspect-row {
-      background: #fffbeb;
-      border-left: 4px solid #f59e0b;
-    }
-    .status-pill {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 6px;
-      font-weight: 700;
-      font-size: 0.76rem;
-    }
-    .st-P { background: #dcfce7; color: #166534; }
-    .st-L { background: #fef9c3; color: #854d0e; }
-    .st-E { background: #e0f2fe; color: #075985; }
-    .st-- { background: #f1f5f9; color: #64748b; }
-    .suspect-tag {
-      display: inline-block;
-      background: #fef3c7;
-      color: #b45309;
-      border: 1px solid #fcd34d;
-      padding: 1px 6px;
-      border-radius: 6px;
-      font-size: 0.72rem;
-      font-weight: 700;
-      margin-left: 4px;
-    }
-
-    /* Custom Modal */
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(15, 23, 42, 0.55);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 200;
-      padding: 16px;
-    }
-    .modal-card {
-      background: #fff;
-      border-radius: 16px;
-      max-width: 400px;
-      width: 100%;
-      padding: 20px;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.25);
-      text-align: center;
-    }
-    .modal-title {
-      font-size: 1.05rem;
-      font-weight: 800;
-      margin-bottom: 8px;
-      color: var(--text);
-    }
-    .modal-body {
-      font-size: 0.9rem;
-      color: var(--muted);
-      margin-bottom: 16px;
-      white-space: pre-line;
-    }
-
-    .hidden { display: none !important; }
-
-    @media print {
-      body * { visibility: hidden; }
-      #printable-poster, #printable-poster * { visibility: visible; }
-      #printable-poster {
-        position: fixed;
-        left: 0;
-        top: 0;
-        width: 100%;
-        padding: 40px;
-        text-align: center;
-        border: none;
-      }
-      .no-print { display: none !important; }
-    }
-  </style>
+  <!-- Modular Utilitarian Stylesheet -->
+  <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
 
-  <!-- TOP HEADER -->
+  <!-- PROFESSIONAL MONOLINE TECHNICAL SVG SPRITE -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none;">
+    <symbol id="ic-shield" viewBox="0 0 24 24">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+      <path d="m9 12 2 2 4-4"></path>
+    </symbol>
+    <symbol id="ic-crosshair" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10"></circle>
+      <line x1="22" y1="12" x2="18" y2="12"></line>
+      <line x1="6" y1="12" x2="2" y2="12"></line>
+      <line x1="12" y1="6" x2="12" y2="2"></line>
+      <line x1="12" y1="22" x2="12" y2="18"></line>
+    </symbol>
+    <symbol id="ic-qr" viewBox="0 0 24 24">
+      <rect x="3" y="3" width="7" height="7"></rect>
+      <rect x="14" y="3" width="7" height="7"></rect>
+      <rect x="14" y="14" width="7" height="7"></rect>
+      <rect x="3" y="14" width="7" height="7"></rect>
+    </symbol>
+    <symbol id="ic-user" viewBox="0 0 24 24">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+      <circle cx="12" cy="7" r="4"></circle>
+    </symbol>
+    <symbol id="ic-refresh" viewBox="0 0 24 24">
+      <polyline points="23 4 23 10 17 10"></polyline>
+      <polyline points="1 20 1 14 7 14"></polyline>
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+    </symbol>
+    <symbol id="ic-maximize" viewBox="0 0 24 24">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+    </symbol>
+    <symbol id="ic-sliders" viewBox="0 0 24 24">
+      <line x1="4" y1="21" x2="4" y2="14"></line>
+      <line x1="4" y1="10" x2="4" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="12"></line>
+      <line x1="12" y1="8" x2="12" y2="3"></line>
+      <line x1="20" y1="21" x2="20" y2="16"></line>
+      <line x1="20" y1="12" x2="20" y2="3"></line>
+      <line x1="1" y1="14" x2="7" y2="14"></line>
+      <line x1="9" y1="8" x2="15" y2="8"></line>
+      <line x1="17" y1="16" x2="23" y2="16"></line>
+    </symbol>
+    <symbol id="ic-check" viewBox="0 0 24 24">
+      <polyline points="20 6 9 17 4 12"></polyline>
+    </symbol>
+    <symbol id="ic-eye" viewBox="0 0 24 24">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+      <circle cx="12" cy="12" r="3"></circle>
+    </symbol>
+    <symbol id="ic-shuffle" viewBox="0 0 24 24">
+      <polyline points="16 3 21 3 21 8"></polyline>
+      <line x1="4" y1="20" x2="21" y2="3"></line>
+      <polyline points="21 16 21 21 16 21"></polyline>
+      <line x1="15" y1="15" x2="21" y2="21"></line>
+      <line x1="4" y1="4" x2="9" y2="9"></line>
+    </symbol>
+    <symbol id="ic-database" viewBox="0 0 24 24">
+      <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+    </symbol>
+    <symbol id="ic-lock" viewBox="0 0 24 24">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+    </symbol>
+  </svg>
+
+  <!-- TOP NAVIGATION BAR -->
   <header class="topbar no-print">
     <div class="brand">
-      <span>🎓 ClassCheck</span>
+      <span class="brand-mark">
+        <svg class="icon"><use href="#ic-shield"></use></svg>
+      </span>
+      <span>ClassCheck</span>
     </div>
     <div class="top-actions">
-      <button id="btn-mode-student" class="pill-btn active" onclick="switchMode('STUDENT')">Student</button>
-      <button id="btn-mode-teacher" class="pill-btn" onclick="switchMode('TEACHER')">Lecturer</button>
-      <button id="btn-lang" class="pill-btn" onclick="toggleLanguage()">EN | VI</button>
+      <button id="btn-mode-student" class="pill-btn active" onclick="switchMode('STUDENT')">Sinh viên</button>
+      <button id="btn-mode-teacher" class="pill-btn" onclick="switchMode('TEACHER')">Giảng viên</button>
+      <button id="btn-lang" class="pill-btn" onclick="toggleLanguage()">VI / EN</button>
     </div>
   </header>
 
   <main id="main-container" class="container">
 
-    <!-- ONLY SHOWN IF OPENED INSIDE ZALO / MESSENGER WEBVIEW -->
+    <!-- SHOWN IF OPENED INSIDE IN-APP WEBVIEW (ZALO / MESSENGER) -->
     <div id="ios-install-banner" class="alert alert-err hidden">
       <div id="t-ios-guard"></div>
     </div>
@@ -424,229 +111,345 @@
 
     <!-- SHARED CAMERA CONTAINER -->
     <div id="camera-modal-box" class="card hidden">
-      <div class="card-title">
-        <span data-i18n="cam_modal_title">📷 Quét QR</span>
-        <button id="btn-stop-camera" class="btn btn-outline btn-sm" onclick="stopCameraScanner()" data-i18n="btn_cancel_scan">Cancel Camera</button>
+      <div class="card-header">
+        <div class="card-title">
+          <svg class="icon"><use href="#ic-qr"></use></svg>
+          <span data-i18n="cam_modal_title">Quét mã QR</span>
+        </div>
+        <button id="btn-stop-camera" class="btn btn-outline btn-sm" onclick="stopCameraScanner()" data-i18n="btn_cancel_scan">Đóng</button>
       </div>
       <div id="qr-reader"></div>
     </div>
 
     <!-- ================================================================== -->
-    <!-- VIEW 1: MINIMALIST STUDENT MODE                                    -->
+    <!-- VIEW 1: STUDENT MODE                                               -->
     <!-- ================================================================== -->
     <section id="view-student">
 
-      <!-- 1A. STUDENT INFO & CLASS SELECTOR (CLEAN & COMPACT) -->
+      <!-- 1A. STUDENT IDENTITY & AUTO-SCHEDULE CLASS SELECTOR -->
       <div class="card">
-        <div class="card-title" style="margin-bottom:8px;">
-          <span data-i18n="stu_course_title">Thông tin Điểm danh</span>
-          <button class="btn btn-outline btn-sm" onclick="toggleAddCourseBox()" data-i18n="stu_add_course_btn">+ Link Course</button>
+        <div class="card-header">
+          <div class="card-title">
+            <svg class="icon"><use href="#ic-user"></use></svg>
+            <span data-i18n="stu_course_title">Thông tin Sinh viên</span>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="toggleAddCourseBox()" data-i18n="stu_add_course_btn">Đổi / Liên kết MSSV</button>
         </div>
 
         <div id="student-has-courses" class="hidden">
           <div class="student-id-pill" style="margin-bottom:10px;">
-            <span id="stu-bound-info">👤 Sinh viên</span>
+            <span id="stu-bound-info">Sinh viên</span>
           </div>
 
-          <select id="sel-student-inst" class="hidden" onchange="onStudentInstChange()"></select>
+          <label id="lbl-student-inst" class="hidden" data-i18n="stu_select_lecturer">Giảng viên:</label>
+          <select id="sel-student-inst" class="hidden" onchange="onStudentInstChange(false)"></select>
 
-          <label data-i18n="stu_select_class">Lớp học phần:</label>
+          <label for="sel-student-class" data-i18n="stu_select_class">Lớp học phần:</label>
           <select id="sel-student-class" style="margin-bottom:0;"></select>
+
+          <div id="stu-schedule-hint" class="schedule-hint-bar hidden"></div>
         </div>
 
         <div id="student-no-courses" class="hidden">
           <p class="subtext" data-i18n="stu_no_course_desc" style="margin-bottom:6px;">
-            Nhập MSSV để liên kết lớp học (chỉ cần nhập 1 lần đầu kỳ).
+            Nhập MSSV để liên kết lớp học (chỉ cần thực hiện 1 lần đầu kỳ).
           </p>
         </div>
 
         <!-- ONBOARDING / LINK NEW COURSE SUB-PANEL -->
-        <div id="box-add-course" class="hidden" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
-          <label data-i18n="stu_id_label">Mã số sinh viên (MSSV):</label>
-          <input type="text" id="inp-student-id" placeholder="Nhập MSSV..." />
+        <div id="box-add-course" class="hidden" style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border-subtle);">
+          <label for="inp-student-id" data-i18n="stu_id_label">Mã số sinh viên (MSSV):</label>
+          <input type="text" id="inp-student-id" placeholder="Nhập MSSV..." autocomplete="off" />
 
-          <button class="btn btn-primary" onclick="submitStudentOnboarding()" data-i18n="stu_register_btn">Verify Roster & Register Device</button>
+          <button class="btn btn-primary" onclick="submitStudentOnboarding()" data-i18n="stu_register_btn">Lưu & Liên kết Thiết bị</button>
 
           <div style="margin-top:8px; text-align:right;">
-            <a href="javascript:void(0)" style="font-size:0.75rem; color:var(--muted);" onclick="toggleAdvancedApiBox()" data-i18n="stu_toggle_api_link">
-              ⚙️ Cài đặt nâng cao
+            <a href="javascript:void(0)" style="font-size:0.76rem; color:var(--muted); text-decoration:none;" onclick="toggleAdvancedApiBox()" data-i18n="stu_toggle_api_link">
+              Cài đặt kết nối nâng cao
             </a>
           </div>
 
           <div id="box-advanced-api" class="hidden" style="margin-top:8px;">
             <div class="btn-row" style="margin-bottom:8px;">
-              <button class="btn btn-outline btn-sm" onclick="startCameraScanner('ONBOARD')" data-i18n="stu_scan_onboard_qr">📷 Scan Onboarding QR</button>
+              <button class="btn btn-outline btn-sm" onclick="startCameraScanner('ONBOARD')">
+                <svg class="icon icon-sm"><use href="#ic-qr"></use></svg>
+                <span data-i18n="stu_scan_onboard_qr">Quét QR Khóa học</span>
+              </button>
             </div>
-            <label data-i18n="stu_api_url_label">Web App URL:</label>
+            <label for="inp-onboard-api" data-i18n="stu_api_url_label">URL Web App:</label>
             <input type="text" id="inp-onboard-api" placeholder="https://script.google.com/macros/s/.../exec" />
           </div>
         </div>
       </div>
 
-      <!-- 1B. ULTRA-CLEAN 1-TAP CHECK-IN CARD -->
+      <!-- 1B. PRE-CHECK GPS PANEL & 1-TAP ATTENDANCE CARD -->
       <div class="card" id="card-daily-checkin">
-        <div class="card-title" style="margin-bottom:14px;">
-          <span data-i18n="stu_checkin_title">Điểm danh Lớp học</span>
-          <span id="gps-live-pill" class="badge-ok">Sẵn sàng</span>
+        <div class="card-header">
+          <div class="card-title">
+            <svg class="icon"><use href="#ic-crosshair"></use></svg>
+            <span data-i18n="stu_checkin_title">Điểm danh Lớp học</span>
+          </div>
+          <span id="gps-live-pill" class="badge-neutral">Sẵn sàng</span>
         </div>
 
-        <!-- Hidden anti-cheat state nodes (runs silently in background) -->
+        <!-- Hidden anti-cheat state nodes -->
         <div id="student-shield-box" class="hidden">
           <span id="shield-browser-status"></span>
           <span id="shield-device-status"></span>
           <span id="shield-id-status"></span>
         </div>
 
-        <button id="btn-start-checkin" class="btn btn-checkin-hero" onclick="handleOneTapGpsCheckIn()" data-i18n="stu_one_tap_checkin_btn">
-          📍 BẤM ĐỂ ĐIỂM DANH
+        <!-- REQUIREMENT 3: GPS PRE-CHECK PANEL (#gps-panel) -->
+        <div id="gps-panel">
+          <div class="gps-panel-top">
+            <div class="gps-status-group">
+              <span id="gps-dot" class="status-dot dot-idle"></span>
+              <span id="gps-readout" data-i18n="stu_gps_readout_idle">Chưa kiểm tra GPS (Bấm nút bên cạnh để kiểm tra thiết bị trước giờ học)</span>
+            </div>
+            <button type="button" id="btn-check-gps" class="btn btn-outline btn-sm" onclick="handleStudentPreCheckGps()">
+              <svg class="icon icon-sm"><use href="#ic-crosshair"></use></svg>
+              <span data-i18n="stu_btn_check_gps">Kiểm tra & Kích hoạt GPS</span>
+            </button>
+          </div>
+        </div>
+
+        <button id="btn-start-checkin" class="btn btn-checkin-hero" onclick="handleOneTapGpsCheckIn()">
+          <svg class="icon icon-lg"><use href="#ic-check"></use></svg>
+          <span id="btn-start-checkin-label" data-i18n="stu_one_tap_checkin_btn">ĐIỂM DANH NGAY</span>
         </button>
 
         <div id="stu-gps-telemetry" class="subtext hidden" style="margin-top:10px; margin-bottom:0; text-align:center; font-weight:600;"></div>
 
-        <!-- Hidden fallback scanner / manual box -->
+        <!-- TODAY'S VERIFIED RECEIPT PERSISTENCE -->
+        <div id="student-today-receipt" class="receipt-card hidden"></div>
+
+        <!-- Optional fallback QR scanner / manual box -->
         <div id="box-manual-qr" class="hidden" style="margin-top:10px;">
-          <button class="btn btn-outline btn-sm" onclick="startCameraScanner('CHECKIN')" data-i18n="stu_scan_checkin_btn">📷 Scan Classroom QR to Check In</button>
+          <button class="btn btn-outline btn-sm" onclick="startCameraScanner('CHECKIN')" data-i18n="stu_scan_checkin_btn">Quét mã QR phòng học</button>
           <input type="text" id="inp-manual-qr" />
-          <button class="btn btn-outline btn-sm" onclick="handleManualQrSubmit()" data-i18n="stu_submit_manual_qr">Submit Code with GPS</button>
+          <button class="btn btn-outline btn-sm" onclick="handleManualQrSubmit()" data-i18n="stu_submit_manual_qr">Gửi mã</button>
         </div>
       </div>
 
     </section>
 
     <!-- ================================================================== -->
-    <!-- VIEW 2: LECTURER MODE (ROTATING SHEET CODE AUTH & 100m STATION)    -->
+    <!-- VIEW 2: LECTURER MODE                                              -->
     <!-- ================================================================== -->
     <section id="view-teacher" class="hidden">
 
-      <!-- 2A. LECTURER LOGIN CARD (NO CODE HINT LEAKED TO STUDENTS) -->
+      <!-- 2A. LECTURER LOGIN CARD -->
       <div id="card-teacher-login" class="card">
-        <div class="card-title" data-i18n="tea_login_title">Đăng nhập Giảng viên</div>
+        <div class="card-header">
+          <div class="card-title">
+            <svg class="icon"><use href="#ic-lock"></use></svg>
+            <span data-i18n="tea_login_title">Đăng nhập Giảng viên</span>
+          </div>
+        </div>
         <p class="subtext" data-i18n="tea_login_desc">
           Nhập Mã phiên 6 số hiển thị trong Google Sheet (tự động đổi mới theo phiên) hoặc Master Key.
         </p>
 
-        <label data-i18n="tea_token_label">Mật khẩu phiên (trên Sheet) hoặc Master Key:</label>
+        <label for="inp-tea-token" data-i18n="tea_token_label">Mật khẩu phiên (trên Sheet) hoặc Master Key:</label>
         <input type="password" id="inp-tea-token" placeholder="Nhập mã bảo mật từ Google Sheet..." autocomplete="off" />
 
-        <label data-i18n="tea_session_type_label">Chế độ lưu đăng nhập:</label>
+        <label for="sel-tea-persistence" data-i18n="tea_session_type_label">Chế độ lưu đăng nhập:</label>
         <select id="sel-tea-persistence">
           <option value="LOCAL" selected data-i18n="tea_persist_phone">Thiết bị cá nhân của Giảng viên (Giữ đăng nhập)</option>
-          <option value="SESSION" data-i18n="tea_persist_pc">Máy tính phòng học (Tự đăng xuất khi đóng tab)</option>
+          <option value="SESSION" data-i18n="tea_persist_pc">Máy tính phòng học (Tự đăng xuất khi đóng tab / 60p)</option>
         </select>
 
-        <button class="btn btn-primary" onclick="loginTeacher()" data-i18n="tea_login_btn">Sign In to Teacher Mode</button>
+        <button class="btn btn-primary" onclick="loginTeacher()" data-i18n="tea_login_btn">Đăng nhập Giảng viên</button>
 
         <div style="margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
-          <button class="btn btn-outline btn-sm" onclick="startCameraScanner('TEACHER_PAIR')" data-i18n="tea_scan_pair_qr">📷 Scan Lecturer Pairing QR</button>
-          <a href="javascript:void(0)" style="font-size:0.76rem; color:var(--muted);" onclick="toggleTeacherApiBox()">
-            ⚙️ Cấu hình URL
+          <button class="btn btn-outline btn-sm" onclick="startCameraScanner('TEACHER_PAIR')">
+            <svg class="icon icon-sm"><use href="#ic-qr"></use></svg>
+            <span data-i18n="tea_scan_pair_qr">Quét QR Ghép nối</span>
+          </button>
+          <a href="javascript:void(0)" style="font-size:0.76rem; color:var(--muted); text-decoration:none;" onclick="toggleTeacherApiBox()">
+            Cấu hình URL
           </a>
         </div>
 
-        <div id="box-tea-api-advanced" class="hidden" style="margin-top:10px; padding:10px; background:#f8fafc; border-radius:10px; border:1px solid var(--border);">
-          <label data-i18n="tea_api_url_label">Web App URL:</label>
+        <div id="box-tea-api-advanced" class="hidden" style="margin-top:10px; padding:10px; background:var(--surface); border-radius:8px; border:1px solid var(--border);">
+          <label for="inp-tea-api" data-i18n="tea_api_url_label">URL Web App (ô B4):</label>
           <input type="text" id="inp-tea-api" placeholder="https://script.google.com/macros/s/.../exec" style="margin-bottom:6px;" />
-          <button class="btn btn-outline btn-sm" onclick="resetToDefaultLecturerApi()">🔄 Khôi phục mặc định</button>
+          <button class="btn btn-outline btn-sm" onclick="resetToDefaultLecturerApi()">Khôi phục URL mặc định</button>
         </div>
       </div>
 
       <!-- 2B. ACTIVE TEACHER DASHBOARD -->
       <div id="box-teacher-dashboard" class="hidden">
 
-        <!-- PANEL 1: 100m GPS STATION & SESSION CONTROL -->
+        <!-- PANEL 1: CLASS SELECTOR, GPS STATION & ISOLATED SESSION CONTROL -->
         <div class="card">
-          <div class="card-title">
-            <span data-i18n="tea_panel1_title">1. Điều khiển Điểm danh</span>
+          <div class="card-header">
+            <div class="card-title">
+              <svg class="icon"><use href="#ic-crosshair"></use></svg>
+              <span data-i18n="tea_panel1_title">1. Trạm Định vị & Thông tin Lớp học</span>
+            </div>
             <div style="display:flex; gap:6px;">
-              <button class="btn btn-outline btn-sm" onclick="toggleProjectorFullscreen()" data-i18n="tea_fullscreen_btn">🖥️ Projector View</button>
-              <button class="btn btn-outline btn-sm" onclick="refreshTeacherState()" title="Làm mới">🔄</button>
+              <button class="btn btn-outline btn-sm" onclick="toggleProjectorFullscreen()">
+                <svg class="icon icon-sm"><use href="#ic-maximize"></use></svg>
+                <span data-i18n="tea_fullscreen_btn">Toàn màn hình</span>
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="refreshTeacherState()" title="Làm mới dữ liệu">
+                <svg class="icon icon-sm"><use href="#ic-refresh"></use></svg>
+                <span>Làm mới</span>
+              </button>
             </div>
           </div>
 
-          <label data-i18n="tea_select_class">Lớp học phần:</label>
-          <select id="sel-tea-class" onchange="onTeacherClassChange()"></select>
+          <!-- REAL-TIME CLASS SELECTION & OVERVIEW BOX -->
+          <div class="teacher-class-overview">
+            <label for="sel-tea-class" data-i18n="tea_select_class">Lớp học phần đang điều khiển:</label>
+            <select id="sel-tea-class" onchange="onTeacherClassChange()" style="margin-bottom:6px;"></select>
+            <div class="teacher-class-meta">
+              <span>Lớp đang chọn: <strong id="tea-selected-class-display">Chưa chọn lớp</strong></span>
+            </div>
+            <div id="tea-schedule-hint" class="schedule-hint-bar"></div>
+          </div>
 
           <div class="projector-grid">
-            <!-- Left: GPS Station Info -->
+            <!-- Left: GPS Station & Poster -->
             <div class="gps-station-box" id="printable-poster">
-              <div class="radar-circle">📍</div>
-              <div style="font-weight:800; font-size:1.15rem; color:var(--primary); margin-bottom:12px;" id="poster-class-title">
+              <div class="radar-circle">
+                <svg class="icon icon-xl"><use href="#ic-crosshair"></use></svg>
+              </div>
+              <div style="font-weight:700; font-size:1.05rem; color:var(--primary); margin-bottom:10px;" id="poster-class-title">
                 Lớp học phần
               </div>
               <div class="hidden" id="tea-gps-coords-badge"></div>
               <div class="hidden" id="poster-qr-subtitle"></div>
 
               <button class="btn btn-outline btn-sm no-print" onclick="teacherCalibrateRoomGpsNow()">
-                📍 Đặt vị trí máy này làm Tâm
+                <svg class="icon icon-sm"><use href="#ic-crosshair"></use></svg>
+                <span>Đặt vị trí thiết bị này làm Tâm</span>
               </button>
 
-              <div id="teacher-qr-canvas" class="hidden" style="margin-top:10px; padding:10px; background:#fff; border-radius:10px;"></div>
+              <div id="teacher-qr-canvas" class="hidden" style="margin-top:10px; padding:10px; background:#fff; border-radius:8px; border:1px solid var(--border);"></div>
             </div>
 
-            <!-- Right: Timer & Controls -->
+            <!-- Right: Timer, Live Counter & ISOLATED SESSION CONTROL BLOCK -->
             <div>
-              <div id="tea-session-badge" style="text-align:center; font-weight:700; font-size:0.9rem; color:var(--muted);">
-                🔒 ĐANG ĐÓNG
+              <div style="text-align:center; margin-bottom:4px;">
+                <span id="tea-session-badge" class="badge-err">PHIÊN ĐANG ĐÓNG</span>
               </div>
               <div class="timer-big" id="tea-countdown">00:00</div>
 
               <div class="counter-badge">
-                <span id="tea-live-count">0 / 0</span>
-                <div style="font-size:0.8rem; font-weight:500; color:var(--muted);" id="tea-live-breakdown">Có mặt: 0 | Đi trễ: 0</div>
+                <span id="tea-live-count">0 / 0 Có mặt</span>
+                <div style="font-size:0.78rem; font-weight:500; color:var(--muted); margin-top:2px;" id="tea-live-breakdown">
+                  Có mặt (P): 0 | Đi trễ (L): 0 | Vắng (-): 0
+                </div>
               </div>
 
-              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:10px 0; background:#f0fdf4; padding:8px 10px; border-radius:8px; border:1px solid #bbf7d0;">
-                <input type="checkbox" id="chk-use-phone-gps" checked style="width:18px; height:18px;" />
-                <span data-i18n="tea_calibrate_gps_chk">📍 Cập nhật Tâm theo GPS máy này khi Bắt đầu</span>
-              </label>
+              <!-- REQUIREMENT 5: ISOLATED OPEN/CLOSE SESSION BLOCK WITH 2-STEP INLINE CONFIRM -->
+              <div id="teacher-session-control-box" class="session-control-isolated no-print">
+                <div class="session-control-header">
+                  <span>Điều khiển Mở / Đóng Phiên Điểm Danh</span>
+                </div>
 
-              <button id="btn-tea-start" class="btn btn-accent" onclick="teacherStartSession()" data-i18n="tea_start_btn">
-                ▶️ START ATTENDANCE
-              </button>
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:0 0 10px 0; background:var(--surface); padding:8px 10px; border-radius:6px; border:1px solid var(--border-subtle);">
+                  <input type="checkbox" id="chk-use-phone-gps" checked style="width:16px; height:16px;" />
+                  <span data-i18n="tea_calibrate_gps_chk">Cập nhật Tâm phòng học theo GPS thiết bị này khi Mở phiên</span>
+                </label>
 
-              <div class="btn-row">
-                <button class="btn btn-outline btn-sm" onclick="teacherControlSession('EXTEND_2M')" data-i18n="tea_extend_btn">+2 Mins</button>
-                <button class="btn btn-outline btn-sm" onclick="teacherControlSession('REOPEN_5M')" data-i18n="tea_reopen_btn">Reopen 5m</button>
-                <button class="btn btn-danger btn-sm" onclick="teacherControlSession('CLOSE_NOW')" data-i18n="tea_close_btn">Close Now</button>
+                <!-- Step 1 Trigger Button -->
+                <button id="btn-tea-open-trigger" class="btn btn-accent" onclick="promptOpenSessionConfirm()">
+                  <svg class="icon"><use href="#ic-check"></use></svg>
+                  <span data-i18n="tea_open_trigger_btn">Mở phiên điểm danh</span>
+                </button>
+
+                <!-- Step 2 Inline Confirmation Box (Hidden until Step 1 clicked) -->
+                <div id="tea-open-confirm-bar" class="two-step-confirm-box hidden">
+                  <div id="tea-open-confirm-text" class="two-step-confirm-label">
+                    Xác nhận mở phiên điểm danh cho lớp này?
+                  </div>
+                  <div class="btn-row" style="margin-top:0;">
+                    <button type="button" class="btn btn-outline" onclick="cancelOpenSessionConfirm()" data-i18n="tea_cancel_open_btn">
+                      Hủy
+                    </button>
+                    <button type="button" id="btn-tea-confirm-open" class="btn btn-accent" onclick="confirmAndStartSession()">
+                      Xác nhận mở lớp
+                    </button>
+                  </div>
+                </div>
+
+                <div class="btn-row" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border-subtle);">
+                  <button class="btn btn-outline btn-sm" onclick="teacherControlSession('EXTEND_2M')" data-i18n="tea_extend_btn">+2 Phút</button>
+                  <button class="btn btn-outline btn-sm" onclick="teacherControlSession('REOPEN_5M')" data-i18n="tea_reopen_btn">Mở lại 5 phút</button>
+                  <button class="btn btn-danger btn-sm" onclick="teacherControlSession('CLOSE_NOW')" data-i18n="tea_close_btn">Đóng phiên ngay</button>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- PANEL 2: LIVE ROSTER & ANTI-CHEAT -->
+        <!-- PANEL 2: LIVE ROSTER, QUICK FILTERS & ANTI-CHEAT -->
         <div class="card no-print">
-          <div class="card-title">
-            <span data-i18n="tea_panel2_title">2. Danh sách Lớp & Kiểm tra Ngẫu nhiên</span>
+          <div class="card-header">
+            <div class="card-title">
+              <svg class="icon"><use href="#ic-user"></use></svg>
+              <span data-i18n="tea_panel2_title">2. Danh sách Lớp & Kiểm tra Ngẫu nhiên</span>
+            </div>
             <div style="display:flex; gap:6px; flex-wrap:wrap;">
-              <button class="btn btn-primary btn-sm" onclick="triggerRandomSpotCheck()" data-i18n="tea_spot_check_btn">🎲 Gọi ngẫu nhiên 1 SV</button>
-              <button class="btn btn-outline btn-sm" onclick="toggleRosterVisibility()" id="btn-toggle-names" data-i18n="tea_show_hide_names">👁️ Show/Hide List</button>
+              <button class="btn btn-primary btn-sm" onclick="triggerRandomSpotCheck()">
+                <svg class="icon icon-sm"><use href="#ic-shuffle"></use></svg>
+                <span data-i18n="tea_spot_check_btn">Gọi ngẫu nhiên 1 SV</span>
+              </button>
+              <button class="btn btn-outline btn-sm" id="btn-toggle-privacy" onclick="toggleProjectorPrivacy()">
+                <svg class="icon icon-sm"><use href="#ic-lock"></use></svg>
+                <span data-i18n="tea_privacy_btn">Che MSSV</span>
+              </button>
+              <button class="btn btn-outline btn-sm" id="btn-toggle-names" onclick="toggleRosterVisibility()">
+                <svg class="icon icon-sm"><use href="#ic-eye"></use></svg>
+                <span data-i18n="tea_show_hide_names">Ẩn/Hiện danh sách</span>
+              </button>
             </div>
           </div>
 
-          <div id="tea-suspect-banner" class="alert alert-warn hidden" style="font-size:0.84rem;"></div>
+          <div id="tea-suspect-banner" class="alert alert-warn hidden" style="font-size:0.82rem;"></div>
 
-          <input type="text" id="inp-roster-search" placeholder="🔍 Tìm MSSV hoặc Họ tên..." oninput="renderTeacherRoster()" />
+          <div class="roster-toolbar">
+            <div class="roster-filter-bar">
+              <button type="button" id="tab-filter-all" class="filter-tab active" data-roster-filter="ALL" onclick="setRosterFilter('ALL')">Tất cả (0)</button>
+              <button type="button" id="tab-filter-present" class="filter-tab" data-roster-filter="PRESENT" onclick="setRosterFilter('PRESENT')">Có mặt (0)</button>
+              <button type="button" id="tab-filter-absent" class="filter-tab" data-roster-filter="ABSENT" onclick="setRosterFilter('ABSENT')">Vắng (0)</button>
+              <button type="button" id="tab-filter-suspect" class="filter-tab" data-roster-filter="SUSPECT" onclick="setRosterFilter('SUSPECT')">Nghi vấn (0)</button>
+            </div>
+            <input type="text" id="inp-roster-search" placeholder="Tìm theo MSSV hoặc Họ tên sinh viên..." oninput="renderTeacherRoster()" style="margin-bottom:0;" />
+          </div>
 
           <div id="tea-roster-container" class="roster-list"></div>
         </div>
 
         <!-- PANEL 3: ADMIN TOOLS -->
         <div class="card no-print">
-          <div class="card-title" data-i18n="tea_panel4_title">3. Quản trị Lớp học</div>
-
-          <div class="btn-row" style="margin-bottom:8px;">
-            <button id="btn-reg-gate-toggle" class="btn btn-outline btn-sm" onclick="teacherToggleRegGate()">
-              New Student Registration: OPEN
-            </button>
-            <button class="btn btn-outline btn-sm" onclick="teacherRebuildSheet()" data-i18n="tea_rebuild_sheet_btn">📊 Sync Sheet Grids</button>
-            <button class="btn btn-danger btn-sm" onclick="logoutTeacher()" data-i18n="tea_logout_btn">Sign Out</button>
+          <div class="card-header">
+            <div class="card-title">
+              <svg class="icon"><use href="#ic-database"></use></svg>
+              <span data-i18n="tea_panel4_title">3. Quản trị & Đồng bộ</span>
+            </div>
           </div>
 
-          <!-- Hidden legacy buttons preserved for compatibility -->
+          <div class="btn-row">
+            <button id="btn-reg-gate-toggle" class="btn btn-outline btn-sm" onclick="teacherToggleRegGate()">
+              Đăng ký Thiết bị Mới: ĐANG MỞ
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="teacherRebuildSheet()" data-i18n="tea_rebuild_sheet_btn">
+              Đồng bộ vào Google Sheet
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="logoutTeacher()" data-i18n="tea_logout_btn">
+              Đăng xuất
+            </button>
+          </div>
+
+          <!-- Hidden legacy buttons preserved for backward compatibility -->
           <div class="hidden">
             <button id="btn-qr-mode-toggle" onclick="toggleQrMode()">QR Mode: STATIC</button>
-            <button onclick="window.print()" data-i18n="tea_print_qr_btn">🖨️ Print Classroom QR Poster</button>
-            <button onclick="teacherRotateStaticQr()" data-i18n="tea_replace_qr_btn">🔑 Replace Static QR Secret</button>
+            <button onclick="window.print()" data-i18n="tea_print_qr_btn">In bảng QR</button>
+            <button onclick="teacherRotateStaticQr()" data-i18n="tea_replace_qr_btn">Đổi khóa QR</button>
           </div>
         </div>
 
@@ -655,7 +458,7 @@
 
   </main>
 
-  <!-- IN-PAGE MODAL -->
+  <!-- IN-PAGE CONFIRMATION MODAL -->
   <div id="app-modal" class="modal-backdrop hidden no-print">
     <div class="modal-card">
       <div id="app-modal-title" class="modal-title">Xác nhận</div>
@@ -667,1390 +470,9 @@
     </div>
   </div>
 
-  <script>
-    /**
-     * ========================================================================
-     * 0. MASTER SHEET CONNECTION SETTINGS
-     * ========================================================================
-     */
-    const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbzZjnmd3XzGpdccZLPKzxRy84V9KTE8rdI3Y7oSFbZTfv_Fo9sfGbMDHmoG7_4itfmX/exec';
-    const LEGACY_LECTURER_APIS = [
-      'https://script.google.com/macros/s/AKfycbxc9TUVcoQ9BFtcXl9_lSvI5c1AntDOn56DwpsDtDiK9p5P8blbutJmgLq_mHEJGWT2/exec',
-      'https://script.google.com/macros/s/AKfycbwbpZhoQtQJjPhvmsVg8vNxhPL4v2bcXDWUewxSIlMgf8iGq75lr6vzZZwVMiQ-YaS7/exec',
-      'https://script.google.com/macros/s/AKfycbzuSyHCUnHiMsLr6r-VEfPK8ghEHiWO0109azkoo1VstAMhfoBQ9v1agRj3gsHNXIw/exec',
-      'https://script.google.com/macros/s/AKfycbz01o_3_O5PxuDq9V8uQ0cJy1ahCgEcM_QSlgNHLvkD8awXq0QCnf3HmoSRQl4PxBQM/exec'
-    ];
-    const DEFAULT_LECTURER_NAME = 'Tran Nguyen Trung';
-    const DEFAULT_INST_ID = 'INST_iECj3Sep5K';
-
-    const KNOWN_CLASS_SECRETS = {
-      '2610AVCB002': 'QR_2610AVCB002_2CM2J4',
-      '2610AVCB003': 'QR_2610AVCB003_EPCZFV',
-      '2610AVCB004': 'QR_2610AVCB004_27AFXR',
-      'ENG101_G1': 'QR_ENG101_KGX2AS'
-    };
-
-    /**
-     * ========================================================================
-     * 1. CONCISE BILINGUAL DICTIONARY (VI / EN)
-     * ========================================================================
-     */
-    const I18N = {
-      vi: {
-        cam_modal_title: "📷 Quét mã QR",
-        stu_course_title: "Thông tin Sinh viên",
-        stu_add_course_btn: "Đổi / Liên kết MSSV",
-        stu_select_lecturer: "Giảng viên:",
-        stu_select_class: "Lớp học phần:",
-        stu_no_course_desc: "Nhập MSSV để liên kết lớp học (chỉ cần nhập 1 lần đầu kỳ).",
-        stu_scan_onboard_qr: "📷 Quét QR Khóa học",
-        stu_toggle_api_link: "⚙️ Cài đặt nâng cao",
-        stu_api_url_label: "URL Web App:",
-        stu_id_label: "Mã số sinh viên (MSSV):",
-        stu_register_btn: "Lưu & Liên kết MSSV",
-        stu_checkin_title: "Điểm danh Lớp học",
-        btn_cancel_scan: "Đóng",
-        stu_one_tap_checkin_btn: "📍 BẤM ĐỂ ĐIỂM DANH",
-        stu_scan_checkin_btn: "📷 Quét QR",
-        stu_submit_manual_qr: "Gửi",
-        tea_login_title: "Đăng nhập Giảng viên",
-        tea_login_desc: "Nhập Mã phiên 6 số hiển thị trong Google Sheet (tự động đổi mới theo phiên) hoặc Master Key.",
-        tea_scan_pair_qr: "📷 Quét QR Ghép nối",
-        tea_api_url_label: "URL Web App (ô B4):",
-        tea_token_label: "Mật khẩu phiên (trên Sheet) hoặc Master Key:",
-        tea_session_type_label: "Thiết bị:",
-        tea_persist_phone: "Thiết bị cá nhân của Giảng viên (Giữ đăng nhập)",
-        tea_persist_pc: "Máy tính phòng học (Tự đăng xuất khi đóng tab)",
-        tea_login_btn: "Đăng nhập",
-        tea_panel1_title: "1. Điều khiển Điểm danh",
-        tea_fullscreen_btn: "🖥️ Toàn màn hình",
-        tea_select_class: "Lớp học phần:",
-        tea_calibrate_gps_chk: "📍 Cập nhật Tâm theo GPS máy này khi Bắt đầu",
-        tea_start_btn: "▶️ BẮT ĐẦU ĐIỂM DANH",
-        tea_extend_btn: "+2 Phút",
-        tea_reopen_btn: "Mở lại 5p",
-        tea_close_btn: "Đóng ngay",
-        tea_panel2_title: "2. Danh sách Lớp & Kiểm tra Ngẫu nhiên",
-        tea_spot_check_btn: "🎲 Gọi ngẫu nhiên 1 SV",
-        tea_show_hide_names: "👁️ Ẩn/Hiện",
-        tea_panel4_title: "3. Quản trị Lớp học",
-        tea_print_qr_btn: "🖨️ In QR",
-        tea_replace_qr_btn: "🔑 Đổi khóa",
-        tea_rebuild_sheet_btn: "📊 Đồng bộ vào Sheet",
-        tea_logout_btn: "Đăng xuất",
-        ONBOARD_CONFIRMED: "✅ Đã lưu: {name} ({id}).",
-        CONFIRMED_PRESENT: "✅ ĐIỂM DANH THÀNH CÔNG: CÓ MẶT ({time} • {dist}m)",
-        CONFIRMED_LATE: "🕒 ĐIỂM DANH THÀNH CÔNG: ĐI TRỄ ({time} • {dist}m)",
-        ALREADY_RECORDED: "ℹ️ Bạn đã điểm danh buổi này rồi ({status} lúc {time}).",
-        ERR_NOT_ON_ROSTER: "❌ Không tìm thấy MSSV {id} trong danh sách lớp.",
-        ERR_DEVICE_BOUND_OTHER: "⛔ Thiết bị này đã được gắn với một MSSV khác!",
-        ERR_CREDENTIAL_MISMATCH: "⚠️ Thiết bị/trình duyệt không khớp với lần đăng ký đầu của MSSV {id}. Hãy báo giảng viên mở khóa nếu bạn đổi máy.",
-        ERR_REG_LOCKED: "🔒 Giảng viên hiện đang khóa đăng ký thiết bị mới.",
-        ERR_SESSION_CLOSED: "🔒 Cổng điểm danh hiện đang đóng.",
-        ERR_INVALID_QR: "⚠️ Mã phiên không hợp lệ.",
-        ERR_LOCATION_OUT_OF_RANGE: "📍 Ngoài phạm vi lớp học (Cách {dist}m / Cho phép ≤ {max}m). Hãy lại gần hơn và thử lại.",
-        ERR_GPS_UNAVAILABLE: "📍 Vui lòng bật Định vị (GPS) trên trình duyệt rồi bấm lại.",
-        ERR_SERVER_BUSY: "⏳ Đang xử lý, vui lòng chờ...",
-        ERR_UNAUTHORIZED: "⛔ Mật khẩu phiên không đúng hoặc đã hết hạn trên Sheet. Hãy mở menu '🎓 Attendance Admin -> 4. View Teacher Pairing' trong Google Sheet để lấy mã mới.",
-        DEVICE_RESET_OK: "🔓 Đã mở khóa thiết bị cho MSSV {id}."
-      },
-      en: {
-        cam_modal_title: "📷 Scan QR",
-        stu_course_title: "Student Info",
-        stu_add_course_btn: "Change / Link ID",
-        stu_select_lecturer: "Lecturer:",
-        stu_select_class: "Class:",
-        stu_no_course_desc: "Enter your Student ID once to link your classes.",
-        stu_scan_onboard_qr: "📷 Scan Onboarding QR",
-        stu_toggle_api_link: "⚙️ Advanced Settings",
-        stu_api_url_label: "Web App URL:",
-        stu_id_label: "Student ID (MSSV):",
-        stu_register_btn: "Save & Bind Device",
-        stu_checkin_title: "Class Attendance",
-        btn_cancel_scan: "Close",
-        stu_one_tap_checkin_btn: "📍 TAP TO CHECK IN",
-        stu_scan_checkin_btn: "📷 Scan QR",
-        stu_submit_manual_qr: "Submit",
-        tea_login_title: "Lecturer Sign In",
-        tea_login_desc: "Enter the rotating 6-digit session code from your Google Sheet or your Master Key.",
-        tea_scan_pair_qr: "📷 Scan Pairing QR",
-        tea_api_url_label: "Web App URL (Cell B4):",
-        tea_token_label: "Rotating Sheet Code or Master Key:",
-        tea_session_type_label: "Session Mode:",
-        tea_persist_phone: "Personal Lecturer Device (Stay Signed In)",
-        tea_persist_pc: "Shared Classroom PC (Auto-Logout on close)",
-        tea_login_btn: "Sign In",
-        tea_panel1_title: "1. Attendance Control",
-        tea_fullscreen_btn: "🖥️ Fullscreen",
-        tea_select_class: "Class:",
-        tea_calibrate_gps_chk: "📍 Set center to this device's GPS on Start",
-        tea_start_btn: "▶️ START ATTENDANCE",
-        tea_extend_btn: "+2 Mins",
-        tea_reopen_btn: "Reopen 5m",
-        tea_close_btn: "Close Now",
-        tea_panel2_title: "2. Class Roster & Spot-Check",
-        tea_spot_check_btn: "🎲 Random Spot-Check",
-        tea_show_hide_names: "👁️ Show/Hide",
-        tea_panel4_title: "3. Class Admin",
-        tea_print_qr_btn: "🖨️ Print QR",
-        tea_replace_qr_btn: "🔑 Rotate Secret",
-        tea_rebuild_sheet_btn: "📊 Sync to Sheet",
-        tea_logout_btn: "Sign Out",
-        ONBOARD_CONFIRMED: "✅ Linked: {name} ({id}).",
-        CONFIRMED_PRESENT: "✅ PRESENT ({time} • {dist}m)",
-        CONFIRMED_LATE: "🕒 LATE ({time} • {dist}m)",
-        ALREADY_RECORDED: "ℹ️ Already recorded ({status} at {time}).",
-        ERR_NOT_ON_ROSTER: "❌ Student ID {id} not found on roster.",
-        ERR_DEVICE_BOUND_OTHER: "⛔ This device is already bound to another Student ID!",
-        ERR_CREDENTIAL_MISMATCH: "⚠️ Device mismatch for Student ID {id}. Ask your lecturer to reset your device lock.",
-        ERR_REG_LOCKED: "🔒 New device registration is locked.",
-        ERR_SESSION_CLOSED: "🔒 Attendance is currently closed.",
-        ERR_INVALID_QR: "⚠️ Invalid session token.",
-        ERR_LOCATION_OUT_OF_RANGE: "📍 Out of range ({dist}m away / max {max}m).",
-        ERR_GPS_UNAVAILABLE: "📍 Please allow Location (GPS) access and try again.",
-        ERR_SERVER_BUSY: "⏳ Processing, please wait...",
-        ERR_UNAUTHORIZED: "⛔ Invalid or expired session code. Refresh the code in Google Sheet via '🎓 Attendance Admin -> 4. View Teacher Pairing'.",
-        DEVICE_RESET_OK: "🔓 Device reset for {id}."
-      }
-    };
-
-    /**
-     * ========================================================================
-     * 2. STORAGE & SILENT HARDWARE FINGERPRINT
-     * ========================================================================
-     */
-    function safeGetLocal(key, fallback = null) {
-      try {
-        const val = localStorage.getItem(key);
-        return val !== null ? val : fallback;
-      } catch (e) {
-        return fallback;
-      }
-    }
-
-    function safeSetLocal(key, val) {
-      try { localStorage.setItem(key, val); } catch (e) {}
-    }
-
-    function safeRemoveLocal(key) {
-      try { localStorage.removeItem(key); } catch (e) {}
-    }
-
-    function safeGetSession(key, fallback = null) {
-      try {
-        const val = sessionStorage.getItem(key);
-        return val !== null ? val : fallback;
-      } catch (e) {
-        return fallback;
-      }
-    }
-
-    function safeSetSession(key, val) {
-      try { sessionStorage.setItem(key, val); } catch (e) {}
-    }
-
-    function safeRemoveSession(key) {
-      try { sessionStorage.removeItem(key); } catch (e) {}
-    }
-
-    function normalizeApiUrl(url) {
-      const clean = String(url || '').trim();
-      if (
-        !clean ||
-        LEGACY_LECTURER_APIS.includes(clean) ||
-        !clean.startsWith('https://script.google.com/macros/s/') ||
-        !clean.endsWith('/exec')
-      ) {
-        return DEFAULT_LECTURER_API;
-      }
-      return clean;
-    }
-
-    function migrateStoredUrls() {
-      const profiles = getStudentProfiles();
-      let changed = false;
-      Object.keys(profiles).forEach(k => {
-        const norm = normalizeApiUrl(profiles[k].apiUrl);
-        if (profiles[k].apiUrl !== norm) {
-          profiles[k].apiUrl = norm;
-          changed = true;
-        }
-      });
-      if (changed) safeSetLocal('cc_student_profiles', JSON.stringify(profiles));
-
-      const tAuth = getTeacherAuth();
-      if (tAuth) {
-        const norm = normalizeApiUrl(tAuth.apiUrl);
-        if (tAuth.apiUrl !== norm) {
-          tAuth.apiUrl = norm;
-          safeSetLocal('cc_teacher_auth', JSON.stringify(tAuth));
-        }
-      }
-    }
-
-    let currentLang = safeGetLocal('cc_lang', 'vi');
-    let currentMode = 'STUDENT';
-    let html5QrScanner = null;
-    let activeScanPurpose = null;
-
-    let teacherState = null;
-    let teacherPollTimer = null;
-    let teacherCountdownTimer = null;
-    let teacherRotatingQrTimer = null;
-    let showRosterNames = true;
-    let checkInCooldownTimer = null;
-
-    function getOrCreateDeviceCredential() {
-      let cred = safeGetLocal('cc_device_cred', '');
-      if (!cred || cred.length < 20) {
-        const arr = new Uint8Array(24);
-        window.crypto.getRandomValues(arr);
-        cred = 'CRED_' + Array.from(arr, b => ('0' + b.toString(16)).slice(-2)).join('');
-        safeSetLocal('cc_device_cred', cred);
-      }
-      return cred;
-    }
-
-    function getHardwareFingerprint() {
-      try {
-        const scr = window.screen || {};
-        const nav = window.navigator || {};
-        let glRenderer = '';
-        try {
-          const canvas = document.createElement('canvas');
-          const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-          if (gl) {
-            const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-            if (dbg) glRenderer = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '';
-          }
-        } catch (e) {}
-
-        return [
-          nav.platform || '',
-          scr.width + 'x' + scr.height,
-          scr.colorDepth || '',
-          window.devicePixelRatio || 1,
-          nav.hardwareConcurrency || '',
-          nav.deviceMemory || '',
-          Intl.DateTimeFormat().resolvedOptions().timeZone || '',
-          glRenderer
-        ].join('|');
-      } catch (e) {
-        return 'FP_DEFAULT';
-      }
-    }
-
-    function getStudentProfiles() {
-      try { return JSON.parse(safeGetLocal('cc_student_profiles', '{}')); } catch (e) { return {}; }
-    }
-
-    function saveStudentProfile(instId, profileObj) {
-      const all = getStudentProfiles();
-      all[instId] = profileObj;
-      safeSetLocal('cc_student_profiles', JSON.stringify(all));
-      safeSetLocal('cc_active_inst', instId);
-    }
-
-    function getTeacherAuth() {
-      try {
-        const localData = safeGetLocal('cc_teacher_auth', null);
-        if (localData) return JSON.parse(localData);
-        const sesData = safeGetSession('cc_teacher_auth', null);
-        if (sesData) return JSON.parse(sesData);
-      } catch (e) {}
-      return null;
-    }
-
-    function saveTeacherAuth(apiUrl, token, persistence) {
-      const payload = JSON.stringify({ apiUrl: normalizeApiUrl(apiUrl), token });
-      if (persistence === 'LOCAL') {
-        safeSetLocal('cc_teacher_auth', payload);
-      } else {
-        safeSetSession('cc_teacher_auth', payload);
-      }
-    }
-
-    function evaluateStudentAntiCheat() {
-      const ua = navigator.userAgent || '';
-      const isInApp = /Zalo|FBAN|FBAV|Messenger|Instagram|BytedanceWebview|TikTok|Line\/|MicroMessenger/i.test(ua);
-      return {
-        isInApp,
-        isSecondaryMobileBrowser: false,
-        browserOk: !isInApp,
-        deviceOk: true
-      };
-    }
-
-    function inspectGpsForSpoofing(pos) {
-      if (!pos || !pos.coords) return { suspicious: true, hardBlock: true, reason: 'No GPS' };
-      const c = pos.coords;
-      if (typeof c.accuracy !== 'number' || c.accuracy <= 0) {
-        return { suspicious: true, hardBlock: true, reason: 'Invalid accuracy' };
-      }
-      try {
-        const fnStr = Function.prototype.toString.call(navigator.geolocation.getCurrentPosition);
-        if (!fnStr.includes('[native code]')) {
-          return { suspicious: true, hardBlock: false, reason: 'F12_GEO_OVERRIDE' };
-        }
-      } catch (e) {}
-      return { suspicious: false, hardBlock: false, reason: '' };
-    }
-
-    /**
-     * ========================================================================
-     * 3. INITIALIZATION
-     * ========================================================================
-     */
-    window.addEventListener('DOMContentLoaded', () => {
-      getOrCreateDeviceCredential();
-      migrateStoredUrls();
-
-      document.getElementById('inp-onboard-api').value = DEFAULT_LECTURER_API;
-      document.getElementById('inp-tea-api').value = DEFAULT_LECTURER_API;
-
-      applyLanguage();
-      checkIosStandaloneNotice();
-      handleUrlDeepLinks();
-      renderStudentCourseSelectors();
-    });
-
-    function checkIosStandaloneNotice() {
-      const banner = document.getElementById('ios-install-banner');
-      if (currentMode === 'TEACHER') {
-        banner.classList.add('hidden');
-        return;
-      }
-      const check = evaluateStudentAntiCheat();
-      if (!check.browserOk) {
-        document.getElementById('t-ios-guard').textContent =
-          currentLang === 'vi'
-            ? '⛔ Vui lòng mở bằng trình duyệt chính (Safari, Chrome, Cốc Cốc, Edge), không mở trực tiếp trong Zalo/Messenger.'
-            : '⛔ Please open in Safari, Chrome, CocCoc, or Edge (not inside Zalo/Messenger).';
-        banner.classList.remove('hidden');
-      } else {
-        banner.classList.add('hidden');
-      }
-    }
-
-    function handleUrlDeepLinks() {
-      const params = new URLSearchParams(window.location.search);
-      const onboardB64 = params.get('onboard');
-      const pairB64 = params.get('pair');
-
-      if (onboardB64) {
-        try {
-          const decoded = JSON.parse(atob(onboardB64.replace(/-/g, '+').replace(/_/g, '/')));
-          if (decoded.api) {
-            document.getElementById('inp-onboard-api').value = normalizeApiUrl(decoded.api);
-            document.getElementById('box-add-course').classList.remove('hidden');
-          }
-        } catch (e) {}
-      } else if (pairB64) {
-        try {
-          const decoded = JSON.parse(atob(pairB64.replace(/-/g, '+').replace(/_/g, '/')));
-          if (decoded.api && decoded.tkey) {
-            switchMode('TEACHER');
-            document.getElementById('inp-tea-api').value = normalizeApiUrl(decoded.api);
-            document.getElementById('inp-tea-token').value = decoded.tkey;
-            loginTeacher();
-          }
-        } catch (e) {}
-      }
-    }
-
-    /**
-     * ========================================================================
-     * 4. TRANSPORT LAYER
-     * ========================================================================
-     */
-    async function callBackend(apiUrl, payload, retries = 2) {
-      const targetUrl = normalizeApiUrl(apiUrl);
-      for (let attempt = 0; attempt <= retries; attempt++) {
-        try {
-          const response = await fetch(targetUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify(payload),
-            redirect: 'follow'
-          });
-          const data = await response.json();
-          if (data.code === 'ERR_SERVER_BUSY' && attempt < retries) {
-            showStatus(I18N[currentLang].ERR_SERVER_BUSY, 'warn');
-            await new Promise(r => setTimeout(r, 1200 + Math.random() * 1000));
-            continue;
-          }
-          return data;
-        } catch (err) {
-          if (attempt === retries) {
-            return { ok: false, code: 'ERR_NETWORK', message: err.message };
-          }
-          await new Promise(r => setTimeout(r, 1000));
-        }
-      }
-    }
-
-    /**
-     * ========================================================================
-     * 5. STUDENT WORKFLOWS (MINIMALIST & FAST)
-     * ========================================================================
-     */
-    function renderStudentCourseSelectors() {
-      const profiles = getStudentProfiles();
-      const instIds = Object.keys(profiles);
-      const hasBox = document.getElementById('student-has-courses');
-      const noBox = document.getElementById('student-no-courses');
-      const addBox = document.getElementById('box-add-course');
-
-      if (instIds.length === 0) {
-        hasBox.classList.add('hidden');
-        noBox.classList.remove('hidden');
-        addBox.classList.remove('hidden');
-        return;
-      }
-
-      hasBox.classList.remove('hidden');
-      noBox.classList.add('hidden');
-
-      const selInst = document.getElementById('sel-student-inst');
-      selInst.classList.toggle('hidden', instIds.length <= 1);
-      const activeInst = safeGetLocal('cc_active_inst', instIds[0]);
-      selInst.innerHTML = instIds.map(id => {
-        const p = profiles[id];
-        return `<option value="${escapeHtml(id)}" ${id === activeInst ? 'selected' : ''}>${escapeHtml(p.lecturerName)} (${escapeHtml(p.studentId)})</option>`;
-      }).join('');
-
-      onStudentInstChange();
-    }
-
-    function onStudentInstChange() {
-      const profiles = getStudentProfiles();
-      const selInst = document.getElementById('sel-student-inst').value;
-      const p = profiles[selInst];
-      if (!p) return;
-
-      safeSetLocal('cc_active_inst', selInst);
-      const selClass = document.getElementById('sel-student-class');
-      const savedClass = safeGetLocal('cc_last_class_' + selInst, '');
-      selClass.innerHTML = (p.enrolledClasses || []).map(c =>
-        `<option value="${escapeHtml(c.classId)}" ${c.classId === savedClass ? 'selected' : ''}>${escapeHtml(formatClassOptionLabel(c))}</option>`
-      ).join('');
-
-      selClass.onchange = () => {
-        safeSetLocal('cc_last_class_' + selInst, selClass.value);
-      };
-
-      document.getElementById('stu-bound-info').textContent =
-        `👤 ${p.fullName} — MSSV: ${p.studentId}`;
-    }
-
-    function toggleAddCourseBox() {
-      document.getElementById('box-add-course').classList.toggle('hidden');
-    }
-
-    function toggleAdvancedApiBox() {
-      document.getElementById('box-advanced-api').classList.toggle('hidden');
-    }
-
-    async function submitStudentOnboarding() {
-      const check = evaluateStudentAntiCheat();
-      if (!check.browserOk) {
-        showStatus('⛔ Vui lòng mở bằng trình duyệt chính (Safari, Chrome, Cốc Cốc, Edge), không mở trong Zalo/Messenger.', 'err');
-        return;
-      }
-
-      const apiUrl = normalizeApiUrl(document.getElementById('inp-onboard-api').value);
-      const studentId = document.getElementById('inp-student-id').value.trim().toUpperCase();
-
-      if (!studentId) {
-        showStatus('⚠️ Vui lòng nhập Mã số sinh viên (MSSV).', 'err');
-        return;
-      }
-
-      showStatus('⏳ Đang xác thực MSSV...', 'warn');
-
-      const pingRes = await callBackend(apiUrl, { action: 'PING' });
-      if (!pingRes.ok) {
-        showStatus('❌ Không kết nối được tới máy chủ.', 'err');
-        return;
-      }
-
-      const res = await callBackend(apiUrl, {
-        action: 'STUDENT_ONBOARD',
-        studentId: studentId,
-        credential: getOrCreateDeviceCredential(),
-        deviceFp: getHardwareFingerprint(),
-        clientMeta: check
-      });
-
-      if (!res.ok) {
-        showStatus(formatServerMessage(res.code, res.params, res.message), 'err');
-        return;
-      }
-
-      saveStudentProfile(pingRes.installationId || DEFAULT_INST_ID, {
-        installationId: pingRes.installationId || DEFAULT_INST_ID,
-        lecturerName: pingRes.lecturerName || DEFAULT_LECTURER_NAME,
-        apiUrl: apiUrl,
-        studentId: res.studentId,
-        fullName: res.fullName,
-        enrolledClasses: res.enrolledClasses
-      });
-
-      document.getElementById('box-add-course').classList.add('hidden');
-      renderStudentCourseSelectors();
-      showStatus(formatServerMessage('ONBOARD_CONFIRMED', {
-        name: res.fullName,
-        id: res.studentId,
-        count: (res.enrolledClasses || []).length
-      }), 'success');
-    }
-
-    async function handleOneTapGpsCheckIn() {
-      const profiles = getStudentProfiles();
-      const instId = document.getElementById('sel-student-inst').value;
-      const classId = document.getElementById('sel-student-class').value;
-      const profile = profiles[instId];
-
-      if (!profile || !classId) {
-        showStatus('⚠️ Vui lòng nhập và lưu MSSV trước.', 'err');
-        document.getElementById('box-add-course').classList.remove('hidden');
-        return;
-      }
-
-      await executeStudentCheckIn('BUTTON_GPS_CHECKIN');
-    }
-
-    async function executeStudentCheckIn(qrString) {
-      const profiles = getStudentProfiles();
-      const instId = document.getElementById('sel-student-inst').value;
-      const classId = document.getElementById('sel-student-class').value;
-      const profile = profiles[instId];
-
-      if (!profile || !classId) {
-        showStatus('⚠️ Vui lòng lưu MSSV trước khi điểm danh.', 'err');
-        return;
-      }
-
-      const check = evaluateStudentAntiCheat();
-      if (!check.browserOk) {
-        showStatus('⛔ Không điểm danh trong Zalo/Messenger. Hãy mở bằng trình duyệt đã đăng ký!', 'err');
-        return;
-      }
-
-      const btn = document.getElementById('btn-start-checkin');
-      const pill = document.getElementById('gps-live-pill');
-      const tele = document.getElementById('stu-gps-telemetry');
-
-      btn.disabled = true;
-      pill.className = 'badge-warn';
-      pill.textContent = currentLang === 'vi' ? 'Đang định vị...' : 'Locating...';
-      showStatus(currentLang === 'vi' ? '📍 Đang kiểm tra vị trí...' : '📍 Checking location...', 'warn');
-
-      let pos;
-      try {
-        pos = await getAccuratePosition();
-      } catch (gpsErr) {
-        btn.disabled = false;
-        pill.className = 'badge-err';
-        pill.textContent = 'Lỗi GPS';
-        showStatus(I18N[currentLang].ERR_GPS_UNAVAILABLE, 'err');
-        return;
-      }
-
-      const spoofCheck = inspectGpsForSpoofing(pos);
-      if (spoofCheck.hardBlock) {
-        btn.disabled = false;
-        pill.className = 'badge-err';
-        pill.textContent = 'Lỗi vị trí';
-        showStatus('⛔ Tín hiệu GPS không hợp lệ.', 'err');
-        return;
-      }
-
-      const requestId = 'REQ_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-      const payload = {
-        action: 'STUDENT_CHECKIN',
-        studentId: profile.studentId,
-        classId: classId,
-        credential: getOrCreateDeviceCredential(),
-        deviceFp: getHardwareFingerprint(),
-        qrPayload: qrString || 'BUTTON_GPS_CHECKIN',
-        requestId: requestId,
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude,
-        accuracy: pos.coords.accuracy,
-        clientMeta: {
-          isInApp: check.isInApp,
-          isSecondaryMobileBrowser: false,
-          deviceOk: true,
-          mockGpsSuspect: spoofCheck.suspicious,
-          mockReason: spoofCheck.reason
-        }
-      };
-
-      const res = await callBackend(profile.apiUrl, payload, 2);
-      startCheckInButtonCooldown(4);
-
-      if (res.ok && res.receipt) {
-        const r = res.receipt;
-        pill.className = 'badge-ok';
-        pill.textContent = `${r.distanceMeters}m`;
-        tele.classList.remove('hidden');
-        tele.textContent = `📍 Cách giảng viên ${r.distanceMeters}m`;
-        showStatus(formatServerMessage(res.code, {
-          status: r.status,
-          time: r.time,
-          dist: r.distanceMeters
-        }), 'success');
-      } else if (res.code === 'ERR_NETWORK') {
-        const checkRec = await callBackend(profile.apiUrl, {
-          action: 'CHECK_RECEIPT',
-          requestId: requestId,
-          studentId: profile.studentId
-        }, 1);
-        if (checkRec.ok && checkRec.receipt) {
-          pill.className = 'badge-ok';
-          pill.textContent = `${checkRec.receipt.distanceMeters}m`;
-          showStatus(formatServerMessage('CONFIRMED_' + (checkRec.receipt.status === 'P' ? 'PRESENT' : 'LATE'), {
-            time: checkRec.receipt.time,
-            dist: checkRec.receipt.distanceMeters
-          }), 'success');
-        } else {
-          pill.className = 'badge-err';
-          pill.textContent = 'Lỗi mạng';
-          showStatus('❌ Lỗi kết nối, vui lòng bấm lại.', 'err');
-        }
-      } else {
-        pill.className = 'badge-err';
-        pill.textContent = (res.code === 'ERR_LOCATION_OUT_OF_RANGE' && res.params) ? `${res.params.dist}m` : 'Chưa đạt';
-        showStatus(formatServerMessage(res.code, res.params, res.message), 'err');
-      }
-    }
-
-    function startCheckInButtonCooldown(seconds) {
-      const btn = document.getElementById('btn-start-checkin');
-      if (checkInCooldownTimer) clearInterval(checkInCooldownTimer);
-      let rem = seconds;
-      btn.disabled = true;
-      checkInCooldownTimer = setInterval(() => {
-        rem--;
-        if (rem <= 0) {
-          clearInterval(checkInCooldownTimer);
-          btn.disabled = false;
-          btn.textContent = I18N[currentLang].stu_one_tap_checkin_btn;
-        } else {
-          btn.textContent = `⏳ ${rem}s...`;
-        }
-      }, 1000);
-    }
-
-    function toggleManualQrInput() {
-      document.getElementById('box-manual-qr').classList.toggle('hidden');
-    }
-
-    function handleManualQrSubmit() {
-      const code = document.getElementById('inp-manual-qr').value.trim();
-      if (code) executeStudentCheckIn(code);
-    }
-
-    /**
-     * ========================================================================
-     * 6. CAMERA QR SCANNER
-     * ========================================================================
-     */
-    async function startCameraScanner(purpose) {
-      activeScanPurpose = purpose;
-      const modalBox = document.getElementById('camera-modal-box');
-      modalBox.classList.remove('hidden');
-
-      if (html5QrScanner) {
-        try { await html5QrScanner.stop(); } catch (e) {}
-      }
-
-      html5QrScanner = new Html5Qrcode('qr-reader');
-      try {
-        await html5QrScanner.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 240, height: 240 } },
-          async (decodedText) => {
-            await stopCameraScanner();
-            handleScannedQrText(decodedText, purpose);
-          },
-          () => {}
-        );
-      } catch (err) {
-        modalBox.classList.add('hidden');
-        showStatus('📷 Không mở được Camera.', 'warn');
-      }
-    }
-
-    async function stopCameraScanner() {
-      const modalBox = document.getElementById('camera-modal-box');
-      modalBox.classList.add('hidden');
-      if (html5QrScanner) {
-        try { await html5QrScanner.stop(); } catch (e) {}
-      }
-    }
-
-    function handleScannedQrText(text, purpose) {
-      if (text.includes('?onboard=') || text.includes('?pair=')) {
-        try {
-          const url = new URL(text);
-          if (url.searchParams.get('onboard')) {
-            const obj = JSON.parse(atob(url.searchParams.get('onboard').replace(/-/g, '+').replace(/_/g, '/')));
-            document.getElementById('inp-onboard-api').value = normalizeApiUrl(obj.api);
-            showStatus('✅ Đã nạp cấu hình khóa học. Hãy nhập MSSV.', 'success');
-            return;
-          }
-          if (url.searchParams.get('pair')) {
-            const obj = JSON.parse(atob(url.searchParams.get('pair').replace(/-/g, '+').replace(/_/g, '/')));
-            document.getElementById('inp-tea-api').value = normalizeApiUrl(obj.api);
-            document.getElementById('inp-tea-token').value = obj.tkey || '';
-            loginTeacher();
-            return;
-          }
-        } catch (e) {}
-      }
-
-      try {
-        const obj = JSON.parse(text);
-        if (obj.type === 'ONBOARD' && obj.api) {
-          document.getElementById('inp-onboard-api').value = normalizeApiUrl(obj.api);
-          showStatus('✅ Đã nạp cấu hình khóa học. Hãy nhập MSSV.', 'success');
-          return;
-        }
-        if (obj.type === 'TEACHER_PAIR' && obj.api && obj.tkey) {
-          document.getElementById('inp-tea-api').value = normalizeApiUrl(obj.api);
-          document.getElementById('inp-tea-token').value = obj.tkey;
-          loginTeacher();
-          return;
-        }
-      } catch (e) {}
-
-      if (purpose === 'CHECKIN') {
-        executeStudentCheckIn(text);
-      } else {
-        showStatus('⚠️ Mã QR không hợp lệ.', 'warn');
-      }
-    }
-
-    /**
-     * ========================================================================
-     * 7. LECTURER MODE CONTROLLERS (SHEET-BASED ROTATING PASSWORD)
-     * ========================================================================
-     */
-    function toggleTeacherApiBox() {
-      document.getElementById('box-tea-api-advanced').classList.toggle('hidden');
-    }
-
-    function resetToDefaultLecturerApi() {
-      document.getElementById('inp-tea-api').value = DEFAULT_LECTURER_API;
-      safeRemoveLocal('cc_teacher_auth');
-      safeRemoveSession('cc_teacher_auth');
-      showStatus('✅ Đã đặt lại URL mặc định.', 'success');
-    }
-
-    async function loginTeacher() {
-      const apiUrl = normalizeApiUrl(document.getElementById('inp-tea-api').value);
-      const token = document.getElementById('inp-tea-token').value.trim();
-      const persistence = document.getElementById('sel-tea-persistence').value;
-
-      document.getElementById('inp-tea-api').value = apiUrl;
-
-      if (!apiUrl || !token) {
-        showStatus('⚠️ Vui lòng nhập mật khẩu phiên từ Google Sheet.', 'err');
-        return;
-      }
-
-      showStatus('⏳ Đang kiểm tra mật khẩu phiên với Google Sheet...', 'warn');
-      const res = await callBackend(apiUrl, {
-        action: 'TEACHER_AUTH',
-        teacherToken: token
-      });
-
-      if (!res.ok) {
-        showStatus(res.message || formatServerMessage(res.code, {}, res.message), 'err');
-        return;
-      }
-
-      saveTeacherAuth(apiUrl, token, persistence);
-      document.getElementById('card-teacher-login').classList.add('hidden');
-      document.getElementById('box-teacher-dashboard').classList.remove('hidden');
-      hideStatus();
-      applyTeacherState(res);
-      startTeacherPolling();
-    }
-
-    function logoutTeacher() {
-      safeRemoveLocal('cc_teacher_auth');
-      safeRemoveSession('cc_teacher_auth');
-      document.getElementById('inp-tea-token').value = '';
-      stopTeacherPolling();
-      document.getElementById('box-teacher-dashboard').classList.add('hidden');
-      document.getElementById('card-teacher-login').classList.remove('hidden');
-    }
-
-    async function refreshTeacherState() {
-      const auth = getTeacherAuth();
-      if (!auth || document.hidden) return;
-      const selClass = document.getElementById('sel-tea-class').value;
-      const res = await callBackend(auth.apiUrl, {
-        action: 'TEACHER_GET_STATE',
-        teacherToken: auth.token,
-        classId: selClass
-      }, 1);
-      if (res.ok) {
-        applyTeacherState(res);
-      } else if (res.code === 'ERR_UNAUTHORIZED') {
-        logoutTeacher();
-        showStatus('🔒 Mã phiên trên Sheet đã thay đổi hoặc hết hạn. Vui lòng đăng nhập lại bằng mã mới trên Sheet.', 'warn');
-      }
-    }
-
-    function applyTeacherState(state) {
-      teacherState = state;
-      const sel = document.getElementById('sel-tea-class');
-      const currentVal = state.selectedClassId;
-
-      sel.innerHTML = (state.classes || []).map(c =>
-        `<option value="${escapeHtml(c.classId)}" ${c.classId === currentVal ? 'selected' : ''}>${escapeHtml(formatClassOptionLabel(c))}</option>`
-      ).join('');
-
-      (state.classes || []).forEach(c => {
-        if (c.classId && c.activeQrSecret) {
-          KNOWN_CLASS_SECRETS[c.classId] = c.activeQrSecret;
-        }
-      });
-
-      const activeCfg = (state.classes || []).find(c => c.classId === currentVal);
-      const ses = state.activeSession;
-
-      if (activeCfg) {
-        document.getElementById('btn-reg-gate-toggle').textContent =
-          `Đăng ký Thiết bị Mới: ${activeCfg.regOpen ? 'MỞ ✅' : 'KHÓA 🔒'}`;
-        document.getElementById('poster-class-title').textContent =
-          `${activeCfg.classId}`;
-      }
-
-      const roster = state.roster || [];
-      const pCount = roster.filter(r => r.status === 'P').length;
-      const lCount = roster.filter(r => r.status === 'L').length;
-      const eCount = roster.filter(r => r.status === 'E').length;
-      document.getElementById('tea-live-count').textContent = `${pCount + lCount} / ${roster.length} Có mặt`;
-      document.getElementById('tea-live-breakdown').textContent = `P: ${pCount} | L: ${lCount} | E: ${eCount}`;
-
-      const qrMode = ses ? ses.qrMode : 'STATIC';
-      renderClassroomQr(activeCfg, qrMode);
-      setupTeacherCountdown(ses);
-      renderTeacherRoster();
-    }
-
-    async function teacherCalibrateRoomGpsNow() {
-      const auth = getTeacherAuth();
-      const classId = document.getElementById('sel-tea-class').value;
-      if (!auth || !classId) return;
-
-      showStatus('📍 Đang lấy tọa độ GPS của máy bạn làm Tâm...', 'warn');
-      try {
-        const pos = await getAccuratePosition();
-        const res = await callBackend(auth.apiUrl, {
-          action: 'TEACHER_START_SESSION',
-          teacherToken: auth.token,
-          classId: classId,
-          usePhoneGps: true,
-          calibrateOnly: true,
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          qrMode: 'STATIC'
-        });
-        if (res.ok) {
-          applyTeacherState(res);
-          showStatus('✅ Đã cập nhật vị trí Tâm điểm danh thành công!', 'success');
-        } else {
-          showStatus(res.message || res.code, 'err');
-        }
-      } catch (e) {
-        showStatus('📍 Không lấy được GPS. Hãy cho phép quyền Vị trí trên trình duyệt.', 'err');
-      }
-    }
-
-    function setupTeacherCountdown(ses) {
-      if (teacherCountdownTimer) clearInterval(teacherCountdownTimer);
-      const badge = document.getElementById('tea-session-badge');
-      const timerEl = document.getElementById('tea-countdown');
-
-      if (!ses || !ses.isOpen) {
-        badge.textContent = '🔒 ĐANG ĐÓNG';
-        badge.style.color = '#dc2626';
-        timerEl.textContent = '00:00';
-        return;
-      }
-
-      const updateTick = () => {
-        const now = Date.now();
-        if (now > ses.closesAtMs) {
-          badge.textContent = '🔒 HẾT GIỜ';
-          badge.style.color = '#dc2626';
-          timerEl.textContent = '00:00';
-          clearInterval(teacherCountdownTimer);
-          return;
-        }
-        if (now <= ses.presentUntilMs) {
-          const remSec = Math.max(0, Math.floor((ses.presentUntilMs - now) / 1000));
-          badge.textContent = '🟢 ĐANG MỞ (CÓ MẶT)';
-          badge.style.color = '#15803d';
-          timerEl.textContent = formatMmSs(remSec);
-        } else {
-          const remSec = Math.max(0, Math.floor((ses.closesAtMs - now) / 1000));
-          badge.textContent = '🟡 ĐANG MỞ (ĐI TRỄ)';
-          badge.style.color = '#b45309';
-          timerEl.textContent = formatMmSs(remSec);
-        }
-      };
-      updateTick();
-      teacherCountdownTimer = setInterval(updateTick, 1000);
-    }
-
-    async function renderClassroomQr(classCfg, qrMode) {
-      if (teacherRotatingQrTimer) clearInterval(teacherRotatingQrTimer);
-      const container = document.getElementById('teacher-qr-canvas');
-      if (!classCfg) return;
-
-      const drawQr = async () => {
-        container.innerHTML = '';
-        let payloadText = classCfg.activeQrSecret;
-        if (qrMode === 'ROTATING') {
-          const bucket = Math.floor(Date.now() / 15000);
-          const tok = (await sha256Browser(classCfg.activeQrSecret + '|' + bucket)).slice(0, 12);
-          payloadText = JSON.stringify({ cid: classCfg.classId, mode: 'ROTATING', tok: tok });
-        }
-        new QRCode(container, {
-          text: payloadText,
-          width: 160,
-          height: 160,
-          colorDark: '#0f172a',
-          colorLight: '#ffffff',
-          correctLevel: QRCode.CorrectLevel.M
-        });
-      };
-
-      await drawQr();
-      if (qrMode === 'ROTATING') {
-        teacherRotatingQrTimer = setInterval(drawQr, 5000);
-      }
-    }
-
-    async function teacherStartSession() {
-      const auth = getTeacherAuth();
-      const classId = document.getElementById('sel-tea-class').value;
-      const usePhoneGps = document.getElementById('chk-use-phone-gps').checked;
-
-      let lat = 0, lng = 0;
-      if (usePhoneGps) {
-        showStatus('📍 Đang lấy tọa độ GPS làm Tâm...', 'warn');
-        try {
-          const pos = await getAccuratePosition();
-          lat = pos.coords.latitude;
-          lng = pos.coords.longitude;
-        } catch (e) {
-          openAppModal(
-            'Không lấy được GPS mới',
-            'Mở phiên điểm danh bằng tọa độ phòng đã lưu sẵn trên Sheet?',
-            'Mở ngay',
-            async () => {
-              await executeStartSessionRequest(auth, classId, false, 0, 0);
-            }
-          );
-          return;
-        }
-      }
-
-      await executeStartSessionRequest(auth, classId, usePhoneGps && lat !== 0, lat, lng);
-    }
-
-    async function executeStartSessionRequest(auth, classId, useGps, lat, lng) {
-      showStatus('⏳ Đang mở phiên điểm danh...', 'warn');
-      const res = await callBackend(auth.apiUrl, {
-        action: 'TEACHER_START_SESSION',
-        teacherToken: auth.token,
-        classId: classId,
-        usePhoneGps: useGps,
-        lat: lat,
-        lng: lng,
-        qrMode: 'STATIC'
-      });
-
-      if (res.ok) {
-        hideStatus();
-        applyTeacherState(res);
-      } else {
-        showStatus(res.message || res.code, 'err');
-      }
-    }
-
-    async function teacherControlSession(subAction, extra = {}) {
-      const auth = getTeacherAuth();
-      const classId = document.getElementById('sel-tea-class').value;
-      const res = await callBackend(auth.apiUrl, Object.assign({
-        action: 'TEACHER_CONTROL_SESSION',
-        teacherToken: auth.token,
-        classId: classId,
-        subAction: subAction
-      }, extra));
-      if (res.ok) applyTeacherState(res);
-    }
-
-    async function toggleQrMode() {
-      const cur = (teacherState && teacherState.activeSession && teacherState.activeSession.qrMode) || 'STATIC';
-      const next = cur === 'STATIC' ? 'ROTATING' : 'STATIC';
-      await teacherControlSession('SET_QR_MODE', { qrMode: next });
-    }
-
-    function parseTimeSec(timeStr) {
-      if (!timeStr) return null;
-      const m = String(timeStr).match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-      if (!m) return null;
-      return parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3] || '0', 10);
-    }
-
-    function detectCoCheckInSuspects(roster) {
-      const checked = (roster || [])
-        .filter(s => (s.status === 'P' || s.status === 'L') && s.time)
-        .map(s => ({ ...s, sec: parseTimeSec(s.time) }))
-        .filter(s => s.sec !== null)
-        .sort((a, b) => a.sec - b.sec);
-
-      const suspectMap = {};
-      (roster || []).forEach(s => {
-        if (s.source && String(s.source).startsWith('SUSPECT_WITH_')) {
-          const parts = String(s.source).split('|');
-          const partnerId = parts[0].replace('SUSPECT_WITH_', '');
-          suspectMap[s.studentId] = parts[1] || `Trùng máy/giờ với ${partnerId}`;
-          if (partnerId && partnerId !== 'DEVTOOLS' && !suspectMap[partnerId]) {
-            suspectMap[partnerId] = `Trùng máy/giờ với ${s.studentId}`;
-          }
-        }
-      });
-      for (let i = 0; i < checked.length; i++) {
-        for (let j = i + 1; j < checked.length; j++) {
-          const diff = Math.abs(checked[j].sec - checked[i].sec);
-          if (diff <= 2) {
-            if (!suspectMap[checked[i].studentId]) suspectMap[checked[i].studentId] = `Cùng lúc (${diff}s) với ${checked[j].fullName}`;
-            if (!suspectMap[checked[j].studentId]) suspectMap[checked[j].studentId] = `Cùng lúc (${diff}s) với ${checked[i].fullName}`;
-          }
-        }
-      }
-      return suspectMap;
-    }
-
-    function renderTeacherRoster() {
-      const container = document.getElementById('tea-roster-container');
-      const suspectBanner = document.getElementById('tea-suspect-banner');
-
-      if (!showRosterNames) {
-        suspectBanner.classList.add('hidden');
-        container.innerHTML = '<div style="padding:14px; text-align:center; color:var(--muted);">🙈 Đã ẩn danh sách.</div>';
-        return;
-      }
-
-      const list = (teacherState && teacherState.roster) || [];
-      const suspectMap = detectCoCheckInSuspects(list);
-      const suspectIds = Object.keys(suspectMap);
-
-      if (suspectIds.length > 0) {
-        suspectBanner.classList.remove('hidden');
-        suspectBanner.textContent = `⚠️ Phát hiện ${suspectIds.length} trường hợp bấm sát nhau ≤ 2s (dòng màu vàng).`;
-      } else {
-        suspectBanner.classList.add('hidden');
-      }
-
-      const query = document.getElementById('inp-roster-search').value.trim().toLowerCase();
-      const filtered = list.filter(s =>
-        s.studentId.toLowerCase().includes(query) || s.fullName.toLowerCase().includes(query)
-      );
-
-      if (filtered.length === 0) {
-        container.innerHTML = '<div style="padding:14px; text-align:center; color:var(--muted);">Không có kết quả.</div>';
-        return;
-      }
-
-      container.innerHTML = filtered.map(st => {
-        const suspectNote = suspectMap[st.studentId];
-        return `
-          <div class="roster-item ${suspectNote ? 'suspect-row' : ''}">
-            <div>
-              <strong>${escapeHtml(st.fullName)}</strong>
-              <span style="color:var(--muted); font-size:0.8rem;">(${escapeHtml(st.studentId)})</span>
-              <span class="status-pill st-${st.status}">${st.status}</span>
-              ${st.time ? `<span style="font-size:0.75rem; color:var(--muted);">${escapeHtml(st.time)}</span>` : ''}
-              ${st.distance !== '' && st.distance !== undefined ? `<span style="font-size:0.74rem; color:#0f766e; font-weight:600;">(${escapeHtml(st.distance)}m)</span>` : ''}
-              ${suspectNote ? `<span class="suspect-tag">⚠️ ${escapeHtml(suspectNote)}</span>` : ''}
-            </div>
-            <div style="display:flex; gap:4px;">
-              <button class="btn btn-outline btn-sm" onclick="teacherManualMark('${escapeHtml(st.studentId)}','P')">P</button>
-              <button class="btn btn-outline btn-sm" onclick="teacherManualMark('${escapeHtml(st.studentId)}','L')">L</button>
-              <button class="btn btn-outline btn-sm" onclick="teacherManualMark('${escapeHtml(st.studentId)}','E')">E</button>
-              <button class="btn btn-outline btn-sm" title="Hủy điểm danh" onclick="teacherManualMark('${escapeHtml(st.studentId)}','-')">-</button>
-              <button class="btn btn-outline btn-sm" title="Mở khóa thiết bị" onclick="teacherResetStudentDevice('${escapeHtml(st.studentId)}')">🔓</button>
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
-
-    function triggerRandomSpotCheck() {
-      const list = (teacherState && teacherState.roster) || [];
-      const checkedIn = list.filter(s => s.status === 'P' || s.status === 'L');
-      if (checkedIn.length === 0) {
-        showStatus('ℹ️ Chưa có sinh viên nào điểm danh trong phiên này.', 'warn');
-        return;
-      }
-
-      const pick = checkedIn[Math.floor(Math.random() * checkedIn.length)];
-      openAppModal(
-        '🎲 Kiểm tra Ngẫu nhiên',
-        `${pick.fullName}\nMSSV: ${pick.studentId} (${pick.time || ''})`,
-        '❌ Vắng mặt (Hủy điểm danh)',
-        async () => {
-          await teacherManualMark(pick.studentId, '-');
-          showStatus(`⚠️ Đã hủy điểm danh của ${pick.fullName} (${pick.studentId}).`, 'warn');
-        }
-      );
-    }
-
-    async function teacherManualMark(studentId, status) {
-      const auth = getTeacherAuth();
-      const classId = document.getElementById('sel-tea-class').value;
-      const res = await callBackend(auth.apiUrl, {
-        action: 'TEACHER_MANUAL_MARK',
-        teacherToken: auth.token,
-        classId: classId,
-        studentId: studentId,
-        status: status
-      });
-      if (res.ok) applyTeacherState(res);
-      else showStatus(res.message || res.code, 'err');
-    }
-
-    function teacherResetStudentDevice(studentId) {
-      openAppModal(
-        '🔓 Mở khóa thiết bị',
-        `Mở khóa thiết bị cho MSSV ${studentId}?`,
-        'Mở khóa',
-        async () => {
-          const auth = getTeacherAuth();
-          const res = await callBackend(auth.apiUrl, {
-            action: 'TEACHER_RESET_DEVICE',
-            teacherToken: auth.token,
-            studentId: studentId
-          });
-          if (res.ok) {
-            showStatus(formatServerMessage('DEVICE_RESET_OK', { id: studentId }), 'success');
-          } else {
-            showStatus(res.message || res.code, 'warn');
-          }
-        }
-      );
-    }
-
-    function teacherRotateStaticQr() {
-      openAppModal(
-        '🔑 Đổi mã khóa lớp',
-        'Tạo mã khóa mới cho lớp này?',
-        'Đổi mã',
-        async () => {
-          const auth = getTeacherAuth();
-          const classId = document.getElementById('sel-tea-class').value;
-          const res = await callBackend(auth.apiUrl, {
-            action: 'TEACHER_ROTATE_STATIC_QR',
-            teacherToken: auth.token,
-            classId: classId
-          });
-          if (res.ok) applyTeacherState(res);
-        }
-      );
-    }
-
-    async function teacherToggleRegGate() {
-      const auth = getTeacherAuth();
-      const classId = document.getElementById('sel-tea-class').value;
-      const res = await callBackend(auth.apiUrl, {
-        action: 'TEACHER_TOGGLE_REG',
-        teacherToken: auth.token,
-        classId: classId
-      });
-      if (res.ok) applyTeacherState(res);
-    }
-
-    async function teacherRebuildSheet() {
-      const auth = getTeacherAuth();
-      const classId = document.getElementById('sel-tea-class').value;
-      showStatus('⏳ Đang đồng bộ vào Google Sheet...', 'warn');
-      const res = await callBackend(auth.apiUrl, {
-        action: 'TEACHER_REBUILD_REPORT',
-        teacherToken: auth.token,
-        classId: classId
-      });
-      if (res.ok) showStatus('✅ Đã đồng bộ Google Sheet!', 'success');
-    }
-
-    function onTeacherClassChange() {
-      refreshTeacherState();
-    }
-
-    function toggleRosterVisibility() {
-      showRosterNames = !showRosterNames;
-      renderTeacherRoster();
-    }
-
-    function toggleProjectorFullscreen() {
-      const main = document.getElementById('main-container');
-      main.classList.toggle('wide');
-      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(() => {});
-      } else if (document.exitFullscreen) {
-        document.exitFullscreen().catch(() => {});
-      }
-    }
-
-    function startTeacherPolling() {
-      stopTeacherPolling();
-      teacherPollTimer = setInterval(refreshTeacherState, 4500);
-    }
-
-    function stopTeacherPolling() {
-      if (teacherPollTimer) clearInterval(teacherPollTimer);
-    }
-
-    /**
-     * ========================================================================
-     * 8. MODAL & UTILITIES
-     * ========================================================================
-     */
-    function openAppModal(title, bodyText, confirmLabel, onConfirm) {
-      document.getElementById('app-modal-title').textContent = title;
-      document.getElementById('app-modal-body').textContent = bodyText;
-      const confirmBtn = document.getElementById('app-modal-confirm');
-      confirmBtn.textContent = confirmLabel || 'Đồng ý';
-      confirmBtn.onclick = async () => {
-        closeAppModal();
-        if (typeof onConfirm === 'function') await onConfirm();
-      };
-      document.getElementById('app-modal').classList.remove('hidden');
-    }
-
-    function closeAppModal() {
-      document.getElementById('app-modal').classList.add('hidden');
-    }
-
-    function getAccuratePosition() {
-      return new Promise((resolve, reject) => {
-        if (!navigator.geolocation) return reject(new Error('No Geolocation'));
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 12000,
-          maximumAge: 0
-        });
-      });
-    }
-
-    async function sha256Browser(message) {
-      const msgBuffer = new TextEncoder().encode(message);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map(b => ('00' + b.toString(16)).slice(-2)).join('');
-    }
-
-    function switchMode(mode) {
-      currentMode = mode;
-      stopCameraScanner();
-      hideStatus();
-      checkIosStandaloneNotice();
-
-      const stuBtn = document.getElementById('btn-mode-student');
-      const teaBtn = document.getElementById('btn-mode-teacher');
-      const stuView = document.getElementById('view-student');
-      const teaView = document.getElementById('view-teacher');
-
-      if (mode === 'TEACHER') {
-        stuBtn.classList.remove('active');
-        teaBtn.classList.add('active');
-        stuView.classList.add('hidden');
-        teaView.classList.remove('hidden');
-
-        const auth = getTeacherAuth();
-        if (auth) {
-          document.getElementById('inp-tea-api').value = normalizeApiUrl(auth.apiUrl);
-          document.getElementById('inp-tea-token').value = auth.token;
-          loginTeacher();
-        }
-      } else {
-        stopTeacherPolling();
-        teaBtn.classList.remove('active');
-        stuBtn.classList.add('active');
-        teaView.classList.add('hidden');
-        stuView.classList.remove('hidden');
-      }
-    }
-
-    function toggleLanguage() {
-      currentLang = currentLang === 'en' ? 'vi' : 'en';
-      safeSetLocal('cc_lang', currentLang);
-      applyLanguage();
-    }
-
-    function applyLanguage() {
-      document.documentElement.lang = currentLang;
-      document.getElementById('btn-lang').textContent = currentLang === 'en' ? '🇬🇧 EN | VI' : '🇻🇳 VI | EN';
-      document.querySelectorAll('[data-i18n]').forEach(el => {
-        const key = el.getAttribute('data-i18n');
-        if (I18N[currentLang][key]) {
-          el.textContent = I18N[currentLang][key];
-        }
-      });
-      checkIosStandaloneNotice();
-    }
-
-    function formatServerMessage(code, params = {}, fallback = '') {
-      let tpl = I18N[currentLang][code] || fallback || code;
-      Object.keys(params || {}).forEach(k => {
-        tpl = tpl.replace(new RegExp('\\{' + k + '\\}', 'g'), params[k]);
-      });
-      return tpl;
-    }
-
-    function showStatus(msg, type = 'warn') {
-      const box = document.getElementById('status-box');
-      box.className = 'alert alert-' + (type === 'success' ? 'success' : type === 'err' ? 'err' : 'warn');
-      box.textContent = msg;
-      box.classList.remove('hidden');
-    }
-
-    function hideStatus() {
-      document.getElementById('status-box').classList.add('hidden');
-    }
-
-    function formatMmSs(totalSec) {
-      const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
-      const s = String(totalSec % 60).padStart(2, '0');
-      return `${m}:${s}`;
-    }
-
-    function formatClassOptionLabel(c) {
-      if (!c) return '';
-      const id = String(c.classId || '').trim();
-      const name = String(c.className || '').trim();
-      if (!name || name === id) return id;
-      if (name.toUpperCase().startsWith(id.toUpperCase())) return name;
-      return `${id} — ${name}`;
-    }
-
-    function escapeHtml(str) {
-      return String(str || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-    }
-  </script>
+  <!-- MODULAR APPLICATION SCRIPTS -->
+  <script src="js/schedule-config.js"></script>
+  <script src="js/student.js"></script>
+  <script src="js/teacher.js"></script>
 </body>
 </html>

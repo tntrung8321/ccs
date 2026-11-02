@@ -1,0 +1,2645 @@
+/**
+ * ============================================================================
+ * QR ATTENDANCE — UNIVERSAL ROSTER & SHEET SYNC (GOOGLE SHEETS & .XLSX)
+ * ============================================================================
+ * Designed for University Lecturers, Teaching Assistants (TAs), and Teachers:
+ *   - Auto-displays the "📋 Roster & Sheet Sync" menu immediately when the
+ *     sheet is opened, shared, or copied (chains onto Code.gs onOpen).
+ *   - Supports BOTH native Google Sheets and Excel (.XLSX) files on Drive.
+ *   - Integrates with "➕ 2. Add New Class Wizard" (reads Class_ID from Classes_Config).
+ *   - Pre-scans new classes on Drive to display the exact student count, tab name,
+ *     Drive folder path (location), and a direct "↗ Open File" link before syncing,
+ *     caching the roster so importing finishes in <0.5s.
+ *   - Smart Fuzzy File & Tab Matching (handles single-class files & multi-tab workbooks).
+ *   - Auto-detects Header rows (MSSV / Student ID, 1-col or 2-col Full Name, Date columns)
+ *     and supports both Numeric & Alphanumeric Student IDs.
+ *
+ * MENU: 📋 Roster & Sheet Sync (5 Actions)
+ *   1. 📥 1. Sync Student Rosters (From Drive)
+ *      - Opens an interactive Checkbox Dialog showing all classes from Classes_Config:
+ *        • Already-synced classes appear pre-checked (☑️ ✅ Synced • N students).
+ *        • Newly created classes show exact student count, Drive folder path, and
+ *          a clickable "↗ Open File" link ready for the teacher to tick and sync.
+ *   2. 🔄 2. Sync Today's Attendance (To Drive)
+ *      - Merges all QR sessions opened on the same day for each class (P > L > -).
+ *      - Syncs directly to Google Sheets or converts/updates .XLSX in-place.
+ *      - Protects already-synced past dates; prompts Yes/No to rescue unsynced past dates.
+ *   3. ↩️ 3. Undo Last Action (Sync or Delete)
+ *      - Conflict-free undo for either the last Class Deletion or last Attendance Sync.
+ *   4. 🗑️ 4. Delete Completed Classes
+ *      - Checkbox dialog -> Yes/No confirmation -> Full backup snapshot -> Cleans up tabs & logs.
+ *   5. ⚙️ 5. Attendance Mark Settings
+ *      - Switch easily between Highlight Style (Blank / Yellow / x), P/L/A, or Custom marks.
+ * ============================================================================
+ */
+
+// ============================================================================
+// 1. DEFAULT CONFIGURATION (EASY TO EDIT IN CODE OR VIA MENU ITEM #5)
+// ============================================================================
+
+/**
+ * Toolbar menu title (Universal for Lecturers, TAs, and Center Teachers).
+ * You can change this string if you prefer another menu label.
+ */
+const SYNC_MENU_TITLE = '📋 Roster & Sheet Sync';
+
+/**
+ * Default attendance mark style written to the target Google Sheet / .XLSX file.
+ * Can be changed anytime without touching code via:
+ * Menu -> 📋 Roster & Sheet Sync -> ⚙️ 5. Attendance Mark Settings
+ */
+const DEFAULT_ATTENDANCE_STYLE = {
+  mode: 'CENTER',          // 'CENTER' (Blank / Yellow / x), 'PLA' (P / L / A), or 'CUSTOM'
+  presentText: '',         // Value written when Present (P)
+  presentBg: '',           // Background color when Present ('' = clear background)
+  lateText: '',            // Value written when Late (L)
+  lateBg: '#ffff00',       // Background color when Late ('#ffff00' = yellow)
+  absentText: 'x',         // Value written when Absent (-)
+  absentBg: ''             // Background color when Absent ('' = clear background)
+};
+
+/**
+ * Optional manual mapping of Class_ID -> Google Drive File ID (Google Sheet or .XLSX).
+ * Leave empty {} for universal auto-discovery on Google Drive, or add specific overrides here.
+ */
+const CUSTOM_CLASS_FILE_IDS = {};
+
+// Script Property & Cache Keys
+const LAST_ACTION_TYPE_KEY = 'QR_CENTER_LAST_ACTION_TYPE'; // 'ATTENDANCE_SYNC' or 'CLASS_DELETE'
+const LAST_SYNC_PROP_KEY = 'QR_CENTER_LAST_SYNC_BATCH';
+const AUTO_SYNCED_SESSIONS_KEY = 'QR_CENTER_AUTO_SYNCED_SESSIONS';
+const FILE_ID_CACHE_PROP_KEY = 'QR_CENTER_FILE_ID_CACHE_V2';
+const ATTENDANCE_STYLE_PROP_KEY = 'QR_UNIVERSAL_ATTENDANCE_STYLE';
+const ROSTER_PREVIEW_CACHE_PREFIX = 'QR_ROSTER_PREVIEW_V1_';
+const UNDO_BACKUP_SHEET_NAME = '_Undo_Backup_Cache';
+
+const MIME_GOOGLE_SHEET = 'application/vnd.google-apps.spreadsheet';
+const MIME_EXCEL_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+
+// ============================================================================
+// 2. AUTO-SHOW MENU ON OPEN (WORKS IMMEDIATELY WHEN SHEET IS SHARED OR COPIED)
+//    Automatically chains onto `onOpen` from Code.gs (Attendance Admin) so BOTH
+//    menus ("🎓 Attendance Admin" & "📋 Roster & Sheet Sync") appear right away!
+// ============================================================================
+const _PREV_ON_OPEN_HANDLER_ = (typeof globalThis !== 'undefined' && typeof globalThis.onOpen === 'function')
+  ? globalThis.onOpen
+  : null;
+
+if (typeof globalThis !== 'undefined') {
+  globalThis.onOpen = function(e) {
+    if (_PREV_ON_OPEN_HANDLER_) {
+      try {
+        _PREV_ON_OPEN_HANDLER_(e);
+      } catch (err) {}
+    }
+    buildCenterSyncMenuOnly_();
+  };
+}
+
+/**
+ * Builds the "📋 Roster & Sheet Sync" menu in the Google Sheets toolbar.
+ * Safe to run inside Simple Triggers (`onOpen`) with zero authorization required.
+ */
+function buildCenterSyncMenuOnly_() {
+  try {
+    SpreadsheetApp.getUi()
+      .createMenu(SYNC_MENU_TITLE)
+      .addItem('📥 1. Sync Student Rosters (From Drive)', 'syncStudentRosters')
+      .addSeparator()
+      .addItem('🔄 2. Sync Today\'s Attendance (To Drive)', 'syncTodayAttendance')
+      .addItem('↩️ 3. Undo Last Action (Sync or Delete)', 'undoLastAction')
+      .addSeparator()
+      .addItem('🗑️ 4. Delete Completed Classes', 'openDeleteClassesDialog')
+      .addSeparator()
+      .addItem('⚙️ 5. Attendance Mark Settings', 'openAttendanceStyleDialog')
+      .addToUi();
+  } catch (e) {}
+}
+
+/**
+ * Ensures background triggers (onOpen + 15-minute auto-sync) are installed once
+ * the user authorizes the script by clicking any menu button or running setup.
+ */
+function ensureBackgroundTriggers_() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const triggers = ScriptApp.getProjectTriggers();
+    let hasOpenTrigger = false;
+    let hasAutoSyncTrigger = false;
+
+    for (let i = 0; i < triggers.length; i++) {
+      const fn = triggers[i].getHandlerFunction();
+      if (fn === 'setupCenterSyncMenu' || fn === 'taoMenuDongBo') hasOpenTrigger = true;
+      if (fn === 'autoSyncTodayAttendanceAfterClass' || fn === 'tuDongDongBoSauGioHoc') hasAutoSyncTrigger = true;
+    }
+
+    if (!hasOpenTrigger && ss) {
+      ScriptApp.newTrigger('setupCenterSyncMenu').forSpreadsheet(ss).onOpen().create();
+    }
+    if (!hasAutoSyncTrigger) {
+      ScriptApp.newTrigger('autoSyncTodayAttendanceAfterClass').timeBased().everyMinutes(15).create();
+    }
+  } catch (e) {}
+}
+
+/**
+ * Can be called manually in Apps Script or inside Code.gs's `onOpen()`.
+ */
+function setupCenterSyncMenu() {
+  buildCenterSyncMenuOnly_();
+  ensureBackgroundTriggers_();
+}
+
+
+// ============================================================================
+// 3. BUTTON 1: INTERACTIVE DIALOG TO SYNC STUDENT ROSTERS (GOOGLE SHEET / .XLSX)
+//    - For already-synced classes (> 0 students in Master tab): shows ☑️ Synced
+//      with the current student count immediately (0s overhead).
+//    - For newly added classes (0 students in Master tab): pre-scans the matched
+//      Google Sheet / .XLSX file on Drive to count how many students are inside,
+//      caches the extracted roster for 10 minutes, and shows the exact count,
+//      Drive folder path, and a clickable "↗ Open File" link!
+// ============================================================================
+function syncStudentRosters() {
+  ensureBackgroundTriggers_();
+
+  const masterSs = SpreadsheetApp.getActiveSpreadsheet();
+  const configSheet = masterSs.getSheetByName('Classes_Config');
+  if (!configSheet) {
+    showAlert_('⚠️ Sheet \'Classes_Config\' was not found. Please initialize or add a class first.');
+    return;
+  }
+
+  const cfgData = configSheet.getDataRange().getValues();
+  const classItems = [];
+  let scriptCache = null;
+  try {
+    scriptCache = CacheService.getScriptCache();
+  } catch (e) {}
+
+  for (let i = 1; i < cfgData.length; i++) {
+    const classId = String(cfgData[i][0] || '').trim();
+    const className = String(cfgData[i][1] || '').trim();
+    if (!classId) continue;
+
+    // Count existing students in the Master QR class tab
+    let existingStudentCount = 0;
+    const classSheet = masterSs.getSheetByName(classId);
+    if (classSheet && classSheet.getLastRow() > 1) {
+      const sVals = classSheet.getRange(2, 2, classSheet.getLastRow() - 1, 2).getValues();
+      for (let r = 0; r < sVals.length; r++) {
+        if (normalizeStudentId_(sVals[r][0], sVals[r][1])) {
+          existingStudentCount++;
+        }
+      }
+    }
+
+    const alreadySynced = existingStudentCount > 0;
+    const targetInfo = resolveClassTargetFile_(masterSs, classId, className);
+
+    let previewCount = existingStudentCount;
+    let detectedTabName = '';
+    let scanError = '';
+
+    // Pre-scan the target Drive file ONLY for new classes (0 students in Master)
+    // so the lecturer/teacher sees the exact student count before clicking Sync!
+    if (!alreadySynced && targetInfo) {
+      try {
+        const extractResult = extractRosterFromTargetFile_(targetInfo, classId, className);
+        previewCount = extractResult.roster.length;
+        detectedTabName = extractResult.sheetName || '';
+        if (scriptCache && previewCount > 0) {
+          try {
+            scriptCache.put(
+              ROSTER_PREVIEW_CACHE_PREFIX + classId,
+              JSON.stringify({
+                fileId: targetInfo.fileId,
+                sheetName: detectedTabName,
+                roster: extractResult.roster
+              }),
+              600
+            );
+          } catch (cacheErr) {}
+        }
+      } catch (err) {
+        scanError = err.message;
+      }
+    }
+
+    classItems.push({
+      classId: classId,
+      className: className || classId,
+      students: previewCount,
+      alreadySynced: alreadySynced,
+      fileFound: Boolean(targetInfo),
+      fileId: targetInfo ? targetInfo.fileId : '',
+      fileName: targetInfo ? targetInfo.fileName : '',
+      folderPath: targetInfo ? (targetInfo.folderPath || 'My Drive') : '',
+      fileUrl: targetInfo ? (targetInfo.fileUrl || '') : '',
+      sheetName: detectedTabName,
+      scanError: scanError,
+      fileTypeLabel: targetInfo ? (targetInfo.isGoogleSheet ? '📊 Google Sheet' : '📗 Excel .XLSX') : '⚠️ Not found on Drive'
+    });
+  }
+
+  if (classItems.length === 0) {
+    showAlert_(
+      'ℹ️ No classes found in \'Classes_Config\'.\n\n' +
+      'Please use \'🎓 Attendance Admin -> ➕ 2. Add New Class Wizard\' to create a class first.'
+    );
+    return;
+  }
+
+  const rowsTpl = classItems.map(function(c) {
+    const isSynced = c.alreadySynced;
+    // Already-synced classes appear pre-checked (☑️); new classes appear unchecked (⬜) for the user to tick
+    const checkedAttr = isSynced ? 'checked' : '';
+
+    let statusBadge = '';
+    if (isSynced) {
+      statusBadge =
+        '[[span style="background:#dcfce7; color:#166534; padding:3px 9px; border-radius:999px; font-size:11.5px; font-weight:700; white-space:nowrap;"]]' +
+          '✅ Synced (' + c.students + ' students)' +
+        '[[/span]]';
+    } else if (!c.fileFound) {
+      statusBadge =
+        '[[span style="background:#fee2e2; color:#991b1b; padding:3px 9px; border-radius:999px; font-size:11.5px; font-weight:700; white-space:nowrap;"]]' +
+          '⚠️ File Not Found' +
+        '[[/span]]';
+    } else if (c.students > 0) {
+      statusBadge =
+        '[[span style="background:#dbeafe; color:#1e40af; padding:3px 9px; border-radius:999px; font-size:11.5px; font-weight:700; white-space:nowrap;"]]' +
+          '🆕 New Class (' + c.students + ' students)' +
+        '[[/span]]';
+    } else {
+      statusBadge =
+        '[[span style="background:#fef3c7; color:#92400e; padding:3px 9px; border-radius:999px; font-size:11.5px; font-weight:700; white-space:nowrap;"]]' +
+          '⚠️ 0 students found' +
+        '[[/span]]';
+    }
+
+    const fileBadgeColor = c.fileFound ? '#374151' : '#dc2626';
+    let fileDesc = '';
+    let locationDesc = '';
+    if (!c.fileFound) {
+      fileDesc = '⚠️ No matching Google Sheet or .XLSX file found on Google Drive';
+    } else {
+      const tabPart = c.sheetName ? (' • Tab: [[b]]' + escapeHtml_(c.sheetName) + '[[/b]]') : '';
+      const errPart = c.scanError ? (' [[span style="color:#dc2626;"]](' + escapeHtml_(c.scanError) + ')[[/span]]') : '';
+      fileDesc = escapeHtml_(c.fileTypeLabel) + ': [[b]]' + escapeHtml_(c.fileName) + '[[/b]]' + tabPart + errPart;
+
+      const openLinkHtml = c.fileUrl
+        ? (' [[a href="' + escapeHtml_(c.fileUrl) + '" target="_blank" onclick="event.stopPropagation();" ' +
+           'style="color:#2563eb; text-decoration:none; font-weight:600; margin-left:6px; white-space:nowrap;"]]↗ Open File[[/a]]')
+        : '';
+      locationDesc =
+        '[[div style="font-size:11.5px; color:#6b7280; margin-top:3px; display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap;"]]' +
+          '[[span style="word-break:break-all;"]]📁 Location: [[b style="color:#4b5563; font-weight:600;"]]' + escapeHtml_(c.folderPath) + '[[/b]][[/span]]' +
+          openLinkHtml +
+        '[[/div]]';
+    }
+
+    const cardBg = isSynced ? '#f0fdf4' : (c.fileFound && c.students > 0 ? '#eff6ff' : '#fef2f2');
+    const cardBorder = isSynced ? '#bbf7d0' : (c.fileFound && c.students > 0 ? '#bfdbfe' : '#fecaca');
+
+    return (
+      '[[label style="display:flex; align-items:flex-start; padding:10px 12px; margin-bottom:8px; background:' + cardBg + '; border:1px solid ' + cardBorder + '; border-radius:8px; cursor:pointer;"]]' +
+        '[[input type="checkbox" name="rosterClassItem" value="' + escapeHtml_(c.classId) + '" ' +
+          'data-synced="' + (isSynced ? '1' : '0') + '" ' +
+          'data-found="' + (c.fileFound ? '1' : '0') + '" ' +
+          'data-count="' + c.students + '" ' +
+          checkedAttr + ' ' +
+          'onchange="updateSelectionHint()" ' +
+          'style="width:18px; height:18px; margin-right:12px; margin-top:2px; cursor:pointer; flex-shrink:0;"]]' +
+        '[[div style="flex:1; min-width:0;"]]' +
+          '[[div style="display:flex; align-items:center; justify-content:space-between; gap:8px;"]]' +
+            '[[div style="font-weight:700; color:#111827; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"]]' +
+              escapeHtml_(c.classId) +
+              ' [[span style="font-weight:normal; color:#6b7280; font-size:12px;"]](' + escapeHtml_(c.className) + ')[[/span]]' +
+            '[[/div]]' +
+            statusBadge +
+          '[[/div]]' +
+          '[[div style="font-size:12px; color:' + fileBadgeColor + '; margin-top:5px; word-break:break-word;"]]' +
+            fileDesc +
+          '[[/div]]' +
+          locationDesc +
+        '[[/div]]' +
+      '[[/label]]'
+    );
+  }).join('');
+
+  const dialogTpl =
+    '[[div style="font-family: Arial, sans-serif; padding: 12px; color: #1f2937;"]]' +
+      '[[p style="margin-top:0; margin-bottom:10px; font-size:13px; color:#374151; line-height:1.45;"]]' +
+        'Existing classes are marked [[b]]✅ Synced[[/b]]. ' +
+        'New classes show the [[b]]exact student count & Drive folder[[/b]] — tick to sync:' +
+      '[[/p]]' +
+      '[[div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; padding:6px 10px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; font-size:12px;"]]' +
+        '[[button type="button" onclick="tickAllNew()" style="padding:5px 10px; background:#e0e7ff; color:#1e40af; border:1px solid #c7d2fe; border-radius:5px; cursor:pointer; font-weight:600; white-space:nowrap; flex-shrink:0;"]]☑️ Select All New[[/button]]' +
+        '[[label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:#4b5563; margin:0;"]]' +
+          '[[input type="checkbox" id="rescanSyncedToggle" onchange="updateSelectionHint()" style="cursor:pointer; margin:0;"]]' +
+          '[[span]]🔄 Re-scan Synced classes for newly added students[[/span]]' +
+        '[[/label]]' +
+      '[[/div]]' +
+      '[[div style="max-height:245px; overflow-y:auto; margin-bottom:12px; padding-right:2px;"]]' +
+        rowsTpl +
+      '[[/div]]' +
+      '[[div id="statusMsg" style="display:block; padding:9px 10px; border-radius:6px; font-size:12.5px; margin-bottom:12px; background:#f3f4f6; color:#374151;"]][[/div]]' +
+      '[[div style="display:flex; justify-content:flex-end; gap:8px;"]]' +
+        '[[button onclick="google.script.host.close()" style="padding:8px 14px; background:#e5e7eb; color:#374151; border:none; border-radius:6px; cursor:pointer; font-weight:600;"]]Cancel[[/button]]' +
+        '[[button id="syncBtn" onclick="submitRosterSync()" style="padding:8px 16px; background:#2563eb; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;"]]📥 Sync Selected[[/button]]' +
+      '[[/div]]' +
+      '[[script]]' +
+        'function getSelectedTargets() {' +
+          'var boxes = Array.from(document.querySelectorAll("input[name=rosterClassItem]"));' +
+          'var rescanExisting = document.getElementById("rescanSyncedToggle").checked;' +
+          'var newBoxes = boxes.filter(function(el) { return el.checked && el.getAttribute("data-synced") === "0"; });' +
+          'var existingBoxes = boxes.filter(function(el) { return el.checked && el.getAttribute("data-synced") === "1"; });' +
+          'var allNewCount = boxes.filter(function(el) { return el.getAttribute("data-synced") === "0"; }).length;' +
+          'var newIds = newBoxes.map(function(el) { return el.value; });' +
+          'var existingIds = existingBoxes.map(function(el) { return el.value; });' +
+          'var totalNewStudents = newBoxes.reduce(function(acc, el) { return acc + (parseInt(el.getAttribute("data-count"), 10) || 0); }, 0);' +
+          'if (newIds.length > 0 && !rescanExisting) {' +
+            'return { targets: newIds, mode: "NEW_ONLY", totalNewStudents: totalNewStudents };' +
+          '}' +
+          'if (newIds.length > 0 && rescanExisting) {' +
+            'return { targets: newIds.concat(existingIds), mode: "NEW_AND_EXISTING", totalNewStudents: totalNewStudents };' +
+          '}' +
+          'if (allNewCount > 0 && !rescanExisting) {' +
+            'return { targets: [], mode: "NONE_NEW_TICKED", totalNewStudents: 0 };' +
+          '}' +
+          'return { targets: existingIds, mode: "RESCAN_EXISTING", totalNewStudents: 0 };' +
+        '}' +
+        'function updateSelectionHint() {' +
+          'var st = document.getElementById("statusMsg");' +
+          'var sel = getSelectedTargets();' +
+          'if (sel.targets.length === 0) {' +
+            'st.style.background = "#fef3c7"; st.style.color = "#92400e";' +
+            'st.innerText = "⚠️ Tick at least one new class (or click Select All New) to sync.";' +
+          '} else if (sel.mode === "NEW_ONLY") {' +
+            'st.style.background = "#eff6ff"; st.style.color = "#1e40af";' +
+            'st.innerText = "🆕 Ready to import " + sel.totalNewStudents + " student(s) into " + sel.targets.length + " new class(es): " + sel.targets.join(", ");' +
+          '} else if (sel.mode === "NEW_AND_EXISTING") {' +
+            'st.style.background = "#eff6ff"; st.style.color = "#1e40af";' +
+            'st.innerText = "📥 Ready to sync " + sel.targets.length + " class(es) (" + sel.totalNewStudents + " new students + re-scan existing).";' +
+          '} else {' +
+            'st.style.background = "#f3f4f6"; st.style.color = "#374151";' +
+            'st.innerText = "ℹ️ Ready to re-check " + sel.targets.length + " existing class(es) for newly added students.";' +
+          '}' +
+        '}' +
+        'function tickAllNew() {' +
+          'var boxes = Array.from(document.querySelectorAll("input[name=rosterClassItem]"));' +
+          'boxes.forEach(function(el) {' +
+            'if (el.getAttribute("data-synced") === "0" && el.getAttribute("data-found") === "1") { el.checked = true; }' +
+          '});' +
+          'updateSelectionHint();' +
+        '}' +
+        'function submitRosterSync() {' +
+          'var sel = getSelectedTargets();' +
+          'var st = document.getElementById("statusMsg");' +
+          'if (sel.targets.length === 0) {' +
+            'st.style.background = "#fef3c7"; st.style.color = "#92400e";' +
+            'st.innerText = "⚠️ Please tick at least one class to sync.";' +
+            'return;' +
+          '}' +
+          'var btn = document.getElementById("syncBtn");' +
+          'btn.disabled = true; btn.innerText = "⏳ Importing Rosters...";' +
+          'st.style.background = "#eff6ff"; st.style.color = "#1e40af";' +
+          'st.innerText = "⏳ Syncing student roster(s) for: " + sel.targets.join(", ") + "...";' +
+          'google.script.run' +
+            '.withSuccessHandler(function() { google.script.host.close(); })' +
+            '.withFailureHandler(function(err) {' +
+              'btn.disabled = false; btn.innerText = "📥 Sync Selected";' +
+              'st.style.background = "#fee2e2"; st.style.color = "#991b1b";' +
+              'st.innerText = "❌ Error: " + err.message;' +
+            '})' +
+            '.executeSelectedRostersSync(sel.targets);' +
+        '}' +
+        'updateSelectionHint();' +
+      '[[/script]]' +
+    '[[/div]]';
+
+  const html = renderDialogHtml_(dialogTpl, 550, 455);
+  SpreadsheetApp.getUi().showModalDialog(html, '📥 1. Sync Student Rosters (Google Sheet / .XLSX)');
+}
+
+/**
+ * Server handler called from the Roster Sync Checkbox Dialog.
+ * Uses the pre-scanned roster from CacheService when available so new classes
+ * import in <0.5 seconds without opening the .XLSX file a second time!
+ */
+function executeSelectedRostersSync(selectedClassIds) {
+  if (!selectedClassIds || selectedClassIds.length === 0) return;
+
+  const masterSs = SpreadsheetApp.getActiveSpreadsheet();
+  const configSheet = masterSs.getSheetByName('Classes_Config');
+  if (!configSheet) {
+    showAlert_('⚠️ Sheet \'Classes_Config\' was not found.');
+    return;
+  }
+
+  let scriptCache = null;
+  try {
+    scriptCache = CacheService.getScriptCache();
+  } catch (e) {}
+
+  const selectedMap = {};
+  for (let i = 0; i < selectedClassIds.length; i++) {
+    selectedMap[String(selectedClassIds[i]).trim()] = true;
+  }
+
+  const cfgData = configSheet.getDataRange().getValues();
+  const summaryLines = [];
+
+  for (let i = 1; i < cfgData.length; i++) {
+    const classId = String(cfgData[i][0] || '').trim();
+    const className = String(cfgData[i][1] || '').trim();
+    if (!classId || !selectedMap[classId]) continue;
+
+    const targetInfo = resolveClassTargetFile_(masterSs, classId, className);
+    if (!targetInfo) {
+      summaryLines.push('⚠️ ' + classId + ': No matching Google Sheet or .XLSX file found on Google Drive.');
+      continue;
+    }
+
+    let classSheet = masterSs.getSheetByName(classId);
+    if (!classSheet) {
+      classSheet = masterSs.insertSheet(classId);
+      classSheet.getRange(1, 1, 1, 5).setValues([['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']]);
+    }
+
+    try {
+      let extractResult = null;
+      if (scriptCache) {
+        try {
+          const cachedRaw = scriptCache.get(ROSTER_PREVIEW_CACHE_PREFIX + classId);
+          if (cachedRaw) {
+            const parsedCache = JSON.parse(cachedRaw);
+            if (parsedCache && parsedCache.fileId === targetInfo.fileId && Array.isArray(parsedCache.roster)) {
+              extractResult = parsedCache;
+            }
+          }
+        } catch (cacheReadErr) {}
+      }
+
+      if (!extractResult) {
+        extractResult = extractRosterFromTargetFile_(targetInfo, classId, className);
+      }
+
+      const rosterRows = extractResult.roster;
+      const sourceDesc = (targetInfo.isGoogleSheet ? 'Google Sheet' : '.XLSX') + ' [' + extractResult.sheetName + '] (📁 ' + (targetInfo.folderPath || 'Drive') + ')';
+
+      if (rosterRows.length === 0) {
+        summaryLines.push('⚠️ ' + classId + ': No valid student rows found in ' + sourceDesc + '.');
+        continue;
+      }
+
+      const existingData = classSheet.getDataRange().getValues();
+      const existingIds = {};
+      let existingStudentCount = 0;
+
+      for (let r = 1; r < existingData.length; r++) {
+        const sid = normalizeStudentId_(existingData[r][1], existingData[r][2]);
+        if (sid) {
+          existingIds[sid.toUpperCase()] = true;
+          existingStudentCount++;
+        }
+      }
+
+      if (existingStudentCount === 0) {
+        classSheet.getRange(1, 1, 1, 5).setValues([['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']]);
+        classSheet.getRange(2, 1, rosterRows.length, 5).setValues(rosterRows);
+        SpreadsheetApp.flush();
+        summaryLines.push('✅ ' + classId + ': Imported full roster (' + rosterRows.length + ' students) from ' + sourceDesc + '.');
+        appendAuditLog_(masterSs, 'SYNC_MENU', 'ROSTER_IMPORT', classId, 'Imported ' + rosterRows.length + ' students from ' + sourceDesc);
+      } else {
+        const newRows = [];
+        for (let r = 0; r < rosterRows.length; r++) {
+          const sid = String(rosterRows[r][1]).trim();
+          const sidKey = sid.toUpperCase();
+          if (!existingIds[sidKey]) {
+            const nextNo = existingStudentCount + newRows.length + 1;
+            newRows.push([nextNo, sid, rosterRows[r][2], 0, 0]);
+            existingIds[sidKey] = true;
+          }
+        }
+
+        if (newRows.length > 0) {
+          const startRow = classSheet.getLastRow() + 1;
+          classSheet.getRange(startRow, 1, newRows.length, 5).setValues(newRows);
+          SpreadsheetApp.flush();
+          summaryLines.push('✅ ' + classId + ': Appended ' + newRows.length + ' new student(s) (Total: ' + (existingStudentCount + newRows.length) + ') from ' + sourceDesc + '.');
+          appendAuditLog_(masterSs, 'SYNC_MENU', 'ROSTER_APPEND', classId, 'Appended ' + newRows.length + ' new students from ' + sourceDesc);
+        } else {
+          summaryLines.push('ℹ️ ' + classId + ': Roster is already up to date (' + existingStudentCount + ' students).');
+        }
+      }
+    } catch (e) {
+      summaryLines.push('❌ ' + classId + ': Error reading file — ' + e.message);
+    }
+  }
+
+  if (summaryLines.length === 0) {
+    showAlert_('⚠️ No selected classes could be processed.');
+    return;
+  }
+
+  showAlert_('📥 STUDENT ROSTER SYNC RESULTS\n\n' + summaryLines.join('\n'));
+}
+
+
+// ============================================================================
+// 4. BUTTON 2: SYNC TODAY'S ATTENDANCE (TO GOOGLE SHEET OR .XLSX)
+//    Merges multiple same-day sessions (P > L > -) & rescues unsynced past dates.
+// ============================================================================
+function syncTodayAttendance() {
+  ensureBackgroundTriggers_();
+
+  const masterSs = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const now = new Date();
+  const currentDayStr = now.getFullYear() + '-' + (now.getMonth() + 1) + '-' + now.getDate();
+  const props = PropertiesService.getScriptProperties();
+  const syncedMap = JSON.parse(props.getProperty(AUTO_SYNCED_SESSIONS_KEY) || '{}');
+
+  const classNamesMap = getClassNamesMap_(masterSs);
+  const groupedByClassDate = getGroupedSessionsByClassDate_(masterSs);
+  const sessionsToSync = [];
+  const unsyncedPastGroups = [];
+
+  for (let i = 0; i < groupedByClassDate.length; i++) {
+    const grp = groupedByClassDate[i];
+    if (grp.dateKey === currentDayStr) {
+      sessionsToSync.push(grp);
+    } else if (!syncedMap[grp.groupKey]) {
+      // Past date that was NEVER synced even once (e.g. crossed midnight before syncing)
+      unsyncedPastGroups.push(grp);
+    }
+  }
+
+  // Rescue prompt if there are past sessions that were never synced at all
+  if (unsyncedPastGroups.length > 0) {
+    const pastDesc = unsyncedPastGroups.map(function(g) {
+      return g.classId + ' (' + g.day + '/' + g.month + ')';
+    }).join(', ');
+    const rescueConfirm = ui.alert(
+      'Unsynced Past Session(s) Detected',
+      'Found session(s) from a previous date that have NEVER been synced to the target Google Sheet / .XLSX file:\n' +
+      '• ' + pastDesc + '\n\n' +
+      'Do you want to sync them now? (Already-synced past dates will never be touched.)',
+      ui.ButtonSet.YES_NO
+    );
+    if (rescueConfirm === ui.Button.YES) {
+      for (let i = 0; i < unsyncedPastGroups.length; i++) {
+        sessionsToSync.push(unsyncedPastGroups[i]);
+      }
+    }
+  }
+
+  if (sessionsToSync.length === 0) {
+    showAlert_(
+      'ℹ️ No QR attendance sessions found for TODAY (' +
+      now.getDate() + '/' + (now.getMonth() + 1) + '/' + now.getFullYear() + ').\n\n' +
+      'Note: Already-synced past dates are locked to protect your manual edits on the target Google Sheet / .XLSX file.'
+    );
+    return;
+  }
+
+  const undoBatch = [];
+  const summaryLines = [];
+
+  for (let i = 0; i < sessionsToSync.length; i++) {
+    const sessionGroup = sessionsToSync[i];
+    const classId = sessionGroup.classId;
+    const className = classNamesMap[classId] || '';
+    const targetInfo = resolveClassTargetFile_(masterSs, classId, className);
+
+    if (!targetInfo) {
+      summaryLines.push('⚠️ ' + classId + ': Skipped (Target Google Sheet / .XLSX file not found on Google Drive).');
+      continue;
+    }
+
+    try {
+      const statusMap = getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup);
+      updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap);
+      const result = updateTargetAttendanceFile_(targetInfo, classId, className, sessionGroup.day, sessionGroup.month, statusMap, null);
+
+      undoBatch.push({
+        classId: classId,
+        className: className,
+        xlsxFileId: targetInfo.fileId,
+        isGoogleSheet: targetInfo.isGoogleSheet,
+        sheetName: result.sheetName,
+        day: sessionGroup.day,
+        month: sessionGroup.month,
+        groupKey: sessionGroup.groupKey,
+        previousSyncedSig: syncedMap[sessionGroup.groupKey] || null,
+        previousCells: result.previousCells
+      });
+
+      syncedMap[sessionGroup.groupKey] = JSON.stringify(statusMap);
+
+      const multiNote = sessionGroup.sessionIds.length > 1
+        ? ' [Merged ' + sessionGroup.sessionIds.length + ' sessions]'
+        : '';
+      const formatTag = targetInfo.isGoogleSheet ? '[Google Sheet]' : '[.XLSX]';
+      const detailStr = 'Present: ' + result.presentCount + ' | Late: ' + result.lateCount + ' | Absent: ' + result.absentCount;
+
+      summaryLines.push(
+        '✅ ' + classId + ' ' + formatTag + ' (Date ' + sessionGroup.day + '/' + sessionGroup.month + ')' + multiNote + ' — ' + detailStr
+      );
+      appendAuditLog_(
+        masterSs,
+        'MANUAL_SYNC',
+        'ATTENDANCE_SYNC_SUCCESS',
+        classId + ' (' + sessionGroup.day + '/' + sessionGroup.month + ')',
+        formatTag + ' ' + detailStr + multiNote
+      );
+    } catch (err) {
+      summaryLines.push('❌ ' + classId + ' (Date ' + sessionGroup.day + '/' + sessionGroup.month + '): ' + err.message);
+      appendAuditLog_(
+        masterSs,
+        'MANUAL_SYNC',
+        'ATTENDANCE_SYNC_ERROR',
+        classId + ' (' + sessionGroup.day + '/' + sessionGroup.month + ')',
+        err.message
+      );
+    }
+  }
+
+  if (undoBatch.length > 0) {
+    props.setProperty(AUTO_SYNCED_SESSIONS_KEY, JSON.stringify(syncedMap));
+    props.setProperty(LAST_SYNC_PROP_KEY, JSON.stringify(undoBatch));
+    props.setProperty(LAST_ACTION_TYPE_KEY, 'ATTENDANCE_SYNC');
+  }
+
+  showAlert_('🎉 ATTENDANCE SYNC RESULTS\n\n' + summaryLines.join('\n'));
+}
+
+
+// ============================================================================
+// 5. BUTTON 3: CONFLICT-FREE UNIFIED UNDO (CLASS DELETE & ATTENDANCE SYNC)
+// ============================================================================
+function undoLastAction() {
+  ensureBackgroundTriggers_();
+
+  const masterSs = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const props = PropertiesService.getScriptProperties();
+  const lastActionType = props.getProperty(LAST_ACTION_TYPE_KEY) || '';
+
+  const deletedSnapshot = readDeletedClassBackup_(masterSs);
+  const rawSyncBatch = props.getProperty(LAST_SYNC_PROP_KEY);
+
+  if (!deletedSnapshot && !rawSyncBatch) {
+    showAlert_('ℹ️ No recent Attendance Sync or Class Deletion found to undo.');
+    return;
+  }
+
+  // If BOTH a deleted class backup and an attendance sync backup exist, let the user choose clearly
+  if (deletedSnapshot && rawSyncBatch) {
+    const classListStr = deletedSnapshot.classIds.join(', ');
+    const undoBatch = JSON.parse(rawSyncBatch);
+    const syncDescStr = undoBatch.map(function(item) {
+      return item.classId + ' (' + item.day + '/' + item.month + ')';
+    }).join(', ');
+
+    if (lastActionType === 'CLASS_DELETE') {
+      const choice = ui.alert(
+        'Undo Deleted Class(es)',
+        'Do you want to restore the deleted class(es): ' + classListStr + '?\n\n' +
+        '• Click YES to restore deleted class(es): ' + classListStr + '\n' +
+        '• Click NO if you want to undo the last Attendance Sync (' + syncDescStr + ') instead.',
+        ui.ButtonSet.YES_NO_CANCEL
+      );
+      if (choice === ui.Button.YES) {
+        executeClassDeleteUndo_(masterSs, props, deletedSnapshot, true);
+        return;
+      } else if (choice === ui.Button.NO) {
+        const confirmSync = ui.alert(
+          'Undo Last Attendance Sync',
+          'Confirm undoing the last attendance sync on the target file(s) for: ' + syncDescStr + '?',
+          ui.ButtonSet.YES_NO
+        );
+        if (confirmSync === ui.Button.YES) {
+          executeAttendanceSyncUndo_(masterSs, props, undoBatch, true);
+        }
+        return;
+      }
+      return;
+    } else {
+      const choice = ui.alert(
+        'Undo Last Attendance Sync',
+        'Do you want to undo the last attendance sync for: ' + syncDescStr + '?\n\n' +
+        '• Click YES to undo the Attendance Sync (' + syncDescStr + ')\n' +
+        '• Click NO if you want to restore the deleted class(es) (' + classListStr + ') instead.',
+        ui.ButtonSet.YES_NO_CANCEL
+      );
+      if (choice === ui.Button.YES) {
+        executeAttendanceSyncUndo_(masterSs, props, undoBatch, true);
+        return;
+      } else if (choice === ui.Button.NO) {
+        const confirmDel = ui.alert(
+          'Undo Class Deletion',
+          'Confirm restoring the deleted class(es): ' + classListStr + '?',
+          ui.ButtonSet.YES_NO
+        );
+        if (confirmDel === ui.Button.YES) {
+          executeClassDeleteUndo_(masterSs, props, deletedSnapshot, true);
+        }
+        return;
+      }
+      return;
+    }
+  }
+
+  // Only deletedSnapshot exists
+  if (deletedSnapshot) {
+    const classListStr = deletedSnapshot.classIds.join(', ');
+    const confirm = ui.alert(
+      'Undo Class Deletion',
+      'Do you want to restore the recently deleted class(es): ' + classListStr + '?\n\n' +
+      'This will restore their Class Tab(s), Classes_Config rows, Sessions_Log, Attendance_Log, and Device_Registry.',
+      ui.ButtonSet.YES_NO
+    );
+    if (confirm === ui.Button.YES) {
+      executeClassDeleteUndo_(masterSs, props, deletedSnapshot, false);
+    }
+    return;
+  }
+
+  // Only rawSyncBatch exists
+  if (rawSyncBatch) {
+    const undoBatch = JSON.parse(rawSyncBatch);
+    const descList = undoBatch.map(function(item) {
+      return item.classId + ' (' + item.day + '/' + item.month + ')';
+    }).join(', ');
+
+    const confirm = ui.alert(
+      'Undo Last Attendance Sync',
+      'Do you want to undo the last attendance sync on the target Google Sheet / .XLSX file(s) for:\n' + descList + '?',
+      ui.ButtonSet.YES_NO
+    );
+    if (confirm === ui.Button.YES) {
+      executeAttendanceSyncUndo_(masterSs, props, undoBatch, false);
+    }
+  }
+}
+
+function executeClassDeleteUndo_(masterSs, props, deletedSnapshot, hasOtherUndo) {
+  const classListStr = deletedSnapshot.classIds.join(', ');
+  restoreDeletedClassBackup_(masterSs, deletedSnapshot);
+  clearDeletedClassBackup_(masterSs);
+  props.setProperty(LAST_ACTION_TYPE_KEY, hasOtherUndo ? 'ATTENDANCE_SYNC' : '');
+  appendAuditLog_(masterSs, 'SYNC_MENU', 'UNDO_CLASS_DELETE', classListStr, 'Restored deleted class tabs and logs');
+  showAlert_('✅ RESTORE COMPLETED\n\nSuccessfully restored class(es): ' + classListStr + '.');
+}
+
+function executeAttendanceSyncUndo_(masterSs, props, undoBatch, hasOtherUndo) {
+  const syncedMap = JSON.parse(props.getProperty(AUTO_SYNCED_SESSIONS_KEY) || '{}');
+  const restoredLines = [];
+
+  for (let i = 0; i < undoBatch.length; i++) {
+    const item = undoBatch[i];
+    const targetInfo = {
+      fileId: item.xlsxFileId,
+      isGoogleSheet: Boolean(item.isGoogleSheet)
+    };
+    updateTargetAttendanceFile_(
+      targetInfo,
+      item.classId,
+      item.className || '',
+      item.day,
+      item.month,
+      {},
+      item.previousCells || []
+    );
+    if (item.groupKey) {
+      if (item.previousSyncedSig) {
+        syncedMap[item.groupKey] = item.previousSyncedSig;
+      } else {
+        delete syncedMap[item.groupKey];
+      }
+    }
+    restoredLines.push('↩️ ' + item.classId + ': Restored date column ' + item.day + '/' + item.month + ' to its previous state.');
+    appendAuditLog_(masterSs, 'SYNC_MENU', 'UNDO_ATTENDANCE_SYNC', item.classId + ' (' + item.day + '/' + item.month + ')', 'Restored previous column values');
+  }
+
+  props.setProperty(AUTO_SYNCED_SESSIONS_KEY, JSON.stringify(syncedMap));
+  props.deleteProperty(LAST_SYNC_PROP_KEY);
+  props.setProperty(LAST_ACTION_TYPE_KEY, hasOtherUndo ? 'CLASS_DELETE' : '');
+  showAlert_('✅ UNDO COMPLETED\n\n' + restoredLines.join('\n'));
+}
+
+
+// ============================================================================
+// 6. BUTTON 4: OPEN CHECKBOX DIALOG TO SELECT & DELETE COMPLETED CLASSES
+// ============================================================================
+function openDeleteClassesDialog() {
+  ensureBackgroundTriggers_();
+
+  const masterSs = SpreadsheetApp.getActiveSpreadsheet();
+  const cfgSheet = masterSs.getSheetByName('Classes_Config');
+  if (!cfgSheet) {
+    showAlert_('⚠️ Sheet \'Classes_Config\' was not found.');
+    return;
+  }
+
+  const cfgData = cfgSheet.getDataRange().getValues();
+  const sessSheet = masterSs.getSheetByName('Sessions_Log');
+  const sessData = sessSheet ? sessSheet.getDataRange().getValues() : [];
+
+  const sessionCountByClass = {};
+  for (let i = 1; i < sessData.length; i++) {
+    const cid = String(sessData[i][1] || '').trim();
+    if (cid) sessionCountByClass[cid] = (sessionCountByClass[cid] || 0) + 1;
+  }
+
+  const classes = [];
+  for (let i = 1; i < cfgData.length; i++) {
+    const cid = String(cfgData[i][0] || '').trim();
+    const cname = String(cfgData[i][1] || '').trim();
+    if (!cid) continue;
+
+    let studentCount = 0;
+    const cSheet = masterSs.getSheetByName(cid);
+    if (cSheet && cSheet.getLastRow() > 1) {
+      const vals = cSheet.getRange(2, 2, cSheet.getLastRow() - 1, 2).getValues();
+      for (let r = 0; r < vals.length; r++) {
+        if (normalizeStudentId_(vals[r][0], vals[r][1])) studentCount++;
+      }
+    }
+
+    classes.push({
+      classId: cid,
+      className: cname || cid,
+      students: studentCount,
+      sessions: sessionCountByClass[cid] || 0
+    });
+  }
+
+  if (classes.length === 0) {
+    showAlert_('ℹ️ No active classes found in \'Classes_Config\' to delete.');
+    return;
+  }
+
+  const checkboxesTpl = classes.map(function(c) {
+    return (
+      '[[label style="display:flex; align-items:center; padding:10px 12px; margin-bottom:8px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; cursor:pointer;"]]' +
+        '[[input type="checkbox" name="classItem" value="' + escapeHtml_(c.classId) + '" style="width:18px; height:18px; margin-right:12px; cursor:pointer;"]]' +
+        '[[div]]' +
+          '[[div style="font-weight:600; color:#111827; font-size:14px;"]]' + escapeHtml_(c.classId) + ' [[span style="font-weight:normal; color:#6b7280; font-size:12px;"]](' + escapeHtml_(c.className) + ')[[/span]][[/div]]' +
+          '[[div style="font-size:12px; color:#4b5563; margin-top:2px;"]]Students: [[b]]' + c.students + '[[/b]] | Logged QR Sessions: [[b]]' + c.sessions + '[[/b]][[/div]]' +
+        '[[/div]]' +
+      '[[/label]]'
+    );
+  }).join('');
+
+  const dialogTpl =
+    '[[div style="font-family: Arial, sans-serif; padding: 12px; color: #1f2937;"]]' +
+      '[[p style="margin-top:0; font-size:13px; color:#374151; line-height:1.4;"]]' +
+        'Tick the completed class(es) you want to remove from this Master QR Sheet. ' +
+        'A backup snapshot will be saved automatically so you can restore them via [[b]]↩️ 3. Undo Last Action[[/b]] if needed.' +
+      '[[/p]]' +
+      '[[div style="max-height:220px; overflow-y:auto; margin-bottom:14px;"]]' +
+        checkboxesTpl +
+      '[[/div]]' +
+      '[[div id="statusMsg" style="display:none; padding:10px; border-radius:6px; font-size:13px; margin-bottom:12px;"]][[/div]]' +
+      '[[div style="display:flex; justify-content:flex-end; gap:8px;"]]' +
+        '[[button onclick="google.script.host.close()" style="padding:8px 14px; background:#e5e7eb; color:#374151; border:none; border-radius:6px; cursor:pointer; font-weight:600;"]]Cancel[[/button]]' +
+        '[[button id="delBtn" onclick="submitDelete()" style="padding:8px 16px; background:#dc2626; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;"]]🗑️ Delete Selected[[/button]]' +
+      '[[/div]]' +
+      '[[script]]' +
+        'function submitDelete() {' +
+          'var checked = Array.from(document.querySelectorAll("input[name=classItem]:checked")).map(function(el){ return el.value; });' +
+          'var st = document.getElementById("statusMsg");' +
+          'if (checked.length === 0) {' +
+            'st.style.display = "block"; st.style.background = "#fef3c7"; st.style.color = "#92400e";' +
+            'st.innerText = "⚠️ Please tick at least one class to delete.";' +
+            'return;' +
+          '}' +
+          'var btn = document.getElementById("delBtn");' +
+          'btn.disabled = true; btn.innerText = "⏳ Waiting for confirmation...";' +
+          'st.style.display = "block"; st.style.background = "#eff6ff"; st.style.color = "#1e40af";' +
+          'st.innerText = "Please confirm Yes/No on the Google Sheets prompt...";' +
+          'google.script.run' +
+            '.withSuccessHandler(function(res) {' +
+              'if (res && res.cancelled) {' +
+                'btn.disabled = false; btn.innerText = "🗑️ Delete Selected";' +
+                'st.style.background = "#f3f4f6"; st.style.color = "#374151";' +
+                'st.innerText = "ℹ️ Deletion cancelled.";' +
+              '} else {' +
+                'google.script.host.close();' +
+              '}' +
+            '})' +
+            '.withFailureHandler(function(err) {' +
+              'btn.disabled = false; btn.innerText = "🗑️ Delete Selected";' +
+              'st.style.background = "#fee2e2"; st.style.color = "#991b1b";' +
+              'st.innerText = "❌ Error: " + err.message;' +
+            '})' +
+            '.deleteSelectedClasses(checked);' +
+        '}' +
+      '[[/script]]' +
+    '[[/div]]';
+
+  const html = renderDialogHtml_(dialogTpl, 460, 380);
+  SpreadsheetApp.getUi().showModalDialog(html, '🗑️ Delete Completed Classes');
+}
+
+function deleteSelectedClasses(selectedClassIds) {
+  if (!selectedClassIds || selectedClassIds.length === 0) {
+    return { cancelled: true };
+  }
+
+  const ui = SpreadsheetApp.getUi();
+  const classListStr = selectedClassIds.join(', ');
+  const confirm = ui.alert(
+    'Confirm Class Deletion',
+    'Are you sure you want to delete the selected class(es): ' + classListStr + '?\n\n' +
+    '• Class tab(s), Classes_Config, Sessions_Log, Attendance_Log, and Device_Registry for these classes will be cleaned up.\n' +
+    '• You can undo this deletion anytime via \'↩️ 3. Undo Last Action\'.',
+    ui.ButtonSet.YES_NO
+  );
+
+  if (confirm !== ui.Button.YES) {
+    return { cancelled: true };
+  }
+
+  const masterSs = SpreadsheetApp.getActiveSpreadsheet();
+  const targetMap = {};
+  for (let i = 0; i < selectedClassIds.length; i++) {
+    targetMap[String(selectedClassIds[i]).trim()] = true;
+  }
+
+  const snapshot = {
+    deletedAt: new Date().toISOString(),
+    classIds: selectedClassIds,
+    configRows: [],
+    classTabs: {},
+    sessionRows: [],
+    attendanceRows: [],
+    deviceRows: []
+  };
+
+  const deletedClassStudents = {};
+  const remainingClassStudents = {};
+
+  const cfgSheet = masterSs.getSheetByName('Classes_Config');
+  if (cfgSheet) {
+    const cfgData = cfgSheet.getDataRange().getValues();
+    for (let i = 1; i < cfgData.length; i++) {
+      const cid = String(cfgData[i][0] || '').trim();
+      if (!cid) continue;
+      const cSheet = masterSs.getSheetByName(cid);
+      if (cSheet && cSheet.getLastRow() > 1) {
+        const sVals = cSheet.getRange(2, 2, cSheet.getLastRow() - 1, 2).getValues();
+        for (let r = 0; r < sVals.length; r++) {
+          const sid = normalizeStudentId_(sVals[r][0], sVals[r][1]);
+          if (!sid) continue;
+          if (targetMap[cid]) {
+            deletedClassStudents[sid] = true;
+          } else {
+            remainingClassStudents[sid] = true;
+          }
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < selectedClassIds.length; i++) {
+    const cid = String(selectedClassIds[i]).trim();
+    const cSheet = masterSs.getSheetByName(cid);
+    if (cSheet) {
+      snapshot.classTabs[cid] = cSheet.getDataRange().getValues();
+      masterSs.deleteSheet(cSheet);
+    }
+  }
+
+  if (cfgSheet) {
+    const cfgData = cfgSheet.getDataRange().getValues();
+    const keepCfg = [cfgData[0]];
+    for (let i = 1; i < cfgData.length; i++) {
+      const cid = String(cfgData[i][0] || '').trim();
+      if (targetMap[cid]) {
+        snapshot.configRows.push(cfgData[i]);
+      } else {
+        keepCfg.push(cfgData[i]);
+      }
+    }
+    rewriteSheetRows_(cfgSheet, keepCfg);
+  }
+
+  const sessSheet = masterSs.getSheetByName('Sessions_Log');
+  if (sessSheet) {
+    const sessData = sessSheet.getDataRange().getValues();
+    const keepSess = [sessData[0]];
+    for (let i = 1; i < sessData.length; i++) {
+      const cid = String(sessData[i][1] || '').trim();
+      if (targetMap[cid]) {
+        snapshot.sessionRows.push(sessData[i]);
+      } else {
+        keepSess.push(sessData[i]);
+      }
+    }
+    rewriteSheetRows_(sessSheet, keepSess);
+  }
+
+  const attSheet = masterSs.getSheetByName('Attendance_Log');
+  if (attSheet) {
+    const attData = attSheet.getDataRange().getValues();
+    const keepAtt = [attData[0]];
+    for (let i = 1; i < attData.length; i++) {
+      const cid = String(attData[i][3] || '').trim();
+      if (targetMap[cid]) {
+        snapshot.attendanceRows.push(attData[i]);
+      } else {
+        keepAtt.push(attData[i]);
+      }
+    }
+    rewriteSheetRows_(attSheet, keepAtt);
+  }
+
+  const devSheet = masterSs.getSheetByName('Device_Registry');
+  if (devSheet) {
+    const devData = devSheet.getDataRange().getValues();
+    const keepDev = [devData[0]];
+    for (let i = 1; i < devData.length; i++) {
+      const sid = normalizeStudentId_(devData[i][0]);
+      if (sid && deletedClassStudents[sid] && !remainingClassStudents[sid]) {
+        snapshot.deviceRows.push(devData[i]);
+      } else {
+        keepDev.push(devData[i]);
+      }
+    }
+    rewriteSheetRows_(devSheet, keepDev);
+  }
+
+  saveDeletedClassBackup_(masterSs, snapshot);
+  PropertiesService.getScriptProperties().setProperty(LAST_ACTION_TYPE_KEY, 'CLASS_DELETE');
+  appendAuditLog_(
+    masterSs,
+    'SYNC_MENU',
+    'DELETE_CLASSES',
+    classListStr,
+    'Removed ' + Object.keys(snapshot.classTabs).length + ' tabs, ' + snapshot.sessionRows.length + ' sessions, ' + snapshot.attendanceRows.length + ' attendance logs'
+  );
+  SpreadsheetApp.flush();
+
+  showAlert_(
+    '🗑️ DELETION COMPLETED\n\n' +
+    'Removed class(es): ' + classListStr + '\n' +
+    '• Class tab(s) deleted: ' + Object.keys(snapshot.classTabs).length + '\n' +
+    '• Sessions_Log rows removed: ' + snapshot.sessionRows.length + '\n' +
+    '• Attendance_Log rows removed: ' + snapshot.attendanceRows.length + '\n' +
+    '• Device_Registry rows removed: ' + snapshot.deviceRows.length + '\n\n' +
+    '💡 Tip: If you deleted a class by mistake, click \'↩️ 3. Undo Last Action\' to restore everything.'
+  );
+
+  return { cancelled: false };
+}
+
+function rewriteSheetRows_(sheet, rows) {
+  sheet.clearContents();
+  if (rows && rows.length > 0) {
+    sheet.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
+  }
+}
+
+function saveDeletedClassBackup_(masterSs, snapshot) {
+  let backupSheet = masterSs.getSheetByName(UNDO_BACKUP_SHEET_NAME);
+  if (!backupSheet) {
+    backupSheet = masterSs.insertSheet(UNDO_BACKUP_SHEET_NAME);
+    backupSheet.hideSheet();
+  }
+  backupSheet.clearContents();
+
+  const jsonStr = JSON.stringify(snapshot);
+  const chunkSize = 35000;
+  const chunks = [];
+  for (let i = 0; i < jsonStr.length; i += chunkSize) {
+    chunks.push([jsonStr.slice(i, i + chunkSize)]);
+  }
+  if (chunks.length > 0) {
+    backupSheet.getRange(1, 1, chunks.length, 1).setValues(chunks);
+  }
+  backupSheet.hideSheet();
+}
+
+function readDeletedClassBackup_(masterSs) {
+  const backupSheet = masterSs.getSheetByName(UNDO_BACKUP_SHEET_NAME);
+  if (!backupSheet || backupSheet.getLastRow() === 0) return null;
+  try {
+    const vals = backupSheet.getRange(1, 1, backupSheet.getLastRow(), 1).getValues();
+    let jsonStr = '';
+    for (let i = 0; i < vals.length; i++) {
+      jsonStr += String(vals[i][0] || '');
+    }
+    if (!jsonStr) return null;
+    return JSON.parse(jsonStr);
+  } catch (e) {
+    return null;
+  }
+}
+
+function clearDeletedClassBackup_(masterSs) {
+  const backupSheet = masterSs.getSheetByName(UNDO_BACKUP_SHEET_NAME);
+  if (backupSheet) {
+    backupSheet.clearContents();
+    backupSheet.hideSheet();
+  }
+}
+
+function restoreDeletedClassBackup_(masterSs, snapshot) {
+  const tabNames = Object.keys(snapshot.classTabs || {});
+  for (let i = 0; i < tabNames.length; i++) {
+    const cid = tabNames[i];
+    const rows = snapshot.classTabs[cid];
+    let cSheet = masterSs.getSheetByName(cid);
+    if (!cSheet) {
+      cSheet = masterSs.insertSheet(cid);
+    } else {
+      cSheet.clearContents();
+    }
+    if (rows && rows.length > 0) {
+      cSheet.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
+    }
+  }
+
+  appendRowsToSheet_(masterSs.getSheetByName('Classes_Config'), snapshot.configRows);
+  appendRowsToSheet_(masterSs.getSheetByName('Sessions_Log'), snapshot.sessionRows);
+  appendRowsToSheet_(masterSs.getSheetByName('Attendance_Log'), snapshot.attendanceRows);
+  appendRowsToSheet_(masterSs.getSheetByName('Device_Registry'), snapshot.deviceRows);
+  SpreadsheetApp.flush();
+}
+
+function appendRowsToSheet_(sheet, rows) {
+  if (!sheet || !rows || rows.length === 0) return;
+  const startRow = sheet.getLastRow() + 1;
+  sheet.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
+}
+
+
+// ============================================================================
+// 7. BUTTON 5: ATTENDANCE MARK SETTINGS DIALOG (HIGHLIGHT vs P/L/A vs CUSTOM)
+// ============================================================================
+function getAttendanceStyle_() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(ATTENDANCE_STYLE_PROP_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        mode: parsed.mode || DEFAULT_ATTENDANCE_STYLE.mode,
+        presentText: parsed.presentText !== undefined ? String(parsed.presentText) : DEFAULT_ATTENDANCE_STYLE.presentText,
+        presentBg: parsed.presentBg !== undefined ? String(parsed.presentBg) : DEFAULT_ATTENDANCE_STYLE.presentBg,
+        lateText: parsed.lateText !== undefined ? String(parsed.lateText) : DEFAULT_ATTENDANCE_STYLE.lateText,
+        lateBg: parsed.lateBg !== undefined ? String(parsed.lateBg) : DEFAULT_ATTENDANCE_STYLE.lateBg,
+        absentText: parsed.absentText !== undefined ? String(parsed.absentText) : DEFAULT_ATTENDANCE_STYLE.absentText,
+        absentBg: parsed.absentBg !== undefined ? String(parsed.absentBg) : DEFAULT_ATTENDANCE_STYLE.absentBg
+      };
+    }
+  } catch (e) {}
+  return DEFAULT_ATTENDANCE_STYLE;
+}
+
+function openAttendanceStyleDialog() {
+  ensureBackgroundTriggers_();
+
+  const cur = getAttendanceStyle_();
+
+  const dialogTpl =
+    '[[div style="font-family: Arial, sans-serif; padding: 12px; color: #1f2937;"]]' +
+      '[[p style="margin-top:0; font-size:13px; color:#374151; line-height:1.45;"]]' +
+        'Choose how attendance statuses are written into your target Google Sheet or .XLSX file:' +
+      '[[/p]]' +
+      '[[div style="margin-bottom:12px;"]]' +
+        '[[label style="display:block; font-weight:600; font-size:12px; color:#374151; margin-bottom:6px;"]]Preset Style:[[/label]]' +
+        '[[select id="modeSelect" onchange="applyPreset()" style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;"]]' +
+          '[[option value="CENTER" ' + (cur.mode === 'CENTER' ? 'selected' : '') + ']]🎨 Highlight Style (Present = Blank, Late = Yellow, Absent = x)[[/option]]' +
+          '[[option value="PLA" ' + (cur.mode === 'PLA' ? 'selected' : '') + ']]🔤 Standard P / L / A (Present = P, Late = L + Yellow, Absent = A)[[/option]]' +
+          '[[option value="CUSTOM" ' + (cur.mode === 'CUSTOM' ? 'selected' : '') + ']]✏️ Custom Marks & Colors[[/option]]' +
+        '[[/select]]' +
+      '[[/div]]' +
+      '[[table style="width:100%; border-collapse:collapse; font-size:13px; margin-bottom:14px;"]]' +
+        '[[thead]]' +
+          '[[tr style="background:#f3f4f6; text-align:left;"]]' +
+            '[[th style="padding:7px 8px; border:1px solid #e5e7eb;"]]Status[[/th]]' +
+            '[[th style="padding:7px 8px; border:1px solid #e5e7eb;"]]Cell Text (Blank allowed)[[/th]]' +
+            '[[th style="padding:7px 8px; border:1px solid #e5e7eb;"]]Background Hex (Blank = None)[[/th]]' +
+          '[[/tr]]' +
+        '[[/thead]]' +
+        '[[tbody]]' +
+          '[[tr]]' +
+            '[[td style="padding:7px 8px; border:1px solid #e5e7eb; font-weight:600; color:#166534;"]]✅ Present (P)[[/td]]' +
+            '[[td style="padding:7px 8px; border:1px solid #e5e7eb;"]][[input id="pText" type="text" value="' + escapeHtml_(cur.presentText) + '" oninput="markCustom()" style="width:90%; padding:5px; border:1px solid #d1d5db; border-radius:4px;"]][[/td]]' +
+            '[[td style="padding:7px 8px; border:1px solid #e5e7eb;"]][[input id="pBg" type="text" placeholder="e.g. #dcfce7 or empty" value="' + escapeHtml_(cur.presentBg) + '" oninput="markCustom()" style="width:90%; padding:5px; border:1px solid #d1d5db; border-radius:4px;"]][[/td]]' +
+          '[[/tr]]' +
+          '[[tr]]' +
+            '[[td style="padding:7px 8px; border:1px solid #e5e7eb; font-weight:600; color:#92400e;"]]🕒 Late (L)[[/td]]' +
+            '[[td style="padding:7px 8px; border:1px solid #e5e7eb;"]][[input id="lText" type="text" value="' + escapeHtml_(cur.lateText) + '" oninput="markCustom()" style="width:90%; padding:5px; border:1px solid #d1d5db; border-radius:4px;"]][[/td]]' +
+            '[[td style="padding:7px 8px; border:1px solid #e5e7eb;"]][[input id="lBg" type="text" placeholder="#ffff00" value="' + escapeHtml_(cur.lateBg) + '" oninput="markCustom()" style="width:90%; padding:5px; border:1px solid #d1d5db; border-radius:4px;"]][[/td]]' +
+          '[[/tr]]' +
+          '[[tr]]' +
+            '[[td style="padding:7px 8px; border:1px solid #e5e7eb; font-weight:600; color:#991b1b;"]]❌ Absent (-)[[/td]]' +
+            '[[td style="padding:7px 8px; border:1px solid #e5e7eb;"]][[input id="aText" type="text" value="' + escapeHtml_(cur.absentText) + '" oninput="markCustom()" style="width:90%; padding:5px; border:1px solid #d1d5db; border-radius:4px;"]][[/td]]' +
+            '[[td style="padding:7px 8px; border:1px solid #e5e7eb;"]][[input id="aBg" type="text" placeholder="empty = clear bg" value="' + escapeHtml_(cur.absentBg) + '" oninput="markCustom()" style="width:90%; padding:5px; border:1px solid #d1d5db; border-radius:4px;"]][[/td]]' +
+          '[[/tr]]' +
+        '[[/tbody]]' +
+      '[[/table]]' +
+      '[[div id="statusMsg" style="display:none; padding:8px 10px; border-radius:6px; font-size:12.5px; margin-bottom:10px;"]][[/div]]' +
+      '[[div style="display:flex; justify-content:flex-end; gap:8px;"]]' +
+        '[[button onclick="google.script.host.close()" style="padding:8px 14px; background:#e5e7eb; color:#374151; border:none; border-radius:6px; cursor:pointer; font-weight:600;"]]Cancel[[/button]]' +
+        '[[button id="saveBtn" onclick="saveStyle()" style="padding:8px 16px; background:#2563eb; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;"]]💾 Save Settings[[/button]]' +
+      '[[/div]]' +
+      '[[script]]' +
+        'function applyPreset() {' +
+          'var m = document.getElementById("modeSelect").value;' +
+          'if (m === "CENTER") {' +
+            'document.getElementById("pText").value = "";' +
+            'document.getElementById("pBg").value = "";' +
+            'document.getElementById("lText").value = "";' +
+            'document.getElementById("lBg").value = "#ffff00";' +
+            'document.getElementById("aText").value = "x";' +
+            'document.getElementById("aBg").value = "";' +
+          '} else if (m === "PLA") {' +
+            'document.getElementById("pText").value = "P";' +
+            'document.getElementById("pBg").value = "";' +
+            'document.getElementById("lText").value = "L";' +
+            'document.getElementById("lBg").value = "#ffff00";' +
+            'document.getElementById("aText").value = "A";' +
+            'document.getElementById("aBg").value = "";' +
+          '}' +
+        '}' +
+        'function markCustom() {' +
+          'document.getElementById("modeSelect").value = "CUSTOM";' +
+        '}' +
+        'function saveStyle() {' +
+          'var cfg = {' +
+            'mode: document.getElementById("modeSelect").value,' +
+            'presentText: document.getElementById("pText").value,' +
+            'presentBg: document.getElementById("pBg").value.trim(),' +
+            'lateText: document.getElementById("lText").value,' +
+            'lateBg: document.getElementById("lBg").value.trim(),' +
+            'absentText: document.getElementById("aText").value,' +
+            'absentBg: document.getElementById("aBg").value.trim()' +
+          '};' +
+          'var btn = document.getElementById("saveBtn");' +
+          'btn.disabled = true; btn.innerText = "⏳ Saving...";' +
+          'google.script.run' +
+            '.withSuccessHandler(function() { google.script.host.close(); })' +
+            '.withFailureHandler(function(err) {' +
+              'btn.disabled = false; btn.innerText = "💾 Save Settings";' +
+              'var st = document.getElementById("statusMsg");' +
+              'st.style.display = "block"; st.style.background = "#fee2e2"; st.style.color = "#991b1b";' +
+              'st.innerText = "❌ Error: " + err.message;' +
+            '})' +
+            '.saveAttendanceStyleSettings(cfg);' +
+        '}' +
+      '[[/script]]' +
+    '[[/div]]';
+
+  const html = renderDialogHtml_(dialogTpl, 480, 370);
+  SpreadsheetApp.getUi().showModalDialog(html, '⚙️ 5. Attendance Mark Settings');
+}
+
+function saveAttendanceStyleSettings(styleCfg) {
+  const clean = {
+    mode: String(styleCfg.mode || 'CENTER'),
+    presentText: String(styleCfg.presentText !== undefined ? styleCfg.presentText : ''),
+    presentBg: String(styleCfg.presentBg || ''),
+    lateText: String(styleCfg.lateText !== undefined ? styleCfg.lateText : ''),
+    lateBg: String(styleCfg.lateBg || ''),
+    absentText: String(styleCfg.absentText !== undefined ? styleCfg.absentText : 'x'),
+    absentBg: String(styleCfg.absentBg || '')
+  };
+  PropertiesService.getScriptProperties().setProperty(ATTENDANCE_STYLE_PROP_KEY, JSON.stringify(clean));
+  const masterSs = SpreadsheetApp.getActiveSpreadsheet();
+  appendAuditLog_(
+    masterSs,
+    'SYNC_MENU',
+    'UPDATE_MARK_STYLE',
+    clean.mode,
+    'P="' + clean.presentText + '" (' + (clean.presentBg || 'none') + '), L="' + clean.lateText + '" (' + (clean.lateBg || 'none') + '), A="' + clean.absentText + '" (' + (clean.absentBg || 'none') + ')'
+  );
+  showAlert_(
+    '✅ ATTENDANCE MARK SETTINGS SAVED\n\n' +
+    '• Present (P): "' + clean.presentText + '" (Bg: ' + (clean.presentBg || 'Clear') + ')\n' +
+    '• Late (L): "' + clean.lateText + '" (Bg: ' + (clean.lateBg || 'Clear') + ')\n' +
+    '• Absent (-): "' + clean.absentText + '" (Bg: ' + (clean.absentBg || 'Clear') + ')'
+  );
+}
+
+
+// ============================================================================
+// 8. BACKGROUND AUTO-SYNC (RUNS EVERY 15 MINUTES)
+// ============================================================================
+function autoSyncTodayAttendanceAfterClass() {
+  const masterSs = SpreadsheetApp.getActiveSpreadsheet();
+  const now = new Date();
+  const currentDayStr = now.getFullYear() + '-' + (now.getMonth() + 1) + '-' + now.getDate();
+  const props = PropertiesService.getScriptProperties();
+  const syncedMap = JSON.parse(props.getProperty(AUTO_SYNCED_SESSIONS_KEY) || '{}');
+
+  const classNamesMap = getClassNamesMap_(masterSs);
+  const allGroups = getGroupedSessionsByClassDate_(masterSs);
+  if (allGroups.length === 0) return;
+
+  let anySynced = false;
+  const undoBatch = [];
+
+  for (let i = 0; i < allGroups.length; i++) {
+    const sessionGroup = allGroups[i];
+    const classId = sessionGroup.classId;
+    const className = classNamesMap[classId] || '';
+    const isToday = (sessionGroup.dateKey === currentDayStr);
+
+    // Past dates that have ALREADY been synced at least once are strictly locked forever
+    if (!isToday && syncedMap[sessionGroup.groupKey]) continue;
+
+    if (isToday) {
+      const classEndMs = getClassEndTimeOnCalendarMs_(masterSs, classId, now, sessionGroup.openedAtMs);
+      if (now.getTime() < classEndMs) continue;
+    }
+
+    if (!sessionGroup.allClosed && now.getTime() < sessionGroup.maxClosesAtMs) continue;
+
+    const statusMap = getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup);
+    const statusSignature = JSON.stringify(statusMap);
+    if (syncedMap[sessionGroup.groupKey] === statusSignature) continue;
+
+    const targetInfo = resolveClassTargetFile_(masterSs, classId, className);
+    if (!targetInfo) continue;
+
+    try {
+      updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap);
+      const result = updateTargetAttendanceFile_(targetInfo, classId, className, sessionGroup.day, sessionGroup.month, statusMap, null);
+
+      undoBatch.push({
+        classId: classId,
+        className: className,
+        xlsxFileId: targetInfo.fileId,
+        isGoogleSheet: targetInfo.isGoogleSheet,
+        sheetName: result.sheetName,
+        day: sessionGroup.day,
+        month: sessionGroup.month,
+        groupKey: sessionGroup.groupKey,
+        previousSyncedSig: syncedMap[sessionGroup.groupKey] || null,
+        previousCells: result.previousCells
+      });
+
+      syncedMap[sessionGroup.groupKey] = statusSignature;
+      anySynced = true;
+
+      appendAuditLog_(
+        masterSs,
+        'AUTO_SYNC',
+        'ATTENDANCE_SYNC_SUCCESS',
+        classId + ' (' + sessionGroup.day + '/' + sessionGroup.month + ')',
+        (targetInfo.isGoogleSheet ? '[Google Sheet] ' : '[.XLSX] ') +
+        'Present: ' + result.presentCount + ', Late: ' + result.lateCount + ', Absent: ' + result.absentCount
+      );
+    } catch (err) {
+      appendAuditLog_(
+        masterSs,
+        'AUTO_SYNC',
+        'ATTENDANCE_SYNC_ERROR',
+        classId + ' (' + sessionGroup.day + '/' + sessionGroup.month + ')',
+        err.message
+      );
+    }
+  }
+
+  if (anySynced) {
+    props.setProperty(AUTO_SYNCED_SESSIONS_KEY, JSON.stringify(syncedMap));
+    props.setProperty(LAST_SYNC_PROP_KEY, JSON.stringify(undoBatch));
+    if (props.getProperty(LAST_ACTION_TYPE_KEY) !== 'CLASS_DELETE') {
+      props.setProperty(LAST_ACTION_TYPE_KEY, 'ATTENDANCE_SYNC');
+    }
+  }
+}
+
+
+// ============================================================================
+// 9. UNIVERSAL DRIVE DISCOVERY (GOOGLE SHEETS + .XLSX) & FUZZY CLASS/TAB MATCHING
+// ============================================================================
+function getClassNamesMap_(masterSs) {
+  const map = {};
+  try {
+    const cfgSheet = masterSs.getSheetByName('Classes_Config');
+    if (!cfgSheet) return map;
+    const data = cfgSheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      const cid = String(data[i][0] || '').trim();
+      const cname = String(data[i][1] || '').trim();
+      if (cid) map[cid] = cname;
+    }
+  } catch (e) {}
+  return map;
+}
+
+/**
+ * Normalize text for fuzzy matching: strips Vietnamese accents, spaces, hyphens, underscores,
+ * and converts to uppercase.
+ */
+function normalizeMatchKey_(str) {
+  if (!str) return '';
+  return String(str)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+}
+
+/**
+ * Extract all numeric groups from a string (e.g. "2610AVCB002" -> ["2610", "002"]).
+ */
+function extractNumericTokens_(str) {
+  if (!str) return [];
+  const norm = String(str).toUpperCase();
+  return norm.match(/\d+/g) || [];
+}
+
+/**
+ * Score how well `candidateTitle` matches `classId` / `className` with a strict guard
+ * on numeric identifiers so class "002" never matches class "003".
+ * Returns 0 if incompatible, or a positive score (higher = stronger match).
+ */
+function scoreClassMatch_(candidateTitle, classId, className) {
+  const candNorm = normalizeMatchKey_(candidateTitle);
+  const idNorm = normalizeMatchKey_(classId);
+  const nameNorm = normalizeMatchKey_(className);
+  if (!candNorm || !idNorm) return 0;
+
+  const idNums = extractNumericTokens_(classId);
+  const candNums = extractNumericTokens_(candidateTitle);
+
+  // Strict numeric guard: if classId has numbers, the last numeric token (class section/code, e.g. "002")
+  // MUST appear in candidateTitle's numeric tokens.
+  if (idNums.length > 0) {
+    const trailingClassNum = idNums[idNums.length - 1];
+    const trailingInt = parseInt(trailingClassNum, 10);
+    let hasTrailingMatch = false;
+    for (let i = 0; i < candNums.length; i++) {
+      if (candNums[i] === trailingClassNum || (trailingClassNum.length >= 2 && parseInt(candNums[i], 10) === trailingInt && candNums[i].length === trailingClassNum.length)) {
+        hasTrailingMatch = true;
+        break;
+      }
+    }
+    if (!hasTrailingMatch) return 0;
+
+    // If classId also has a leading cohort/semester number (e.g. "2610" in "2610AVCB002")
+    // and candidate also has a 4-digit prefix number, they must not conflict (e.g. 2608 vs 2610).
+    if (idNums.length >= 2 && idNums[0].length === 4 && candNums.length >= 2 && candNums[0].length === 4) {
+      if (idNums[0] !== candNums[0]) return 0;
+    }
+  }
+
+  // Exact normalized match
+  if (candNorm === idNorm) return 100;
+  // Candidate contains full normalized classId
+  if (candNorm.indexOf(idNorm) !== -1) return 90;
+  if (idNorm.indexOf(candNorm) !== -1 && candNorm.length >= 5) return 80;
+
+  // Match core letters + class number (e.g. "AVCB002" inside "2610AVCB002" vs "Lớp AVCB - 002")
+  const alphaTokens = String(classId).toUpperCase().match(/[A-Z]{2,}/g) || [];
+  if (alphaTokens.length > 0 && idNums.length > 0) {
+    const coreCode = alphaTokens[alphaTokens.length - 1] + idNums[idNums.length - 1];
+    if (candNorm.indexOf(coreCode) !== -1) return 75;
+  }
+
+  // Match against className if provided
+  if (nameNorm && nameNorm.length >= 4) {
+    if (candNorm === nameNorm) return 70;
+    if (candNorm.indexOf(nameNorm) !== -1) return 65;
+  }
+
+  return 0;
+}
+
+/**
+ * Retrieve up to 3 levels of parent folder names on Google Drive so teachers can
+ * easily verify where the matched file lives (e.g. "My Drive / HK1_2026 / Điểm danh").
+ */
+function getDriveFileFolderPath_(file) {
+  try {
+    const parents = file.getParents();
+    if (!parents || !parents.hasNext()) {
+      return 'Shared with me / Root';
+    }
+    const parts = [];
+    let current = parents.next();
+    let depth = 0;
+    while (current && depth < 3) {
+      const folderName = String(current.getName() || '').trim();
+      if (folderName) {
+        parts.unshift(folderName);
+      }
+      const nextParents = current.getParents();
+      if (nextParents && nextParents.hasNext()) {
+        current = nextParents.next();
+        depth++;
+        if (depth >= 3) {
+          parts.unshift('...');
+        }
+      } else {
+        break;
+      }
+    }
+    return parts.length > 0 ? parts.join(' / ') : 'My Drive';
+  } catch (e) {
+    return 'Google Drive';
+  }
+}
+
+/**
+ * Inspect Drive File metadata and return { fileId, fileName, mimeType, isGoogleSheet, folderPath, fileUrl } if valid.
+ */
+function inspectDriveFileById_(fileId, masterFileId) {
+  if (!fileId || fileId === masterFileId) return null;
+  try {
+    const file = DriveApp.getFileById(fileId);
+    if (file.isTrashed()) return null;
+    const fname = file.getName() || '';
+    if (fname.indexOf('_TEMP_') === 0) return null;
+    const mime = file.getMimeType();
+    if (mime !== MIME_GOOGLE_SHEET && mime !== MIME_EXCEL_XLSX) return null;
+    return {
+      fileId: file.getId(),
+      fileName: fname,
+      mimeType: mime,
+      isGoogleSheet: mime === MIME_GOOGLE_SHEET,
+      folderPath: getDriveFileFolderPath_(file),
+      fileUrl: file.getUrl() || ''
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Locate the target Google Sheet or .XLSX file on Google Drive for a given class.
+ */
+function resolveClassTargetFile_(masterSs, classId, className) {
+  if (!classId) return null;
+  const masterFileId = masterSs ? masterSs.getId() : '';
+  const docsHost = ['docs', 'google', 'com'].join('.');
+  const driveHost = ['drive', 'google', 'com'].join('.');
+
+  // 1. Check custom link/file ID in Classes_Config row (column J or any column containing a Drive link)
+  try {
+    const cfgSheet = masterSs.getSheetByName('Classes_Config');
+    if (cfgSheet) {
+      const cfg = cfgSheet.getDataRange().getValues();
+      for (let i = 1; i < cfg.length; i++) {
+        if (String(cfg[i][0] || '').trim() === classId) {
+          for (let c = 2; c < cfg[i].length; c++) {
+            const cellStr = String(cfg[i][c] || '').trim();
+            if (!cellStr) continue;
+            if (cellStr.indexOf(docsHost) !== -1 || cellStr.indexOf(driveHost) !== -1 || c === 9) {
+              const m = cellStr.match(/[-\w]{25,}/);
+              if (m) {
+                const info = inspectDriveFileById_(m[0], masterFileId);
+                if (info) return info;
+              }
+            }
+          }
+          break;
+        }
+      }
+    }
+  } catch (e) {}
+
+  // 2. Check optional manual override map in code
+  if (CUSTOM_CLASS_FILE_IDS[classId]) {
+    const info = inspectDriveFileById_(CUSTOM_CLASS_FILE_IDS[classId], masterFileId);
+    if (info) return info;
+  }
+
+  // 3. Check cached file ID
+  const props = PropertiesService.getScriptProperties();
+  const cacheMap = JSON.parse(props.getProperty(FILE_ID_CACHE_PROP_KEY) || '{}');
+  if (cacheMap[classId]) {
+    const info = inspectDriveFileById_(cacheMap[classId], masterFileId);
+    if (info) return info;
+  }
+
+  // 4. Search Google Drive for matching Google Sheets or .XLSX files
+  const searchTerms = [classId];
+  const alphaTokens = String(classId).toUpperCase().match(/[A-Z]{2,}/g) || [];
+  const numTokens = extractNumericTokens_(classId);
+  if (alphaTokens.length > 0 && numTokens.length > 0) {
+    const coreTerm = alphaTokens[alphaTokens.length - 1] + numTokens[numTokens.length - 1];
+    if (coreTerm !== classId && searchTerms.indexOf(coreTerm) === -1) {
+      searchTerms.push(coreTerm);
+    }
+    if (searchTerms.indexOf(alphaTokens[alphaTokens.length - 1]) === -1) {
+      searchTerms.push(alphaTokens[alphaTokens.length - 1]);
+    }
+  }
+
+  let bestCandidateFile = null;
+  let bestScore = 0;
+  const seenFileIds = {};
+
+  for (let t = 0; t < searchTerms.length; t++) {
+    const term = searchTerms[t].replace(/'/g, "\\'");
+    const query =
+      "title contains '" + term + "' and " +
+      "(mimeType = '" + MIME_GOOGLE_SHEET + "' or mimeType = '" + MIME_EXCEL_XLSX + "') and " +
+      "trashed = false";
+
+    try {
+      const files = DriveApp.searchFiles(query);
+      while (files.hasNext()) {
+        const file = files.next();
+        const fid = file.getId();
+        if (fid === masterFileId || seenFileIds[fid]) continue;
+        seenFileIds[fid] = true;
+
+        const fname = file.getName() || '';
+        if (fname.indexOf('_TEMP_') === 0) continue;
+
+        const score = scoreClassMatch_(fname, classId, className);
+        if (score > bestScore) {
+          bestScore = score;
+          bestCandidateFile = file;
+        }
+      }
+    } catch (e) {}
+
+    if (bestScore >= 90) break;
+  }
+
+  if (bestCandidateFile) {
+    const fid = bestCandidateFile.getId();
+    const mime = bestCandidateFile.getMimeType();
+    cacheMap[classId] = fid;
+    props.setProperty(FILE_ID_CACHE_PROP_KEY, JSON.stringify(cacheMap));
+    return {
+      fileId: fid,
+      fileName: bestCandidateFile.getName() || '',
+      mimeType: mime,
+      isGoogleSheet: mime === MIME_GOOGLE_SHEET,
+      folderPath: getDriveFileFolderPath_(bestCandidateFile),
+      fileUrl: bestCandidateFile.getUrl() || ''
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Find the best matching sheet/tab inside a Spreadsheet for `classId` / `className`.
+ * Supports both multi-class workbooks (one tab per class) and single-class files.
+ */
+function findBestMatchingSheet_(ss, classId, className) {
+  const sheets = ss.getSheets();
+  if (!sheets || sheets.length === 0) throw new Error('No sheets found in target file.');
+
+  // 1. Try matching tab name to classId / className
+  let bestSheet = null;
+  let bestScore = 0;
+  for (let i = 0; i < sheets.length; i++) {
+    const sName = sheets[i].getName();
+    if (sName === UNDO_BACKUP_SHEET_NAME || sName.indexOf('_TEMP_') === 0) continue;
+    const score = scoreClassMatch_(sName, classId, className);
+    if (score > bestScore) {
+      bestScore = score;
+      bestSheet = sheets[i];
+    }
+  }
+  if (bestSheet && bestScore >= 65) {
+    return bestSheet;
+  }
+
+  // 2. Fallback to standard Attendance sheet tab names
+  const standardNames = ['Danh sách mới', 'Attendance sheet', 'Danh sách', 'Danh sach', 'Điểm danh', 'Diem danh'];
+  for (let i = 0; i < standardNames.length; i++) {
+    const candidate = ss.getSheetByName(standardNames[i]);
+    if (candidate) return candidate;
+  }
+
+  // 3. Fallback to first visible sheet
+  for (let i = 0; i < sheets.length; i++) {
+    if (!sheets[i].isSheetHidden()) return sheets[i];
+  }
+  return sheets[0];
+}
+
+
+// ============================================================================
+// 10. AUTO-DETECT HEADER ROW, COLUMNS & ALPHANUMERIC STUDENT ID VALIDATION
+// ============================================================================
+
+/**
+ * Pure character-based date string parser (handles "28/10", "28-10", "28/10/2026", "2026-10-28").
+ * Avoids regex slashes/dots so text/URL sanitizers never alter the code.
+ */
+function parseDateString_(s) {
+  const str = String(s || '').trim();
+  if (!str || str.length > 12) return null;
+
+  const parts = [];
+  let cur = '';
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charAt(i);
+    if (ch === '/' || ch === '-' || ch === '.') {
+      parts.push(cur);
+      cur = '';
+    } else if (ch >= '0' && ch <= '9') {
+      cur += ch;
+    } else {
+      return null;
+    }
+  }
+  parts.push(cur);
+
+  if (parts.length !== 2 && parts.length !== 3) return null;
+  if (!parts[0] || !parts[1]) return null;
+
+  const p0 = parseInt(parts[0], 10);
+  const p1 = parseInt(parts[1], 10);
+
+  // YYYY-MM-DD format
+  if (parts.length === 3 && parts[0].length === 4) {
+    if (!parts[2]) return null;
+    const p2 = parseInt(parts[2], 10);
+    if (p1 >= 1 && p1 <= 12 && p2 >= 1 && p2 <= 31) {
+      return { year: p0, month: p1, day: p2 };
+    }
+    return null;
+  }
+
+  // DD/MM or DD/MM/YYYY format
+  if (p0 >= 1 && p0 <= 31 && p1 >= 1 && p1 <= 12) {
+    let yr = null;
+    if (parts.length === 3) {
+      if (!parts[2] || parts[2].length < 2) return null;
+      yr = parseInt(parts[2], 10);
+      if (yr < 100) yr += 2000;
+    }
+    return { day: p0, month: p1, year: yr };
+  }
+
+  return null;
+}
+
+/**
+ * Validate Student_ID:
+ * - Accepts pure numeric IDs (e.g. "24105921") AND alphanumeric IDs (e.g. "SV001", "B21DCCN015", "AVCB-02").
+ * - Length 3..20 chars, only letters/digits/dot/underscore/hyphen, and MUST contain at least 2 digits
+ *   so footer words ("Tổng cộng", "Giáo viên", "Ghi chú") and 1-digit row numbers are ignored.
+ * - If `optionalNameVal` is passed, also ensures the name cell is non-empty and not a footer label.
+ */
+function normalizeStudentId_(val, optionalNameVal) {
+  if (val === null || val === undefined || val === '') return '';
+  let s = String(val).trim();
+  if (s.endsWith('.0')) s = s.slice(0, -2);
+  if (s.length < 3 || s.length > 20) return '';
+
+  // Must start and end with alphanumeric and contain only alphanumeric, '-', '_', '.'
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{1,18}[A-Za-z0-9]$/.test(s)) return '';
+
+  // Must contain at least 2 digits to prevent matching normal words or single digits
+  const digitMatches = s.match(/\d/g);
+  if (!digitMatches || digitMatches.length < 2) return '';
+
+  // Reject date-like strings (e.g. "28-10-2026" or "28/10")
+  if (parseDateString_(s) !== null) return '';
+
+  if (optionalNameVal !== undefined) {
+    const nameStr = String(optionalNameVal || '').trim();
+    if (!nameStr) return '';
+    const nameKey = normalizeMatchKey_(nameStr);
+    if (
+      nameKey.indexOf('TONGCONG') === 0 ||
+      nameKey.indexOf('GIAOVIEN') === 0 ||
+      nameKey.indexOf('GIANGVIEN') === 0 ||
+      nameKey.indexOf('CHUKY') === 0 ||
+      nameKey.indexOf('GHICHU') === 0
+    ) {
+      return '';
+    }
+  }
+
+  return s;
+}
+
+/**
+ * Check if a cell value/display string represents a valid attendance date header (Date object or dd/mm).
+ */
+function parseDateCell_(rawVal, dispVal) {
+  if (rawVal instanceof Date && !isNaN(rawVal.getTime())) {
+    return { day: rawVal.getDate(), month: rawVal.getMonth() + 1 };
+  }
+  const parsed = parseDateString_(dispVal);
+  if (parsed) {
+    return { day: parsed.day, month: parsed.month };
+  }
+  return null;
+}
+
+/**
+ * Automatically scan the top 20 rows of `sheet` to detect:
+ *   - idCol (1-indexed column of Student_ID / MSSV)
+ *   - nameCol (1-indexed column of Full_Name)
+ *   - isTwoColName (true if First/Last name spans nameCol and nameCol + 1)
+ *   - dateRow (1-indexed row containing session dates)
+ *   - dateStartCol (1-indexed first column of attendance dates)
+ *   - dataStartRow (1-indexed first row of student records)
+ * Falls back gracefully to the standard template (Row 9 dates, Row 10+ students, Col B ID, Col C-D Name).
+ */
+function detectSheetLayout_(sheet) {
+  const maxScanRows = Math.min(sheet.getLastRow(), 20);
+  const maxScanCols = Math.min(sheet.getLastColumn(), 45);
+
+  if (maxScanRows < 2 || maxScanCols < 2) {
+    return {
+      idCol: 2,
+      nameCol: 3,
+      isTwoColName: true,
+      dateRow: 9,
+      dateStartCol: 5,
+      dataStartRow: 10
+    };
+  }
+
+  const rawGrid = sheet.getRange(1, 1, maxScanRows, maxScanCols).getValues();
+  const dispGrid = sheet.getRange(1, 1, maxScanRows, maxScanCols).getDisplayValues();
+
+  const idKeywords = ['MSSV', 'MSHV', 'MASV', 'MAHV', 'MASO', 'MASINHVIEN', 'MAHOCVIEN', 'STUDENTID', 'LEARNERID', 'IDSV', 'IDHV', 'ID'];
+  const nameKeywords = ['HOVATEN', 'HOTEN', 'TENSV', 'TENHV', 'TENHOCVIEN', 'TENSINHVIEN', 'FULLNAME', 'STUDENTNAME', 'LEARNERNAME', 'NAME'];
+
+  let detectedHeaderRowIdx = -1; // 0-indexed
+  let detectedIdColIdx = -1;     // 0-indexed
+  let detectedNameColIdx = -1;   // 0-indexed
+
+  for (let r = 0; r < Math.min(maxScanRows, 16); r++) {
+    let rowIdCol = -1;
+    let rowNameCol = -1;
+
+    for (let c = 0; c < Math.min(maxScanCols, 10); c++) {
+      const cellKey = normalizeMatchKey_(dispGrid[r][c]);
+      if (!cellKey) continue;
+
+      if (rowIdCol === -1) {
+        for (let k = 0; k < idKeywords.length; k++) {
+          const kw = idKeywords[k];
+          if (cellKey === kw || (kw !== 'ID' && cellKey.indexOf(kw) !== -1)) {
+            rowIdCol = c;
+            break;
+          }
+        }
+      }
+
+      if (rowNameCol === -1 && c !== rowIdCol) {
+        for (let k = 0; k < nameKeywords.length; k++) {
+          const kw = nameKeywords[k];
+          if (cellKey === kw || (kw !== 'NAME' && cellKey.indexOf(kw) !== -1)) {
+            rowNameCol = c;
+            break;
+          }
+        }
+      }
+    }
+
+    if (rowIdCol !== -1) {
+      detectedHeaderRowIdx = r;
+      detectedIdColIdx = rowIdCol;
+      detectedNameColIdx = rowNameCol !== -1 ? rowNameCol : (rowIdCol + 1);
+      break;
+    }
+  }
+
+  // Fallback to standard template coordinates if no explicit header row was found
+  if (detectedHeaderRowIdx === -1) {
+    const e9Date = (maxScanRows >= 9 && maxScanCols >= 5)
+      ? parseDateCell_(rawGrid[8][4], dispGrid[8][4])
+      : null;
+    return {
+      idCol: 2,
+      nameCol: 3,
+      isTwoColName: Boolean(e9Date),
+      dateRow: 9,
+      dateStartCol: 5,
+      dataStartRow: 10
+    };
+  }
+
+  // Determine whether Full Name is split across 2 columns (e.g. Col C + Col D merged header)
+  let isTwoColName = false;
+  const nextColIdx = detectedNameColIdx + 1;
+  if (nextColIdx < maxScanCols) {
+    const nextHeaderKey = normalizeMatchKey_(dispGrid[detectedHeaderRowIdx][nextColIdx]);
+    const nextHeaderIsDate = Boolean(parseDateCell_(rawGrid[detectedHeaderRowIdx][nextColIdx], dispGrid[detectedHeaderRowIdx][nextColIdx]));
+
+    if (!nextHeaderIsDate) {
+      if (nextHeaderKey === 'TEN' || nextHeaderKey === 'FIRSTNAME') {
+        isTwoColName = true;
+      } else if (nextHeaderKey === '') {
+        // Header cell is blank (common when "Họ và tên" is merged across 2 columns).
+        // Check if rows below nextColIdx contain name words rather than attendance marks or numbers.
+        let sampleNameCells = 0;
+        for (let rr = detectedHeaderRowIdx + 1; rr < Math.min(maxScanRows, detectedHeaderRowIdx + 8); rr++) {
+          const sampleVal = String(dispGrid[rr][nextColIdx] || '').trim();
+          if (sampleVal.length >= 2 && !/^(P|L|A|X|V|-|\d+)$/i.test(sampleVal) && !parseDateCell_(rawGrid[rr][nextColIdx], sampleVal)) {
+            sampleNameCells++;
+          }
+        }
+        if (sampleNameCells >= 1) {
+          isTwoColName = true;
+        }
+      }
+    }
+  }
+
+  const dateStartColIdx = isTwoColName ? (detectedNameColIdx + 2) : (detectedNameColIdx + 1);
+
+  // Detect which row near detectedHeaderRowIdx holds the session dates (supports 1-tier or 2-tier headers)
+  let bestDateRowIdx = detectedHeaderRowIdx;
+  let maxDateMatches = 0;
+  const candidateRows = [detectedHeaderRowIdx, detectedHeaderRowIdx + 1, detectedHeaderRowIdx - 1];
+
+  for (let i = 0; i < candidateRows.length; i++) {
+    const rIdx = candidateRows[i];
+    if (rIdx < 0 || rIdx >= maxScanRows) continue;
+    let dateCount = 0;
+    for (let c = dateStartColIdx; c < maxScanCols; c++) {
+      if (parseDateCell_(rawGrid[rIdx][c], dispGrid[rIdx][c])) {
+        dateCount++;
+      }
+    }
+    if (dateCount > maxDateMatches) {
+      maxDateMatches = dateCount;
+      bestDateRowIdx = rIdx;
+    }
+  }
+
+  // Find the first actual student data row below the header/date rows
+  let dataStartRowIdx = Math.max(detectedHeaderRowIdx, bestDateRowIdx) + 1;
+  for (let r = dataStartRowIdx; r < maxScanRows; r++) {
+    const candidateId = dispGrid[r][detectedIdColIdx];
+    const candidateName = dispGrid[r][detectedNameColIdx];
+    if (normalizeStudentId_(candidateId, candidateName)) {
+      dataStartRowIdx = r;
+      break;
+    }
+  }
+
+  return {
+    idCol: detectedIdColIdx + 1,
+    nameCol: detectedNameColIdx + 1,
+    isTwoColName: isTwoColName,
+    dateRow: bestDateRowIdx + 1,
+    dateStartCol: dateStartColIdx + 1,
+    dataStartRow: dataStartRowIdx + 1
+  };
+}
+
+
+// ============================================================================
+// 11. DUAL-FORMAT ROSTER EXTRACTION & ATTENDANCE UPDATE (GOOGLE SHEET & .XLSX)
+// ============================================================================
+
+/**
+ * Construct API URLs at runtime without literal domain strings in source code.
+ */
+function buildApiUrl_(hostParts, path) {
+  return 'https' + '://' + hostParts.join('.') + path;
+}
+
+/**
+ * Helper that opens either a native Google Sheet directly or a temporary converted
+ * Google Sheet for an .XLSX file, runs `callback(spreadsheet, sheet)`, and (if `isWrite`
+ * is true on an .XLSX file) exports and patches the original .XLSX file before cleaning up.
+ */
+function withTargetSpreadsheet_(targetInfo, classId, className, isWrite, callback) {
+  if (targetInfo.isGoogleSheet) {
+    const ss = SpreadsheetApp.openById(targetInfo.fileId);
+    const sheet = findBestMatchingSheet_(ss, classId, className);
+    const res = callback(ss, sheet);
+    if (isWrite) {
+      SpreadsheetApp.flush();
+    }
+    return res;
+  }
+
+  // .XLSX workflow via Drive API v3 temporary conversion
+  const token = ScriptApp.getOAuthToken();
+  const copyUrl = buildApiUrl_(['www', 'googleapis', 'com'], '/drive/v3/files/' + targetInfo.fileId + '/copy?supportsAllDrives=true');
+  const copyRes = UrlFetchApp.fetch(copyUrl, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify({
+      name: '_TEMP_' + (isWrite ? 'SYNC_' : 'ROSTER_') + classId + '_' + new Date().getTime(),
+      mimeType: MIME_GOOGLE_SHEET
+    }),
+    muteHttpExceptions: true
+  });
+
+  if (copyRes.getResponseCode() >= 300) {
+    throw new Error('Cannot open .XLSX file (HTTP ' + copyRes.getResponseCode() + '): ' + copyRes.getContentText());
+  }
+
+  const tempFileId = JSON.parse(copyRes.getContentText()).id;
+  try {
+    const tempSs = SpreadsheetApp.openById(tempFileId);
+    const sheet = findBestMatchingSheet_(tempSs, classId, className);
+    const res = callback(tempSs, sheet);
+
+    if (isWrite) {
+      SpreadsheetApp.flush();
+
+      const exportUrl = buildApiUrl_(['docs', 'google', 'com'], '/spreadsheets/d/' + tempFileId + '/export?format=xlsx');
+      const exportRes = UrlFetchApp.fetch(exportUrl, {
+        headers: { Authorization: 'Bearer ' + token },
+        muteHttpExceptions: true
+      });
+
+      if (exportRes.getResponseCode() >= 300) {
+        throw new Error('Failed to export .XLSX: ' + exportRes.getContentText());
+      }
+
+      const updateUrl = buildApiUrl_(['www', 'googleapis', 'com'], '/upload/drive/v3/files/' + targetInfo.fileId + '?uploadType=media&supportsAllDrives=true');
+      const updateRes = UrlFetchApp.fetch(updateUrl, {
+        method: 'patch',
+        contentType: MIME_EXCEL_XLSX,
+        headers: { Authorization: 'Bearer ' + token },
+        payload: exportRes.getBlob().getBytes(),
+        muteHttpExceptions: true
+      });
+
+      if (updateRes.getResponseCode() >= 300) {
+        throw new Error('Failed to update target .XLSX file: ' + updateRes.getContentText());
+      }
+    }
+
+    return res;
+  } finally {
+    try {
+      DriveApp.getFileById(tempFileId).setTrashed(true);
+    } catch (cleanupErr) {}
+  }
+}
+
+/**
+ * Extract student roster (No., Student_ID, Full_Name) from either a Google Sheet or .XLSX file.
+ */
+function extractRosterFromTargetFile_(targetInfo, classId, className) {
+  return withTargetSpreadsheet_(targetInfo, classId, className, false, function(ss, sheet) {
+    const layout = detectSheetLayout_(sheet);
+    const lastRow = Math.min(sheet.getLastRow(), 250);
+    if (lastRow < layout.dataStartRow) {
+      return { roster: [], sheetName: sheet.getName() };
+    }
+
+    // Extract period & session date schedule metadata from top rows (rows 1..dateRow)
+    try {
+      const metaRows = Math.min(layout.dateRow, sheet.getLastRow(), 12);
+      const metaCols = Math.min(sheet.getLastColumn(), 45);
+      const rawTop = sheet.getRange(1, 1, metaRows, metaCols).getValues();
+      const dispTop = sheet.getRange(1, 1, metaRows, metaCols).getDisplayValues();
+      const headerTexts = [sheet.getName(), className || ''];
+      for (let r = 0; r < metaRows; r++) {
+        for (let c = 0; c < Math.min(metaCols, 12); c++) {
+          const cellStr = String(dispTop[r][c] || '').trim();
+          if (cellStr && cellStr.length <= 120) headerTexts.push(cellStr);
+        }
+      }
+      const sessionDates = [];
+      const dRowIdx = layout.dateRow - 1;
+      if (dRowIdx >= 0 && dRowIdx < metaRows) {
+        for (let c = layout.dateStartCol - 1; c < metaCols; c++) {
+          const parsedDate = parseDateCell_(rawTop[dRowIdx][c], dispTop[dRowIdx][c]);
+          if (parsedDate) {
+            sessionDates.push(parsedDate.day + '/' + parsedDate.month);
+          }
+        }
+      }
+      saveClassScheduleMetaFromSheet_(classId, headerTexts.join(' | '), sessionDates);
+    } catch (metaErr) {}
+
+    const numRows = lastRow - layout.dataStartRow + 1;
+    const maxColNeeded = Math.max(layout.idCol, layout.nameCol + (layout.isTwoColName ? 1 : 0));
+    const rows = sheet.getRange(layout.dataStartRow, 1, numRows, maxColNeeded).getValues();
+    const roster = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const rawId = rows[i][layout.idCol - 1];
+      const namePart1 = String(rows[i][layout.nameCol - 1] || '').trim();
+      const namePart2 = layout.isTwoColName ? String(rows[i][layout.nameCol] || '').trim() : '';
+      const fullName = (layout.isTwoColName ? (namePart1 + ' ' + namePart2) : namePart1)
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const sid = normalizeStudentId_(rawId, fullName);
+      if (!sid || !fullName) continue;
+
+      const stt = roster.length + 1;
+      roster.push([stt, sid, fullName, 0, 0]);
+    }
+
+    return {
+      roster: roster,
+      sheetName: sheet.getName()
+    };
+  });
+}
+
+function saveClassScheduleMetaFromSheet_(classId, combinedHeaderText, sessionDates) {
+  if (!classId) return;
+  const s = String(combinedHeaderText || '');
+  let startPeriod = null;
+  let endPeriod = null;
+
+  const compactMatch = s.match(/(?:ti[eế]t|t|ca)?\s*\b(123|456|789|101112|131415|161718)\b/i);
+  if (compactMatch) {
+    const map = {
+      '123': [1, 3],
+      '456': [4, 6],
+      '789': [7, 9],
+      '101112': [10, 12],
+      '131415': [13, 15],
+      '161718': [16, 18]
+    };
+    const pair = map[compactMatch[1]];
+    if (pair) {
+      startPeriod = pair[0];
+      endPeriod = pair[1];
+    }
+  } else {
+    const rangeMatch = s.match(/(?:ti[eế]t|t|periods?)?\s*[:.]?\s*\b(\d{1,2})\s*[-–→to]\s*(\d{1,2})\b/i);
+    if (rangeMatch) {
+      const sp = parseInt(rangeMatch[1], 10);
+      const ep = parseInt(rangeMatch[2], 10);
+      if (sp >= 1 && ep >= sp && ep <= 18 && (ep - sp) <= 6) {
+        startPeriod = sp;
+        endPeriod = ep;
+      }
+    }
+  }
+
+  const daysOfWeek = [];
+  const addDay = function(d) {
+    if (typeof d === 'number' && d >= 0 && d <= 6 && daysOfWeek.indexOf(d) === -1) {
+      daysOfWeek.push(d);
+    }
+  };
+  const thuRegex = /(?:^|[\s,;|(\[/])(?:th[uứ]\s*|t)([2-7](?:\s*(?:[&,+]\s*(?:th[uứ]\s*|t)?|[-–]\s*(?:th[uứ]\s*|t))[2-7])*)\b(?!\s*[-–→to]\s*\d)/ig;
+  let m;
+  while ((m = thuRegex.exec(s)) !== null) {
+    const digits = m[1].match(/[2-7]/g) || [];
+    for (let i = 0; i < digits.length; i++) {
+      addDay(parseInt(digits[i], 10) - 1);
+    }
+  }
+  if (/\b(ch[uủ]\s*nh[aậ]t|cn|sunday|sun)\b/i.test(s)) addDay(0);
+  if (/\b(monday|mon)\b/i.test(s)) addDay(1);
+  if (/\b(tuesday|tue)\b/i.test(s)) addDay(2);
+  if (/\b(wednesday|wed)\b/i.test(s)) addDay(3);
+  if (/\b(thursday|thu)\b/i.test(s)) addDay(4);
+  if (/\b(friday|fri)\b/i.test(s)) addDay(5);
+  if (/\b(saturday|sat)\b/i.test(s)) addDay(6);
+
+  const dayOfWeek = daysOfWeek.length > 0 ? daysOfWeek[0] : null;
+
+  const props = PropertiesService.getScriptProperties();
+  const existingMap = JSON.parse(props.getProperty('QR_CLASS_SCHEDULE_META_MAP') || '{}');
+  existingMap[classId] = {
+    startPeriod: startPeriod,
+    endPeriod: endPeriod,
+    dayOfWeek: dayOfWeek,
+    daysOfWeek: daysOfWeek,
+    sessionDates: sessionDates || []
+  };
+  props.setProperty('QR_CLASS_SCHEDULE_META_MAP', JSON.stringify(existingMap));
+}
+
+/**
+ * Update attendance marks for (targetDay, targetMonth) on either a Google Sheet or .XLSX file.
+ */
+function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, targetMonth, statusMap, restoreCells) {
+  const markStyle = getAttendanceStyle_();
+
+  return withTargetSpreadsheet_(targetInfo, classId, className, true, function(ss, sheet) {
+    const layout = detectSheetLayout_(sheet);
+    const lastCol = Math.max(sheet.getLastColumn(), layout.dateStartCol + 35);
+    const numCols = Math.min(lastCol - layout.dateStartCol + 1, 60);
+
+    const dateRowValues = sheet.getRange(layout.dateRow, layout.dateStartCol, 1, numCols).getValues()[0];
+    const dateRowDisplay = sheet.getRange(layout.dateRow, layout.dateStartCol, 1, numCols).getDisplayValues()[0];
+    let targetCol = -1;
+
+    for (let i = 0; i < numCols; i++) {
+      const parsed = parseDateCell_(dateRowValues[i], dateRowDisplay[i]);
+      if (parsed && parsed.day === targetDay && parsed.month === targetMonth) {
+        targetCol = layout.dateStartCol + i;
+        break;
+      }
+    }
+
+    if (targetCol === -1) {
+      throw new Error(
+        'Date column ' + targetDay + '/' + targetMonth +
+        ' not found in row ' + layout.dateRow + ' of sheet "' + sheet.getName() + '" (' + classId + ').'
+      );
+    }
+
+    const stats = {
+      sheetName: sheet.getName(),
+      presentCount: 0,
+      lateCount: 0,
+      absentCount: 0,
+      previousCells: []
+    };
+
+    if (restoreCells !== null) {
+      for (let i = 0; i < restoreCells.length; i++) {
+        const item = restoreCells[i];
+        const cell = sheet.getRange(item.row, targetCol);
+        cell.setValue(item.val || '');
+        cell.setBackground(item.bg || null);
+      }
+      return stats;
+    }
+
+    const lastRow = Math.min(sheet.getLastRow(), 250);
+    if (lastRow < layout.dataStartRow) {
+      return stats;
+    }
+
+    const numRows = lastRow - layout.dataStartRow + 1;
+    const maxColNeeded = Math.max(layout.idCol, layout.nameCol + (layout.isTwoColName ? 1 : 0));
+    const idAndNameRows = sheet.getRange(layout.dataStartRow, 1, numRows, maxColNeeded).getValues();
+    const oldColValues = sheet.getRange(layout.dataStartRow, targetCol, numRows, 1).getDisplayValues();
+    const oldColBgs = sheet.getRange(layout.dataStartRow, targetCol, numRows, 1).getBackgrounds();
+
+    // Normalize statusMap keys to uppercase so alphanumeric IDs match case-insensitively
+    const normStatusMap = {};
+    const statusKeys = Object.keys(statusMap || {});
+    for (let k = 0; k < statusKeys.length; k++) {
+      normStatusMap[statusKeys[k].toUpperCase()] = statusMap[statusKeys[k]];
+    }
+
+    for (let idx = 0; idx < numRows; idx++) {
+      const rowNumber = layout.dataStartRow + idx;
+      const rawId = idAndNameRows[idx][layout.idCol - 1];
+      const namePart1 = String(idAndNameRows[idx][layout.nameCol - 1] || '').trim();
+      const namePart2 = layout.isTwoColName ? String(idAndNameRows[idx][layout.nameCol] || '').trim() : '';
+      const fullName = (layout.isTwoColName ? (namePart1 + ' ' + namePart2) : namePart1).trim();
+
+      const sid = normalizeStudentId_(rawId, fullName);
+      if (!sid) continue;
+
+      const oldBg = oldColBgs[idx][0];
+      stats.previousCells.push({
+        row: rowNumber,
+        val: oldColValues[idx][0],
+        bg: (oldBg && oldBg !== '#ffffff' && oldBg !== '#FFFFFF') ? oldBg : null
+      });
+
+      const cell = sheet.getRange(rowNumber, targetCol);
+      const status = normStatusMap[sid.toUpperCase()] || '-';
+
+      if (status === 'P') {
+        cell.setValue(markStyle.presentText);
+        cell.setBackground(markStyle.presentBg ? markStyle.presentBg : null);
+        if (markStyle.presentText !== '') {
+          cell.setHorizontalAlignment('center');
+        }
+        stats.presentCount++;
+      } else if (status === 'L') {
+        cell.setValue(markStyle.lateText);
+        cell.setBackground(markStyle.lateBg ? markStyle.lateBg : null);
+        if (markStyle.lateText !== '') {
+          cell.setHorizontalAlignment('center');
+        }
+        stats.lateCount++;
+      } else {
+        cell.setValue(markStyle.absentText);
+        cell.setBackground(markStyle.absentBg ? markStyle.absentBg : null);
+        cell.setFontFamily('Times New Roman');
+        cell.setFontSize(11);
+        cell.setHorizontalAlignment('center');
+        stats.absentCount++;
+      }
+    }
+
+    return stats;
+  });
+}
+
+
+// ============================================================================
+// 12. SESSION GROUPING, MERGING & MASTER SHEET SYNC HELPERS
+// ============================================================================
+function getGroupedSessionsByClassDate_(masterSs) {
+  const sessSheet = masterSs.getSheetByName('Sessions_Log');
+  if (!sessSheet) throw new Error('Sheet \'Sessions_Log\' not found.');
+  const data = sessSheet.getDataRange().getValues();
+  const displayData = sessSheet.getDataRange().getDisplayValues();
+
+  const groupsMap = {};
+  const groupOrder = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const sessionId = String(data[i][0] || '').trim();
+    const classId = String(data[i][1] || '').trim();
+    const sessionLabel = String(data[i][2] || '').trim();
+    if (!sessionId || !classId) continue;
+
+    const openedAtRaw = data[i][3];
+    const openedAtStr = String(displayData[i][3] || '').trim();
+    const closesAtRaw = data[i][5];
+    const closedManuallyStr = String(displayData[i][6] || '').trim();
+
+    let day = null, month = null, year = null, openedAtMs = 0;
+    if (openedAtRaw instanceof Date && !isNaN(openedAtRaw.getTime())) {
+      day = openedAtRaw.getDate();
+      month = openedAtRaw.getMonth() + 1;
+      year = openedAtRaw.getFullYear();
+      openedAtMs = openedAtRaw.getTime();
+    } else {
+      const m = openedAtStr.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (m) {
+        year = parseInt(m[1], 10);
+        month = parseInt(m[2], 10);
+        day = parseInt(m[3], 10);
+      }
+    }
+    if (!day || !month) continue;
+
+    const dateKey = year + '-' + month + '-' + day;
+    const groupKey = classId + '__' + dateKey;
+
+    let closesAtMs = 0;
+    if (closesAtRaw instanceof Date && !isNaN(closesAtRaw.getTime())) {
+      closesAtMs = closesAtRaw.getTime();
+    }
+    const isClosed = closedManuallyStr.length > 0;
+
+    if (!groupsMap[groupKey]) {
+      groupsMap[groupKey] = {
+        groupKey: groupKey,
+        classId: classId,
+        day: day,
+        month: month,
+        dateKey: dateKey,
+        sessionIds: [],
+        sessionLabels: [],
+        primaryLabel: sessionLabel,
+        openedAtMs: openedAtMs,
+        allClosed: true,
+        maxClosesAtMs: closesAtMs
+      };
+      groupOrder.push(groupKey);
+    }
+
+    const grp = groupsMap[groupKey];
+    grp.sessionIds.push(sessionId);
+    if (sessionLabel && grp.sessionLabels.indexOf(sessionLabel) === -1) {
+      grp.sessionLabels.push(sessionLabel);
+    }
+    grp.primaryLabel = sessionLabel || grp.primaryLabel;
+    if (openedAtMs > grp.openedAtMs) grp.openedAtMs = openedAtMs;
+    if (!isClosed) grp.allClosed = false;
+    if (closesAtMs > grp.maxClosesAtMs) grp.maxClosesAtMs = closesAtMs;
+  }
+
+  return groupOrder.map(function(k) { return groupsMap[k]; });
+}
+
+function getClassEndTimeOnCalendarMs_(masterSs, classId, now, openedAtMs) {
+  try {
+    const cal = CalendarApp.getDefaultCalendar();
+    const events = cal.getEventsForDay(now);
+    for (let i = 0; i < events.length; i++) {
+      const title = events[i].getTitle() || '';
+      if (title.indexOf(classId) !== -1) {
+        return events[i].getEndTime().getTime();
+      }
+    }
+  } catch (e) {}
+
+  let endHour = 17, endMin = 30;
+  try {
+    const cfgSheet = masterSs.getSheetByName('Classes_Config');
+    if (cfgSheet) {
+      const cfg = cfgSheet.getDataRange().getValues();
+      for (let i = 1; i < cfg.length; i++) {
+        if (String(cfg[i][0] || '').trim() === classId) {
+          const cname = String(cfg[i][1] || '');
+          if (cname.indexOf('13-15') !== -1 || cname.indexOf('131415') !== -1 || cname.toLowerCase().indexOf('evening') !== -1 || cname.toLowerCase().indexOf('tối') !== -1) {
+            endHour = 20; endMin = 0;
+          } else if (cname.indexOf('10-12') !== -1 || cname.indexOf('101112') !== -1) {
+            endHour = 17; endMin = 30;
+          } else if (cname.indexOf('7-9') !== -1 || cname.indexOf('789') !== -1) {
+            endHour = 15; endMin = 0;
+          } else if (cname.indexOf('4-6') !== -1 || cname.indexOf('456') !== -1) {
+            endHour = 11; endMin = 30;
+          } else if (cname.indexOf('1-3') !== -1 || cname.indexOf('123') !== -1) {
+            endHour = 9; endMin = 0;
+          }
+          break;
+        }
+      }
+    }
+  } catch (e) {}
+
+  if (openedAtMs > 0) {
+    const openedDate = new Date(openedAtMs);
+    const h = openedDate.getHours() + openedDate.getMinutes() / 60;
+    if (h >= 17.25) {
+      endHour = 20; endMin = 0;
+    } else if (h >= 14.75) {
+      endHour = 17; endMin = 30;
+    } else if (h >= 12.25) {
+      endHour = 15; endMin = 0;
+    } else if (h >= 8.75) {
+      endHour = 11; endMin = 30;
+    } else {
+      endHour = 9; endMin = 0;
+    }
+  }
+
+  const fallbackEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), endHour, endMin, 0);
+  return Math.max(fallbackEnd.getTime(), openedAtMs || 0);
+}
+
+function getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup) {
+  const statusMap = {};
+
+  function mergeStatus_(sid, newSt) {
+    if (!sid) return;
+    const key = sid.toUpperCase();
+    const cur = statusMap[key] || '-';
+    if (newSt === 'P') {
+      statusMap[key] = 'P';
+    } else if (newSt === 'L' && cur !== 'P') {
+      statusMap[key] = 'L';
+    } else if (!statusMap[key]) {
+      statusMap[key] = '-';
+    }
+  }
+
+  const classSheet = masterSs.getSheetByName(classId);
+  if (classSheet) {
+    const values = classSheet.getDataRange().getValues();
+    if (values.length > 1) {
+      const headers = values[0].map(function(h) { return String(h).trim(); });
+      const matchedCols = [];
+
+      for (let c = 5; c < headers.length; c++) {
+        for (let s = 0; s < sessionGroup.sessionLabels.length; s++) {
+          const lbl = sessionGroup.sessionLabels[s];
+          if (lbl && headers[c].indexOf(lbl) !== -1) {
+            matchedCols.push(c);
+            break;
+          }
+        }
+      }
+
+      for (let r = 1; r < values.length; r++) {
+        const sid = normalizeStudentId_(values[r][1], values[r][2]);
+        if (!sid) continue;
+        const key = sid.toUpperCase();
+        statusMap[key] = '-';
+        for (let k = 0; k < matchedCols.length; k++) {
+          const st = String(values[r][matchedCols[k]] || '').trim().toUpperCase();
+          if (st === 'P' || st === 'L') {
+            mergeStatus_(key, st);
+          }
+        }
+      }
+    }
+  }
+
+  const sessionIdSet = {};
+  for (let i = 0; i < sessionGroup.sessionIds.length; i++) {
+    sessionIdSet[sessionGroup.sessionIds[i]] = true;
+  }
+
+  const attSheet = masterSs.getSheetByName('Attendance_Log');
+  if (attSheet) {
+    const attData = attSheet.getDataRange().getValues();
+    for (let i = 1; i < attData.length; i++) {
+      const rowSessId = String(attData[i][2] || '').trim();
+      const rowClassId = String(attData[i][3] || '').trim();
+      if (sessionIdSet[rowSessId] && rowClassId === classId) {
+        const sid = normalizeStudentId_(attData[i][4]);
+        const st = String(attData[i][5] || '').trim().toUpperCase();
+        if (sid && (st === 'P' || st === 'L' || st === '-')) {
+          const key = sid.toUpperCase();
+          if (st === '-') {
+            statusMap[key] = '-';
+          } else {
+            mergeStatus_(key, st);
+          }
+        }
+      }
+    }
+  }
+
+  return statusMap;
+}
+
+function updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap) {
+  const classSheet = masterSs.getSheetByName(classId);
+  if (!classSheet) return;
+  const values = classSheet.getDataRange().getValues();
+  if (values.length <= 1) return;
+
+  const headers = values[0].map(function(h) { return String(h).trim(); });
+  let sessionColIdx = -1;
+
+  for (let c = 5; c < headers.length; c++) {
+    for (let s = 0; s < sessionGroup.sessionLabels.length; s++) {
+      const lbl = sessionGroup.sessionLabels[s];
+      if (lbl && headers[c].indexOf(lbl) !== -1) {
+        sessionColIdx = c;
+        break;
+      }
+    }
+  }
+
+  if (sessionColIdx === -1) {
+    sessionColIdx = Math.max(headers.length, 5);
+    classSheet.getRange(1, sessionColIdx + 1).setValue(sessionGroup.primaryLabel);
+    headers[sessionColIdx] = sessionGroup.primaryLabel;
+  }
+
+  for (let r = 1; r < values.length; r++) {
+    const sid = normalizeStudentId_(values[r][1], values[r][2]);
+    if (!sid) continue;
+    const st = statusMap[sid.toUpperCase()] || '-';
+    classSheet.getRange(r + 1, sessionColIdx + 1).setValue(st);
+
+    let totalP = 0;
+    let totalL = 0;
+    for (let c = 5; c < headers.length; c++) {
+      const cellVal = (c === sessionColIdx) ? st : String(values[r][c] || '').trim().toUpperCase();
+      if (cellVal === 'P') totalP++;
+      if (cellVal === 'L') totalL++;
+    }
+    classSheet.getRange(r + 1, 4).setValue(totalP);
+    classSheet.getRange(r + 1, 5).setValue(totalL);
+  }
+  SpreadsheetApp.flush();
+}
+
+
+// ============================================================================
+// 13. AUDIT LOGGING, SANITIZER-SAFE HTML RENDERER & BACKWARD-COMPATIBLE ALIASES
+// ============================================================================
+function appendAuditLog_(masterSs, actor, action, target, details) {
+  try {
+    const auditSheet = masterSs.getSheetByName('Audit_Log');
+    if (!auditSheet) return;
+    const now = new Date();
+    const pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+    const ts = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) + ' ' +
+               pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+    auditSheet.appendRow([ts, actor, action, target, details]);
+  } catch (e) {}
+}
+
+/**
+ * Converts `[[tag ...]]` template syntax into real HTML tags at runtime using
+ * character codes so plain-text / Canvas HTML sanitizers never corrupt quotes.
+ */
+function renderDialogHtml_(tpl, width, height) {
+  const openAngle = String.fromCharCode(60);
+  const closeAngle = String.fromCharCode(62);
+  const htmlStr = String(tpl || '')
+    .replace(/\[\[/g, openAngle)
+    .replace(/\]\]/g, closeAngle);
+  return HtmlService.createHtmlOutput(htmlStr).setWidth(width).setHeight(height);
+}
+
+function escapeHtml_(str) {
+  const openAngle = String.fromCharCode(60);
+  const closeAngle = String.fromCharCode(62);
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .split(openAngle).join('&lt;')
+    .split(closeAngle).join('&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function showAlert_(msg) {
+  Logger.log(msg);
+  try {
+    SpreadsheetApp.getUi().alert(msg);
+  } catch (e) {}
+}
+
+// Backward-compatible aliases for existing triggers
+function taoMenuDongBo() { setupCenterSyncMenu(); }
+function tuDongDongBoSauGioHoc() { autoSyncTodayAttendanceAfterClass(); }
+function dongBoTatCaLop() { syncTodayAttendance(); }
+function undoLanVuaDongBo() { undoLastAction(); }
+function undoLastAttendanceSync() { undoLastAction(); }
