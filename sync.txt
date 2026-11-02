@@ -68,13 +68,15 @@ const CUSTOM_CLASS_FILE_IDS = {};
 const LAST_ACTION_TYPE_KEY = 'QR_CENTER_LAST_ACTION_TYPE'; // 'ATTENDANCE_SYNC' or 'CLASS_DELETE'
 const LAST_SYNC_PROP_KEY = 'QR_CENTER_LAST_SYNC_BATCH';
 const AUTO_SYNCED_SESSIONS_KEY = 'QR_CENTER_AUTO_SYNCED_SESSIONS';
-const FILE_ID_CACHE_PROP_KEY = 'QR_CENTER_FILE_ID_CACHE_V2';
+const FILE_ID_CACHE_PROP_KEY = 'QR_CENTER_FILE_ID_CACHE_V3';
+const ROSTER_SYNC_META_PROP_KEY = 'QR_CENTER_ROSTER_SYNC_META_V1';
 const ATTENDANCE_STYLE_PROP_KEY = 'QR_UNIVERSAL_ATTENDANCE_STYLE';
-const ROSTER_PREVIEW_CACHE_PREFIX = 'QR_ROSTER_PREVIEW_V1_';
+const ROSTER_PREVIEW_CACHE_PREFIX = 'QR_ROSTER_PREVIEW_V2_';
 const UNDO_BACKUP_SHEET_NAME = '_Undo_Backup_Cache';
 
 const MIME_GOOGLE_SHEET = 'application/vnd.google-apps.spreadsheet';
 const MIME_EXCEL_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const MIME_DRIVE_SHORTCUT = 'application/vnd.google-apps.shortcut';
 
 
 // ============================================================================
@@ -173,6 +175,9 @@ function syncStudentRosters() {
 
   const cfgData = configSheet.getDataRange().getValues();
   const classItems = [];
+  const props = PropertiesService.getScriptProperties();
+  const syncMetaMap = JSON.parse(props.getProperty(ROSTER_SYNC_META_PROP_KEY) || '{}');
+  let metaDirty = false;
   let scriptCache = null;
   try {
     scriptCache = CacheService.getScriptCache();
@@ -183,13 +188,16 @@ function syncStudentRosters() {
     const className = String(cfgData[i][1] || '').trim();
     if (!classId) continue;
 
-    // Count existing students in the Master QR class tab
+    // Count existing students and collect existing IDs in the Master QR class tab
     let existingStudentCount = 0;
+    const existingIdsMap = {};
     const classSheet = masterSs.getSheetByName(classId);
     if (classSheet && classSheet.getLastRow() > 1) {
       const sVals = classSheet.getRange(2, 2, classSheet.getLastRow() - 1, 2).getValues();
       for (let r = 0; r < sVals.length; r++) {
-        if (normalizeStudentId_(sVals[r][0], sVals[r][1])) {
+        const normSid = normalizeStudentId_(sVals[r][0], sVals[r][1]);
+        if (normSid) {
+          existingIdsMap[normSid.toUpperCase()] = true;
           existingStudentCount++;
         }
       }
@@ -199,24 +207,55 @@ function syncStudentRosters() {
     const targetInfo = resolveClassTargetFile_(masterSs, classId, className);
 
     let previewCount = existingStudentCount;
+    let newStudentsOnDrive = 0;
     let detectedTabName = '';
     let scanError = '';
 
-    // Pre-scan the target Drive file ONLY for new classes (0 students in Master)
-    // so the lecturer/teacher sees the exact student count before clicking Sync!
-    if (!alreadySynced && targetInfo) {
+    const meta = syncMetaMap[classId] || null;
+    const fileChangedSinceLastSync = Boolean(
+      targetInfo && (
+        !meta ||
+        meta.fileId !== targetInfo.fileId ||
+        meta.syncedCount !== existingStudentCount ||
+        (targetInfo.lastUpdatedMs && meta.lastUpdatedMs !== targetInfo.lastUpdatedMs)
+      )
+    );
+
+    // Pre-scan the target Drive file for new classes OR when the Drive file was modified since last sync
+    if (targetInfo && (!alreadySynced || fileChangedSinceLastSync)) {
       try {
         const extractResult = extractRosterFromTargetFile_(targetInfo, classId, className);
-        previewCount = extractResult.roster.length;
         detectedTabName = extractResult.sheetName || '';
-        if (scriptCache && previewCount > 0) {
+        const rosterRows = extractResult.roster || [];
+
+        if (!alreadySynced) {
+          previewCount = rosterRows.length;
+        } else {
+          for (let r = 0; r < rosterRows.length; r++) {
+            const sidKey = String(rosterRows[r][1] || '').trim().toUpperCase();
+            if (sidKey && !existingIdsMap[sidKey]) {
+              newStudentsOnDrive++;
+            }
+          }
+          if (newStudentsOnDrive === 0 && rosterRows.length > 0) {
+            syncMetaMap[classId] = {
+              fileId: targetInfo.fileId,
+              lastUpdatedMs: targetInfo.lastUpdatedMs || 0,
+              syncedCount: existingStudentCount
+            };
+            metaDirty = true;
+          }
+        }
+
+        if (scriptCache && rosterRows.length > 0) {
           try {
             scriptCache.put(
               ROSTER_PREVIEW_CACHE_PREFIX + classId,
               JSON.stringify({
                 fileId: targetInfo.fileId,
+                lastUpdatedMs: targetInfo.lastUpdatedMs || 0,
                 sheetName: detectedTabName,
-                roster: extractResult.roster
+                roster: rosterRows
               }),
               600
             );
@@ -231,6 +270,7 @@ function syncStudentRosters() {
       classId: classId,
       className: className || classId,
       students: previewCount,
+      newStudentsOnDrive: newStudentsOnDrive,
       alreadySynced: alreadySynced,
       fileFound: Boolean(targetInfo),
       fileId: targetInfo ? targetInfo.fileId : '',
@@ -243,6 +283,12 @@ function syncStudentRosters() {
     });
   }
 
+  if (metaDirty) {
+    try {
+      props.setProperty(ROSTER_SYNC_META_PROP_KEY, JSON.stringify(syncMetaMap));
+    } catch (e) {}
+  }
+
   if (classItems.length === 0) {
     showAlert_(
       'ℹ️ No classes found in \'Classes_Config\'.\n\n' +
@@ -253,11 +299,17 @@ function syncStudentRosters() {
 
   const rowsTpl = classItems.map(function(c) {
     const isSynced = c.alreadySynced;
-    // Already-synced classes appear pre-checked (☑️); new classes appear unchecked (⬜) for the user to tick
-    const checkedAttr = isSynced ? 'checked' : '';
+    const hasDelta = c.newStudentsOnDrive > 0;
+    const shouldPreCheck = (!isSynced && c.fileFound && c.students > 0) || hasDelta;
+    const checkedAttr = shouldPreCheck ? 'checked' : '';
 
     let statusBadge = '';
-    if (isSynced) {
+    if (isSynced && hasDelta) {
+      statusBadge =
+        '[[span style="background:#dbeafe; color:#1e40af; padding:3px 9px; border-radius:999px; font-size:11.5px; font-weight:700; white-space:nowrap;"]]' +
+          '🔄 +' + c.newStudentsOnDrive + ' new (' + c.students + ' → ' + (c.students + c.newStudentsOnDrive) + ')' +
+        '[[/span]]';
+    } else if (isSynced) {
       statusBadge =
         '[[span style="background:#dcfce7; color:#166534; padding:3px 9px; border-radius:999px; font-size:11.5px; font-weight:700; white-space:nowrap;"]]' +
           '✅ Synced (' + c.students + ' students)' +
@@ -283,7 +335,7 @@ function syncStudentRosters() {
     let fileDesc = '';
     let locationDesc = '';
     if (!c.fileFound) {
-      fileDesc = '⚠️ No matching Google Sheet or .XLSX file found on Google Drive';
+      fileDesc = '⚠️ No matching Google Sheet or .XLSX file with student list (MSSV + Họ tên) found on Drive';
     } else {
       const tabPart = c.sheetName ? (' • Tab: [[b]]' + escapeHtml_(c.sheetName) + '[[/b]]') : '';
       const errPart = c.scanError ? (' [[span style="color:#dc2626;"]](' + escapeHtml_(c.scanError) + ')[[/span]]') : '';
@@ -300,13 +352,14 @@ function syncStudentRosters() {
         '[[/div]]';
     }
 
-    const cardBg = isSynced ? '#f0fdf4' : (c.fileFound && c.students > 0 ? '#eff6ff' : '#fef2f2');
-    const cardBorder = isSynced ? '#bbf7d0' : (c.fileFound && c.students > 0 ? '#bfdbfe' : '#fecaca');
+    const cardBg = hasDelta ? '#eff6ff' : (isSynced ? '#f0fdf4' : (c.fileFound && c.students > 0 ? '#eff6ff' : '#fef2f2'));
+    const cardBorder = hasDelta ? '#93c5fd' : (isSynced ? '#bbf7d0' : (c.fileFound && c.students > 0 ? '#bfdbfe' : '#fecaca'));
 
     return (
       '[[label style="display:flex; align-items:flex-start; padding:10px 12px; margin-bottom:8px; background:' + cardBg + '; border:1px solid ' + cardBorder + '; border-radius:8px; cursor:pointer;"]]' +
         '[[input type="checkbox" name="rosterClassItem" value="' + escapeHtml_(c.classId) + '" ' +
           'data-synced="' + (isSynced ? '1' : '0') + '" ' +
+          'data-delta="' + c.newStudentsOnDrive + '" ' +
           'data-found="' + (c.fileFound ? '1' : '0') + '" ' +
           'data-count="' + c.students + '" ' +
           checkedAttr + ' ' +
@@ -332,15 +385,12 @@ function syncStudentRosters() {
   const dialogTpl =
     '[[div style="font-family: Arial, sans-serif; padding: 12px; color: #1f2937;"]]' +
       '[[p style="margin-top:0; margin-bottom:10px; font-size:13px; color:#374151; line-height:1.45;"]]' +
-        'Existing classes are marked [[b]]✅ Synced[[/b]]. ' +
-        'New classes show the [[b]]exact student count & Drive folder[[/b]] — tick to sync:' +
+        'New classes and classes with [[b]]newly added students on Drive[[/b]] are auto-selected. ' +
+        'Tick any [[b]]✅ Synced[[/b]] class to force a fresh re-scan from Drive:' +
       '[[/p]]' +
-      '[[div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; padding:6px 10px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; font-size:12px;"]]' +
-        '[[button type="button" onclick="tickAllNew()" style="padding:5px 10px; background:#e0e7ff; color:#1e40af; border:1px solid #c7d2fe; border-radius:5px; cursor:pointer; font-weight:600; white-space:nowrap; flex-shrink:0;"]]☑️ Select All New[[/button]]' +
-        '[[label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:#4b5563; margin:0;"]]' +
-          '[[input type="checkbox" id="rescanSyncedToggle" onchange="updateSelectionHint()" style="cursor:pointer; margin:0;"]]' +
-          '[[span]]🔄 Re-scan Synced classes for newly added students[[/span]]' +
-        '[[/label]]' +
+      '[[div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:10px; padding:6px 10px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; font-size:12px;"]]' +
+        '[[button type="button" onclick="tickAllNew()" style="padding:5px 10px; background:#e0e7ff; color:#1e40af; border:1px solid #c7d2fe; border-radius:5px; cursor:pointer; font-weight:600; white-space:nowrap;"]]☑️ Select New / Updated[[/button]]' +
+        '[[button type="button" onclick="tickAllClasses()" style="padding:5px 10px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px; cursor:pointer; font-weight:600; white-space:nowrap;"]]🔄 Select All Classes (Force Re-scan)[[/button]]' +
       '[[/div]]' +
       '[[div style="max-height:245px; overflow-y:auto; margin-bottom:12px; padding-right:2px;"]]' +
         rowsTpl +
@@ -353,45 +403,43 @@ function syncStudentRosters() {
       '[[script]]' +
         'function getSelectedTargets() {' +
           'var boxes = Array.from(document.querySelectorAll("input[name=rosterClassItem]"));' +
-          'var rescanExisting = document.getElementById("rescanSyncedToggle").checked;' +
-          'var newBoxes = boxes.filter(function(el) { return el.checked && el.getAttribute("data-synced") === "0"; });' +
-          'var existingBoxes = boxes.filter(function(el) { return el.checked && el.getAttribute("data-synced") === "1"; });' +
-          'var allNewCount = boxes.filter(function(el) { return el.getAttribute("data-synced") === "0"; }).length;' +
-          'var newIds = newBoxes.map(function(el) { return el.value; });' +
-          'var existingIds = existingBoxes.map(function(el) { return el.value; });' +
-          'var totalNewStudents = newBoxes.reduce(function(acc, el) { return acc + (parseInt(el.getAttribute("data-count"), 10) || 0); }, 0);' +
-          'if (newIds.length > 0 && !rescanExisting) {' +
-            'return { targets: newIds, mode: "NEW_ONLY", totalNewStudents: totalNewStudents };' +
-          '}' +
-          'if (newIds.length > 0 && rescanExisting) {' +
-            'return { targets: newIds.concat(existingIds), mode: "NEW_AND_EXISTING", totalNewStudents: totalNewStudents };' +
-          '}' +
-          'if (allNewCount > 0 && !rescanExisting) {' +
-            'return { targets: [], mode: "NONE_NEW_TICKED", totalNewStudents: 0 };' +
-          '}' +
-          'return { targets: existingIds, mode: "RESCAN_EXISTING", totalNewStudents: 0 };' +
+          'var checkedBoxes = boxes.filter(function(el) { return el.checked; });' +
+          'var targets = checkedBoxes.map(function(el) { return el.value; });' +
+          'var newOrDeltaCount = checkedBoxes.reduce(function(acc, el) {' +
+            'var isNew = el.getAttribute("data-synced") === "0";' +
+            'var delta = parseInt(el.getAttribute("data-delta"), 10) || 0;' +
+            'var cnt = parseInt(el.getAttribute("data-count"), 10) || 0;' +
+            'return acc + (isNew ? cnt : delta);' +
+          '}, 0);' +
+          'return { targets: targets, newOrDeltaCount: newOrDeltaCount };' +
         '}' +
         'function updateSelectionHint() {' +
           'var st = document.getElementById("statusMsg");' +
           'var sel = getSelectedTargets();' +
           'if (sel.targets.length === 0) {' +
             'st.style.background = "#fef3c7"; st.style.color = "#92400e";' +
-            'st.innerText = "⚠️ Tick at least one new class (or click Select All New) to sync.";' +
-          '} else if (sel.mode === "NEW_ONLY") {' +
+            'st.innerText = "⚠️ Tick at least one class above to sync or re-scan.";' +
+          '} else if (sel.newOrDeltaCount > 0) {' +
             'st.style.background = "#eff6ff"; st.style.color = "#1e40af";' +
-            'st.innerText = "🆕 Ready to import " + sel.totalNewStudents + " student(s) into " + sel.targets.length + " new class(es): " + sel.targets.join(", ");' +
-          '} else if (sel.mode === "NEW_AND_EXISTING") {' +
-            'st.style.background = "#eff6ff"; st.style.color = "#1e40af";' +
-            'st.innerText = "📥 Ready to sync " + sel.targets.length + " class(es) (" + sel.totalNewStudents + " new students + re-scan existing).";' +
+            'st.innerText = "📥 Ready to sync " + sel.targets.length + " class(es) (+" + sel.newOrDeltaCount + " new student(s)): " + sel.targets.join(", ");' +
           '} else {' +
             'st.style.background = "#f3f4f6"; st.style.color = "#374151";' +
-            'st.innerText = "ℹ️ Ready to re-check " + sel.targets.length + " existing class(es) for newly added students.";' +
+            'st.innerText = "🔄 Ready to force re-scan " + sel.targets.length + " class(es) from Drive: " + sel.targets.join(", ");' +
           '}' +
         '}' +
         'function tickAllNew() {' +
           'var boxes = Array.from(document.querySelectorAll("input[name=rosterClassItem]"));' +
           'boxes.forEach(function(el) {' +
-            'if (el.getAttribute("data-synced") === "0" && el.getAttribute("data-found") === "1") { el.checked = true; }' +
+            'var isNew = el.getAttribute("data-synced") === "0";' +
+            'var hasDelta = (parseInt(el.getAttribute("data-delta"), 10) || 0) > 0;' +
+            'el.checked = (el.getAttribute("data-found") === "1") && (isNew || hasDelta);' +
+          '});' +
+          'updateSelectionHint();' +
+        '}' +
+        'function tickAllClasses() {' +
+          'var boxes = Array.from(document.querySelectorAll("input[name=rosterClassItem]"));' +
+          'boxes.forEach(function(el) {' +
+            'if (el.getAttribute("data-found") === "1") { el.checked = true; }' +
           '});' +
           'updateSelectionHint();' +
         '}' +
@@ -425,9 +473,170 @@ function syncStudentRosters() {
 }
 
 /**
+ * Sync a single class roster from its target Google Sheet / .XLSX file on Drive into the Master Sheet.
+ * Used by both the Sheet Menu (`executeSelectedRostersSync`) and the Lecturer Web App (`TEACHER_REBUILD_REPORT`).
+ */
+function syncSingleClassRosterFromDrive_(masterSs, classId, className, options) {
+  const opts = options || {};
+  const targetInfo = resolveClassTargetFile_(masterSs, classId, className, Boolean(opts.forceFreshFileLookup));
+  if (!targetInfo) {
+    return {
+      ok: false,
+      summary: '⚠️ ' + classId + ': No matching Google Sheet or .XLSX file with student list found on Google Drive.',
+      newStudentsAdded: 0,
+      newStudentNames: []
+    };
+  }
+
+  let classSheet = masterSs.getSheetByName(classId);
+  if (!classSheet) {
+    classSheet = masterSs.insertSheet(classId);
+    classSheet.getRange(1, 1, 1, 5).setValues([['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']]);
+  }
+
+  const existingData = classSheet.getDataRange().getValues();
+  const existingIds = {};
+  let existingStudentCount = 0;
+
+  for (let r = 1; r < existingData.length; r++) {
+    const sid = normalizeStudentId_(existingData[r][1], existingData[r][2]);
+    if (sid) {
+      existingIds[sid.toUpperCase()] = true;
+      existingStudentCount++;
+    }
+  }
+
+  const props = PropertiesService.getScriptProperties();
+  const syncMetaMap = JSON.parse(props.getProperty(ROSTER_SYNC_META_PROP_KEY) || '{}');
+  const meta = syncMetaMap[classId] || null;
+
+  // Zero-lag fast path for Web App button when the Drive file has not been modified since last sync
+  if (
+    opts.onlyIfModified &&
+    existingStudentCount > 0 &&
+    meta &&
+    meta.fileId === targetInfo.fileId &&
+    meta.syncedCount === existingStudentCount &&
+    targetInfo.lastUpdatedMs &&
+    meta.lastUpdatedMs === targetInfo.lastUpdatedMs
+  ) {
+    return {
+      ok: true,
+      skippedUnchanged: true,
+      summary: 'ℹ️ ' + classId + ': Roster unchanged on Drive (' + existingStudentCount + ' students).',
+      newStudentsAdded: 0,
+      newStudentNames: []
+    };
+  }
+
+  let extractResult = null;
+  if (opts.scriptCache && !opts.bypassPreviewCache) {
+    try {
+      const cachedRaw = opts.scriptCache.get(ROSTER_PREVIEW_CACHE_PREFIX + classId);
+      if (cachedRaw) {
+        const parsedCache = JSON.parse(cachedRaw);
+        if (
+          parsedCache &&
+          parsedCache.fileId === targetInfo.fileId &&
+          (!targetInfo.lastUpdatedMs || parsedCache.lastUpdatedMs === targetInfo.lastUpdatedMs) &&
+          Array.isArray(parsedCache.roster)
+        ) {
+          extractResult = parsedCache;
+        }
+      }
+    } catch (cacheReadErr) {}
+  }
+
+  if (!extractResult) {
+    extractResult = extractRosterFromTargetFile_(targetInfo, classId, className);
+  }
+
+  const rosterRows = extractResult.roster || [];
+  const sourceDesc = (targetInfo.isGoogleSheet ? 'Google Sheet' : '.XLSX') + ' [' + extractResult.sheetName + '] (📁 ' + (targetInfo.folderPath || 'Drive') + ')';
+
+  if (rosterRows.length === 0) {
+    return {
+      ok: false,
+      summary: '⚠️ ' + classId + ': No valid student rows found in ' + sourceDesc + '.',
+      newStudentsAdded: 0,
+      newStudentNames: []
+    };
+  }
+
+  let newStudentsAdded = 0;
+  const newStudentNames = [];
+  let summaryLine = '';
+
+  if (existingStudentCount === 0) {
+    classSheet.getRange(1, 1, 1, 5).setValues([['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']]);
+    classSheet.getRange(2, 1, rosterRows.length, 5).setValues(rosterRows);
+    SpreadsheetApp.flush();
+    newStudentsAdded = rosterRows.length;
+    summaryLine = '✅ ' + classId + ': Imported full roster (' + rosterRows.length + ' students) from ' + sourceDesc + '.';
+    appendAuditLog_(masterSs, opts.actor || 'SYNC_MENU', 'ROSTER_IMPORT', classId, 'Imported ' + rosterRows.length + ' students from ' + sourceDesc);
+  } else {
+    const newRows = [];
+    for (let r = 0; r < rosterRows.length; r++) {
+      const sid = String(rosterRows[r][1]).trim();
+      const sidKey = sid.toUpperCase();
+      if (!existingIds[sidKey]) {
+        const nextNo = existingStudentCount + newRows.length + 1;
+        const fullName = String(rosterRows[r][2] || '').trim();
+        newRows.push([nextNo, sid, fullName, 0, 0]);
+        newStudentNames.push(sid + ' - ' + fullName);
+        existingIds[sidKey] = true;
+      }
+    }
+
+    if (newRows.length > 0) {
+      const startRow = classSheet.getLastRow() + 1;
+      classSheet.getRange(startRow, 1, newRows.length, 5).setValues(newRows);
+      SpreadsheetApp.flush();
+      newStudentsAdded = newRows.length;
+      summaryLine = '✅ ' + classId + ': Appended ' + newRows.length + ' new student(s) (' + newStudentNames.join(', ') + ' • Total: ' + (existingStudentCount + newRows.length) + ') from ' + sourceDesc + '.';
+      appendAuditLog_(masterSs, opts.actor || 'SYNC_MENU', 'ROSTER_APPEND', classId, 'Appended ' + newRows.length + ' new students (' + newStudentNames.join(', ') + ') from ' + sourceDesc);
+    } else {
+      summaryLine = 'ℹ️ ' + classId + ': Roster is already up to date (' + existingStudentCount + ' students).';
+    }
+  }
+
+  // Save updated sync metadata so unchanged files are skipped in 0ms next time
+  const finalStudentCount = existingStudentCount === 0 ? rosterRows.length : (existingStudentCount + newStudentsAdded);
+  syncMetaMap[classId] = {
+    fileId: targetInfo.fileId,
+    lastUpdatedMs: targetInfo.lastUpdatedMs || 0,
+    syncedCount: finalStudentCount
+  };
+  try {
+    props.setProperty(ROSTER_SYNC_META_PROP_KEY, JSON.stringify(syncMetaMap));
+  } catch (e) {}
+
+  // Invalidate Master Sheet roster cache & rebuild attendance columns if new students were added
+  if (newStudentsAdded > 0) {
+    try {
+      const cache = CacheService.getScriptCache();
+      cache.removeAll([
+        'ROSTER_MAP_' + classId + '_' + (existingStudentCount + 1),
+        'ROSTER_MAP_' + classId + '_' + (finalStudentCount + 1),
+        ROSTER_PREVIEW_CACHE_PREFIX + classId
+      ]);
+      if (typeof rebuildSingleClassGrid === 'function') {
+        rebuildSingleClassGrid(masterSs, classId);
+      }
+    } catch (e) {}
+  }
+
+  return {
+    ok: true,
+    summary: summaryLine,
+    newStudentsAdded: newStudentsAdded,
+    newStudentNames: newStudentNames,
+    totalStudents: finalStudentCount
+  };
+}
+
+/**
  * Server handler called from the Roster Sync Checkbox Dialog.
- * Uses the pre-scanned roster from CacheService when available so new classes
- * import in <0.5 seconds without opening the .XLSX file a second time!
  */
 function executeSelectedRostersSync(selectedClassIds) {
   if (!selectedClassIds || selectedClassIds.length === 0) return;
@@ -457,84 +666,13 @@ function executeSelectedRostersSync(selectedClassIds) {
     const className = String(cfgData[i][1] || '').trim();
     if (!classId || !selectedMap[classId]) continue;
 
-    const targetInfo = resolveClassTargetFile_(masterSs, classId, className);
-    if (!targetInfo) {
-      summaryLines.push('⚠️ ' + classId + ': No matching Google Sheet or .XLSX file found on Google Drive.');
-      continue;
-    }
-
-    let classSheet = masterSs.getSheetByName(classId);
-    if (!classSheet) {
-      classSheet = masterSs.insertSheet(classId);
-      classSheet.getRange(1, 1, 1, 5).setValues([['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']]);
-    }
-
     try {
-      let extractResult = null;
-      if (scriptCache) {
-        try {
-          const cachedRaw = scriptCache.get(ROSTER_PREVIEW_CACHE_PREFIX + classId);
-          if (cachedRaw) {
-            const parsedCache = JSON.parse(cachedRaw);
-            if (parsedCache && parsedCache.fileId === targetInfo.fileId && Array.isArray(parsedCache.roster)) {
-              extractResult = parsedCache;
-            }
-          }
-        } catch (cacheReadErr) {}
-      }
-
-      if (!extractResult) {
-        extractResult = extractRosterFromTargetFile_(targetInfo, classId, className);
-      }
-
-      const rosterRows = extractResult.roster;
-      const sourceDesc = (targetInfo.isGoogleSheet ? 'Google Sheet' : '.XLSX') + ' [' + extractResult.sheetName + '] (📁 ' + (targetInfo.folderPath || 'Drive') + ')';
-
-      if (rosterRows.length === 0) {
-        summaryLines.push('⚠️ ' + classId + ': No valid student rows found in ' + sourceDesc + '.');
-        continue;
-      }
-
-      const existingData = classSheet.getDataRange().getValues();
-      const existingIds = {};
-      let existingStudentCount = 0;
-
-      for (let r = 1; r < existingData.length; r++) {
-        const sid = normalizeStudentId_(existingData[r][1], existingData[r][2]);
-        if (sid) {
-          existingIds[sid.toUpperCase()] = true;
-          existingStudentCount++;
-        }
-      }
-
-      if (existingStudentCount === 0) {
-        classSheet.getRange(1, 1, 1, 5).setValues([['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']]);
-        classSheet.getRange(2, 1, rosterRows.length, 5).setValues(rosterRows);
-        SpreadsheetApp.flush();
-        summaryLines.push('✅ ' + classId + ': Imported full roster (' + rosterRows.length + ' students) from ' + sourceDesc + '.');
-        appendAuditLog_(masterSs, 'SYNC_MENU', 'ROSTER_IMPORT', classId, 'Imported ' + rosterRows.length + ' students from ' + sourceDesc);
-      } else {
-        const newRows = [];
-        for (let r = 0; r < rosterRows.length; r++) {
-          const sid = String(rosterRows[r][1]).trim();
-          const sidKey = sid.toUpperCase();
-          if (!existingIds[sidKey]) {
-            const nextNo = existingStudentCount + newRows.length + 1;
-            newRows.push([nextNo, sid, rosterRows[r][2], 0, 0]);
-            existingIds[sidKey] = true;
-          }
-        }
-
-        if (newRows.length > 0) {
-          const startRow = classSheet.getLastRow() + 1;
-          classSheet.getRange(startRow, 1, newRows.length, 5).setValues(newRows);
-          SpreadsheetApp.flush();
-          summaryLines.push('✅ ' + classId + ': Appended ' + newRows.length + ' new student(s) (Total: ' + (existingStudentCount + newRows.length) + ') from ' + sourceDesc + '.');
-          appendAuditLog_(masterSs, 'SYNC_MENU', 'ROSTER_APPEND', classId, 'Appended ' + newRows.length + ' new students from ' + sourceDesc);
-        } else {
-          summaryLines.push('ℹ️ ' + classId + ': Roster is already up to date (' + existingStudentCount + ' students).');
-        }
-      }
+      const res = syncSingleClassRosterFromDrive_(masterSs, classId, className, {
+        scriptCache: scriptCache,
+        onlyIfModified: false,
+        actor: 'SYNC_MENU'
+      });
+      summaryLines.push(res.summary);
     } catch (e) {
       summaryLines.push('❌ ' + classId + ': Error reading file — ' + e.message);
     }
@@ -1554,9 +1692,10 @@ function getDriveFileFolderPath_(file) {
 }
 
 /**
- * Inspect Drive File metadata and return { fileId, fileName, mimeType, isGoogleSheet, folderPath, fileUrl } if valid.
+ * Inspect Drive File metadata and return { fileId, fileName, mimeType, isGoogleSheet, folderPath, fileUrl, lastUpdatedMs } if valid.
+ * Automatically resolves Google Drive Shortcuts (`application/vnd.google-apps.shortcut`) to their target file.
  */
-function inspectDriveFileById_(fileId, masterFileId) {
+function inspectDriveFileById_(fileId, masterFileId, fallbackFolderPath) {
   if (!fileId || fileId === masterFileId) return null;
   try {
     const file = DriveApp.getFileById(fileId);
@@ -1564,14 +1703,22 @@ function inspectDriveFileById_(fileId, masterFileId) {
     const fname = file.getName() || '';
     if (fname.indexOf('_TEMP_') === 0) return null;
     const mime = file.getMimeType();
+    if (mime === MIME_DRIVE_SHORTCUT) {
+      const targetId = file.getTargetId ? file.getTargetId() : null;
+      if (!targetId || targetId === fileId) return null;
+      const shortcutFolder = fallbackFolderPath || getDriveFileFolderPath_(file);
+      return inspectDriveFileById_(targetId, masterFileId, shortcutFolder);
+    }
     if (mime !== MIME_GOOGLE_SHEET && mime !== MIME_EXCEL_XLSX) return null;
+    const lastUpdated = file.getLastUpdated ? file.getLastUpdated() : null;
     return {
       fileId: file.getId(),
       fileName: fname,
       mimeType: mime,
       isGoogleSheet: mime === MIME_GOOGLE_SHEET,
-      folderPath: getDriveFileFolderPath_(file),
-      fileUrl: file.getUrl() || ''
+      folderPath: fallbackFolderPath || getDriveFileFolderPath_(file),
+      fileUrl: file.getUrl() || '',
+      lastUpdatedMs: lastUpdated ? lastUpdated.getTime() : 0
     };
   } catch (e) {
     return null;
@@ -1579,9 +1726,54 @@ function inspectDriveFileById_(fileId, masterFileId) {
 }
 
 /**
- * Locate the target Google Sheet or .XLSX file on Google Drive for a given class.
+ * Check whether a specific Sheet tab actually contains a student roster (MSSV + Full Name rows).
+ * Used to distinguish real Attendance/Roster files from Syllabus/Class Diary sheets that share the same Class_ID.
  */
-function resolveClassTargetFile_(masterSs, classId, className) {
+function probeSheetHasStudentRoster_(sheet) {
+  if (!sheet) return false;
+  try {
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+    if (lastRow < 2 || lastCol < 2) return false;
+    const layout = detectSheetLayout_(sheet);
+    if (lastRow < layout.dataStartRow) return false;
+    const scanRows = Math.min(lastRow - layout.dataStartRow + 1, 20);
+    const maxColNeeded = Math.max(layout.idCol, layout.nameCol + (layout.isTwoColName ? 1 : 0));
+    if (maxColNeeded > lastCol) return false;
+    const sample = sheet.getRange(layout.dataStartRow, 1, scanRows, maxColNeeded).getValues();
+    for (let i = 0; i < sample.length; i++) {
+      const rawId = sample[i][layout.idCol - 1];
+      const name1 = String(sample[i][layout.nameCol - 1] || '').trim();
+      const name2 = layout.isTwoColName ? String(sample[i][layout.nameCol] || '').trim() : '';
+      const fullName = (layout.isTwoColName ? (name1 + ' ' + name2) : name1).replace(/\s+/g, ' ').trim();
+      if (normalizeStudentId_(rawId, fullName)) {
+        return true;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+
+/**
+ * Check whether a candidate Drive file (Google Sheet or .XLSX) contains a valid student roster (MSSV + Full Name).
+ */
+function probeFileHasStudentRoster_(candInfo, classId, className) {
+  if (!candInfo) return false;
+  try {
+    return withTargetSpreadsheet_(candInfo, classId, className, false, function(ss, sheet) {
+      return probeSheetHasStudentRoster_(sheet);
+    });
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Locate the target Google Sheet or .XLSX file on Google Drive for a given class.
+ * Universally matches by Class_ID (`Mã lớp`) and verifies student roster structure (`MSSV` + `Họ tên`)
+ * when multiple files in a class folder share the same Class_ID (e.g. Attendance file vs. Class Diary file).
+ */
+function resolveClassTargetFile_(masterSs, classId, className, bypassCache) {
   if (!classId) return null;
   const masterFileId = masterSs ? masterSs.getId() : '';
   const docsHost = ['docs', 'google', 'com'].join('.');
@@ -1617,15 +1809,15 @@ function resolveClassTargetFile_(masterSs, classId, className) {
     if (info) return info;
   }
 
-  // 3. Check cached file ID
+  // 3. Check cached file ID (V3 cache stores verified roster files)
   const props = PropertiesService.getScriptProperties();
   const cacheMap = JSON.parse(props.getProperty(FILE_ID_CACHE_PROP_KEY) || '{}');
-  if (cacheMap[classId]) {
+  if (!bypassCache && cacheMap[classId]) {
     const info = inspectDriveFileById_(cacheMap[classId], masterFileId);
     if (info) return info;
   }
 
-  // 4. Search Google Drive for matching Google Sheets or .XLSX files
+  // 4. Search Google Drive for matching Google Sheets, .XLSX files, or Drive Shortcuts
   const searchTerms = [classId];
   const alphaTokens = String(classId).toUpperCase().match(/[A-Z]{2,}/g) || [];
   const numTokens = extractNumericTokens_(classId);
@@ -1639,52 +1831,105 @@ function resolveClassTargetFile_(masterSs, classId, className) {
     }
   }
 
-  let bestCandidateFile = null;
-  let bestScore = 0;
+  const candidates = [];
   const seenFileIds = {};
 
   for (let t = 0; t < searchTerms.length; t++) {
     const term = searchTerms[t].replace(/'/g, "\\'");
     const query =
       "title contains '" + term + "' and " +
-      "(mimeType = '" + MIME_GOOGLE_SHEET + "' or mimeType = '" + MIME_EXCEL_XLSX + "') and " +
+      "(mimeType = '" + MIME_GOOGLE_SHEET + "' or mimeType = '" + MIME_EXCEL_XLSX + "' or mimeType = '" + MIME_DRIVE_SHORTCUT + "') and " +
       "trashed = false";
 
     try {
       const files = DriveApp.searchFiles(query);
       while (files.hasNext()) {
-        const file = files.next();
-        const fid = file.getId();
-        if (fid === masterFileId || seenFileIds[fid]) continue;
-        seenFileIds[fid] = true;
+        const rawFile = files.next();
+        const rawId = rawFile.getId();
+        if (rawId === masterFileId) continue;
 
-        const fname = file.getName() || '';
-        if (fname.indexOf('_TEMP_') === 0) continue;
+        const rawName = rawFile.getName() || '';
+        if (rawName.indexOf('_TEMP_') === 0) continue;
 
-        const score = scoreClassMatch_(fname, classId, className);
-        if (score > bestScore) {
-          bestScore = score;
-          bestCandidateFile = file;
+        const score = scoreClassMatch_(rawName, classId, className);
+        if (score <= 0) continue;
+
+        const info = inspectDriveFileById_(rawId, masterFileId);
+        if (!info || info.fileId === masterFileId) continue;
+
+        const finalScore = Math.max(score, scoreClassMatch_(info.fileName, classId, className));
+        if (seenFileIds[info.fileId]) {
+          if (finalScore > seenFileIds[info.fileId].score) {
+            seenFileIds[info.fileId].score = finalScore;
+          }
+          continue;
         }
+
+        const candObj = { info: info, score: finalScore };
+        seenFileIds[info.fileId] = candObj;
+        candidates.push(candObj);
       }
     } catch (e) {}
 
-    if (bestScore >= 90) break;
+    // If we found strong matches on the exact classId term, no need to search broader terms
+    const hasStrongMatch = candidates.some(function(c) { return c.score >= 90; });
+    if (hasStrongMatch) break;
   }
 
-  if (bestCandidateFile) {
-    const fid = bestCandidateFile.getId();
-    const mime = bestCandidateFile.getMimeType();
-    cacheMap[classId] = fid;
-    props.setProperty(FILE_ID_CACHE_PROP_KEY, JSON.stringify(cacheMap));
-    return {
-      fileId: fid,
-      fileName: bestCandidateFile.getName() || '',
-      mimeType: mime,
-      isGoogleSheet: mime === MIME_GOOGLE_SHEET,
-      folderPath: getDriveFileFolderPath_(bestCandidateFile),
-      fileUrl: bestCandidateFile.getUrl() || ''
-    };
+  if (candidates.length === 0) return null;
+
+  // Sort candidates by score descending
+  candidates.sort(function(a, b) {
+    if (b.score !== a.score) return b.score - a.score;
+    return (b.info.lastUpdatedMs || 0) - (a.info.lastUpdatedMs || 0);
+  });
+
+  let chosenInfo = null;
+
+  if (candidates.length === 1) {
+    chosenInfo = candidates[0].info;
+  } else {
+    // Disambiguate multiple files matching the same Class_ID (e.g. Syllabus/Diary vs. Attendance Roster):
+    // Probe native Google Sheets first (fast ~80ms check without .XLSX conversion) to eliminate non-roster files!
+    const topScore = candidates[0].score;
+    const topTier = candidates.filter(function(c) { return c.score >= Math.max(65, topScore - 15); });
+    const pool = topTier.length > 0 ? topTier : candidates;
+
+    const gsheetCands = pool.filter(function(c) { return c.info.isGoogleSheet; });
+    const xlsxCands = pool.filter(function(c) { return !c.info.isGoogleSheet; });
+
+    for (let i = 0; i < gsheetCands.length; i++) {
+      if (probeFileHasStudentRoster_(gsheetCands[i].info, classId, className)) {
+        chosenInfo = gsheetCands[i].info;
+        break;
+      }
+    }
+
+    if (!chosenInfo) {
+      if (xlsxCands.length === 1) {
+        // All Google Sheet candidates had 0 students (e.g. Syllabus/Class Diary), so the single .XLSX candidate wins immediately!
+        chosenInfo = xlsxCands[0].info;
+      } else if (xlsxCands.length > 1) {
+        for (let i = 0; i < xlsxCands.length; i++) {
+          if (probeFileHasStudentRoster_(xlsxCands[i].info, classId, className)) {
+            chosenInfo = xlsxCands[i].info;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!chosenInfo) {
+      chosenInfo = candidates[0].info;
+    }
+  }
+
+  if (chosenInfo) {
+    cacheMap[classId] = chosenInfo.fileId;
+    try {
+      props.setProperty(FILE_ID_CACHE_PROP_KEY, JSON.stringify(cacheMap));
+    } catch (e) {}
+    return chosenInfo;
   }
 
   return null;
@@ -1692,7 +1937,8 @@ function resolveClassTargetFile_(masterSs, classId, className) {
 
 /**
  * Find the best matching sheet/tab inside a Spreadsheet for `classId` / `className`.
- * Supports both multi-class workbooks (one tab per class) and single-class files.
+ * Supports both multi-class workbooks (one tab per class) and single-class files,
+ * prioritizing tabs that actually contain student roster rows (`MSSV` + `Họ tên`).
  */
 function findBestMatchingSheet_(ss, classId, className) {
   const sheets = ss.getSheets();
@@ -1710,18 +1956,32 @@ function findBestMatchingSheet_(ss, classId, className) {
       bestSheet = sheets[i];
     }
   }
-  if (bestSheet && bestScore >= 65) {
+  if (bestSheet && bestScore >= 65 && probeSheetHasStudentRoster_(bestSheet)) {
     return bestSheet;
   }
 
-  // 2. Fallback to standard Attendance sheet tab names
+  // 2. Check standard Attendance sheet tab names that contain student rows
   const standardNames = ['Danh sách mới', 'Attendance sheet', 'Danh sách', 'Danh sach', 'Điểm danh', 'Diem danh'];
+  for (let i = 0; i < standardNames.length; i++) {
+    const candidate = ss.getSheetByName(standardNames[i]);
+    if (candidate && probeSheetHasStudentRoster_(candidate)) return candidate;
+  }
+
+  // 3. Check any visible sheet that actually contains a student roster (MSSV + Full Name)
+  for (let i = 0; i < sheets.length; i++) {
+    const sName = sheets[i].getName();
+    if (sName === UNDO_BACKUP_SHEET_NAME || sName.indexOf('_TEMP_') === 0) continue;
+    if (!sheets[i].isSheetHidden() && probeSheetHasStudentRoster_(sheets[i])) {
+      return sheets[i];
+    }
+  }
+
+  // 4. Fallback if workbook is an empty template (0 students currently)
+  if (bestSheet && bestScore >= 65) return bestSheet;
   for (let i = 0; i < standardNames.length; i++) {
     const candidate = ss.getSheetByName(standardNames[i]);
     if (candidate) return candidate;
   }
-
-  // 3. Fallback to first visible sheet
   for (let i = 0; i < sheets.length; i++) {
     if (!sheets[i].isSheetHidden()) return sheets[i];
   }
@@ -2272,10 +2532,11 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
     }
 
     const numRows = lastRow - layout.dataStartRow + 1;
+    const targetColRange = sheet.getRange(layout.dataStartRow, targetCol, numRows, 1);
     const maxColNeeded = Math.max(layout.idCol, layout.nameCol + (layout.isTwoColName ? 1 : 0));
     const idAndNameRows = sheet.getRange(layout.dataStartRow, 1, numRows, maxColNeeded).getValues();
-    const oldColValues = sheet.getRange(layout.dataStartRow, targetCol, numRows, 1).getDisplayValues();
-    const oldColBgs = sheet.getRange(layout.dataStartRow, targetCol, numRows, 1).getBackgrounds();
+    const oldColValues = targetColRange.getDisplayValues();
+    const oldColBgs = targetColRange.getBackgrounds();
 
     // Normalize statusMap keys to uppercase so alphanumeric IDs match case-insensitively
     const normStatusMap = {};
@@ -2283,6 +2544,9 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
     for (let k = 0; k < statusKeys.length; k++) {
       normStatusMap[statusKeys[k].toUpperCase()] = statusMap[statusKeys[k]];
     }
+
+    const outColValues = [];
+    const outColBgs = [];
 
     for (let idx = 0; idx < numRows; idx++) {
       const rowNumber = layout.dataStartRow + idx;
@@ -2292,7 +2556,11 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
       const fullName = (layout.isTwoColName ? (namePart1 + ' ' + namePart2) : namePart1).trim();
 
       const sid = normalizeStudentId_(rawId, fullName);
-      if (!sid) continue;
+      if (!sid) {
+        outColValues.push([oldColValues[idx][0]]);
+        outColBgs.push([oldColBgs[idx][0] || null]);
+        continue;
+      }
 
       const oldBg = oldColBgs[idx][0];
       stats.previousCells.push({
@@ -2301,32 +2569,26 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
         bg: (oldBg && oldBg !== '#ffffff' && oldBg !== '#FFFFFF') ? oldBg : null
       });
 
-      const cell = sheet.getRange(rowNumber, targetCol);
       const status = normStatusMap[sid.toUpperCase()] || '-';
 
       if (status === 'P') {
-        cell.setValue(markStyle.presentText);
-        cell.setBackground(markStyle.presentBg ? markStyle.presentBg : null);
-        if (markStyle.presentText !== '') {
-          cell.setHorizontalAlignment('center');
-        }
+        outColValues.push([markStyle.presentText]);
+        outColBgs.push([markStyle.presentBg ? markStyle.presentBg : null]);
         stats.presentCount++;
       } else if (status === 'L') {
-        cell.setValue(markStyle.lateText);
-        cell.setBackground(markStyle.lateBg ? markStyle.lateBg : null);
-        if (markStyle.lateText !== '') {
-          cell.setHorizontalAlignment('center');
-        }
+        outColValues.push([markStyle.lateText]);
+        outColBgs.push([markStyle.lateBg ? markStyle.lateBg : null]);
         stats.lateCount++;
       } else {
-        cell.setValue(markStyle.absentText);
-        cell.setBackground(markStyle.absentBg ? markStyle.absentBg : null);
-        cell.setFontFamily('Times New Roman');
-        cell.setFontSize(11);
-        cell.setHorizontalAlignment('center');
+        outColValues.push([markStyle.absentText]);
+        outColBgs.push([markStyle.absentBg ? markStyle.absentBg : null]);
         stats.absentCount++;
       }
     }
+
+    targetColRange.setValues(outColValues);
+    targetColRange.setBackgrounds(outColBgs);
+    targetColRange.setHorizontalAlignment('center');
 
     return stats;
   });

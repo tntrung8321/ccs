@@ -700,13 +700,23 @@ async function teacherRebuildSheet() {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
   if (!auth) return;
-  showStatus('Đang đồng bộ kết quả điểm danh vào Google Sheet...', 'warn');
+  showStatus('Đang kiểm tra danh sách Drive & đồng bộ kết quả vào Google Sheet...', 'warn');
   const res = await callBackend(auth.apiUrl, {
     action: 'TEACHER_REBUILD_REPORT',
     teacherToken: auth.token,
     classId: classId
   });
-  if (res && res.ok) showStatus('Đã đồng bộ dữ liệu vào Google Sheet thành công.', 'success');
+  if (res && res.ok) {
+    if (res.newStudentsAdded && res.newStudentsAdded > 0) {
+      await refreshTeacherState();
+      const namesStr = Array.isArray(res.newStudentNames) && res.newStudentNames.length > 0
+        ? ` (${res.newStudentNames.join(', ')})`
+        : '';
+      showStatus(`Đã bổ sung ${res.newStudentsAdded} sinh viên mới từ Drive${namesStr} và đồng bộ Google Sheet thành công.`, 'success');
+    } else {
+      showStatus('Đã đồng bộ dữ liệu vào Google Sheet thành công.', 'success');
+    }
+  }
 }
 
 function toggleRosterVisibility() {
