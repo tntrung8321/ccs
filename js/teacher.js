@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.4.5)
+ * LECTURER CONTROLLER (js/teacher.js — v3.4.6)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -236,12 +236,12 @@ async function applyTeacherState(state, isInitialLoad = false) {
 
   if (activeCfg) {
     document.getElementById('btn-reg-gate-toggle').textContent = isEn
-      ? `New Device Registration: ${activeCfg.regOpen ? 'OPEN' : 'LOCKED'}`
-      : `Đăng ký thiết bị mới: ${activeCfg.regOpen ? 'Đang mở' : 'Đang khóa'}`;
+      ? `Device Reg: ${activeCfg.regOpen ? 'OPEN' : 'LOCKED'}`
+      : `ĐK thiết bị: ${activeCfg.regOpen ? 'MỞ' : 'KHÓA'}`;
   } else {
     document.getElementById('btn-reg-gate-toggle').textContent = isEn
-      ? 'New Device Registration: No class selected'
-      : 'Đăng ký thiết bị mới: Chưa chọn lớp';
+      ? 'Device Reg: --'
+      : 'ĐK thiết bị: --';
   }
 
   const roster = activeCfg ? (state.roster || []) : [];
@@ -278,10 +278,7 @@ function updateTeacherClassOverviewUI(activeCfg, ses, scheduleMatch) {
   }
 
   if (confirmBtn) {
-    const codeLabel = activeCfg ? activeCfg.classId : '';
-    confirmBtn.textContent = isEn
-      ? `Confirm Open ${codeLabel}`
-      : `Xác nhận mở lớp ${codeLabel}`;
+    confirmBtn.textContent = isEn ? 'Confirm Open' : 'Xác nhận mở phiên';
   }
 
   if (hintBar) {
@@ -308,7 +305,7 @@ function updateTeacherClassOverviewUI(activeCfg, ses, scheduleMatch) {
  * ============================================================================
  * REQUIREMENT 5: TWO-STEP INLINE CONFIRMATION FOR OPENING SESSION
  *  - Prevents accidental 1-tap session start on touchscreens.
- *  - Shows two separate buttons: "Hủy" and "Xác nhận mở lớp [Mã Lớp]".
+ *  - Shows two separate buttons: "Hủy" and "Xác nhận mở phiên".
  * ============================================================================
  */
 function promptOpenSessionConfirm() {
@@ -336,9 +333,7 @@ function promptOpenSessionConfirm() {
       : `Bạn chuẩn bị mở phiên điểm danh cho lớp [${classId}]. Vui lòng xác nhận:`;
   }
   if (confirmBtn) {
-    confirmBtn.textContent = isEn
-      ? `Confirm Open ${classId}`
-      : `Xác nhận mở lớp ${classId}`;
+    confirmBtn.textContent = isEn ? 'Confirm Open' : 'Xác nhận mở phiên';
   }
 
   if (triggerBtn) triggerBtn.classList.add('hidden');
@@ -631,7 +626,7 @@ function renderTeacherRoster() {
   const tabSuspect = document.getElementById('tab-filter-suspect');
   if (tabAll) tabAll.textContent = isEn ? `All (${countAll})` : `Tất cả (${countAll})`;
   if (tabPresent) tabPresent.textContent = isEn ? `Present (${countPresent})` : `Có mặt (${countPresent})`;
-  if (tabAbsent) tabAbsent.textContent = isEn ? `Absent (${countAbsent})` : `Vắng mặt (${countAbsent})`;
+  if (tabAbsent) tabAbsent.textContent = isEn ? `Absent (${countAbsent})` : `Vắng (${countAbsent})`;
   if (tabSuspect) tabSuspect.textContent = isEn ? `Suspect (${countSuspect})` : `Nghi vấn (${countSuspect})`;
 
   if (!showRosterNames && !query) {
@@ -667,19 +662,19 @@ function renderTeacherRoster() {
     const suspectNote = suspectMap[st.studentId];
     return `
       <div class="roster-item ${suspectNote ? 'suspect-row' : ''}">
-        <div>
+        <div class="roster-student-info">
           <strong>${escapeHtml(st.fullName)}</strong>
-          <span style="color:var(--muted); font-size:0.8rem; font-family:var(--font-mono);">(${escapeHtml(st.studentId)})</span>
+          <span style="color:var(--muted); font-size:0.78rem; font-family:var(--font-mono);">(${escapeHtml(st.studentId)})</span>
           <span class="status-pill st-${st.status}">${escapeHtml(st.status)}</span>
           ${st.time ? `<span style="font-size:0.75rem; color:var(--muted); font-family:var(--font-mono);">${escapeHtml(st.time)}</span>` : ''}
           ${st.distance !== '' && st.distance !== undefined ? `<span style="font-size:0.74rem; color:#0f766e; font-weight:600; font-family:var(--font-mono);">(${escapeHtml(st.distance)}m)</span>` : ''}
           ${suspectNote ? `<span class="suspect-tag">[${isEn ? 'SUSPECT' : 'NGHI VẤN'}] ${escapeHtml(suspectNote)}</span>` : ''}
         </div>
-        <div style="display:flex; gap:4px; flex-wrap:wrap;">
-          <button class="btn btn-outline btn-sm" onclick="teacherManualMark('${escapeHtml(st.studentId)}','P')">${isEn ? 'Present' : 'Có mặt'}</button>
-          <button class="btn btn-outline btn-sm" onclick="teacherManualMark('${escapeHtml(st.studentId)}','L')">${isEn ? 'Late' : 'Đi trễ'}</button>
-          <button class="btn btn-outline btn-sm" onclick="teacherManualMark('${escapeHtml(st.studentId)}','E')">${isEn ? 'Excused' : 'Có phép'}</button>
-          <button class="btn btn-outline btn-sm" title="${isEn ? 'Revoke attendance' : 'Hủy điểm danh'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','-')">${isEn ? 'Absent' : 'Vắng'}</button>
+        <div class="roster-actions">
+          <button class="btn btn-outline btn-sm" title="${isEn ? 'Mark Present (P)' : 'Đánh dấu Có mặt (P)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','P')">P</button>
+          <button class="btn btn-outline btn-sm" title="${isEn ? 'Mark Late (L)' : 'Đánh dấu Đi trễ (L)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','L')">L</button>
+          <button class="btn btn-outline btn-sm" title="${isEn ? 'Mark Excused (E)' : 'Đánh dấu Có phép (E)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','E')">E</button>
+          <button class="btn btn-outline btn-sm" title="${isEn ? 'Revoke attendance (-)' : 'Hủy điểm danh (-)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','-')">-</button>
           <button class="btn btn-outline btn-sm" title="${isEn ? 'Reset device lock' : 'Đặt lại khóa thiết bị'}" onclick="teacherResetStudentDevice('${escapeHtml(st.studentId)}')">${isEn ? 'Unlock' : 'Mở khóa'}</button>
         </div>
       </div>
@@ -730,7 +725,7 @@ function triggerRandomSpotCheck() {
     isEn
       ? `Full Name: ${pick.fullName}\nStudent ID: ${pick.studentId} (Checked in at: ${pick.time || 'N/A'})`
       : `Họ và tên: ${pick.fullName}\nMã số sinh viên: ${pick.studentId} (Điểm danh lúc: ${pick.time || 'N/A'})`,
-    isEn ? 'Mark Absent (Revoke & Lock)' : 'Vắng mặt (Hủy và Khóa điểm danh)',
+    isEn ? 'Revoke & Lock (-)' : 'Hủy & Khóa (-)',
     async () => {
       await teacherManualMark(pick.studentId, '-');
       showStatus(

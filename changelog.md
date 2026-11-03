@@ -2,6 +2,10 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### ✨ Version `v3.4.6` — *Compact Single-Row Roster Action Codes (`P / L / E / -`) & Non-Wrapping Student Rows*
+* **Restored Compact Single-Row Roster Action Buttons (`P`, `L`, `E`, `-`, `Mở khóa` / `Unlock`)**: Restored the standard single-letter attendance status buttons (`P`, `L`, `E`, `-`) alongside `Mở khóa` / `Unlock` (with descriptive tooltips on hover) and single-line flex layout (`flex-wrap: nowrap`) in `#tea-roster-container`, keeping every student row on a single horizontal line without wrapping onto two lines.
+* **Preserved Compact `P: 0 | L: 0 | A: 0 | E: 0` Breakdown & `v3.4.5` UI Refinements**: Preserved the compact `P: 0 | L: 0 | A: 0 | E: 0` live breakdown counter, single-line GPS status in `#gps-panel`, subtle Advanced GPS link below `"Mở phiên điểm danh"`, removal of prose abbreviations (`SV`, `GV`, `TB 3 SV`), and 100% bilingual (`VI / EN`) switching.
+
 ### ✨ Version `v3.4.5` — *Single-Line GPS Readout, Subtle Advanced GPS Link, Zero Abbreviations & Complete Bilingual (`VI / EN`) UI*
 * **Eliminated Triple-Repetition on the Student Check-In Card**: Removed redundant `#gps-live-pill`, `#gps-inline-status`, and `#stu-gps-telemetry` elements so GPS pre-check and live positioning feedback are consolidated into a single clean status line (`#gps-dot` + `#gps-readout`) inside `#gps-panel`.
 * **Subtle Text Link for Advanced GPS Mode Below `"Mở phiên điểm danh"`**: Replaced the bulky `"GPS nâng cao"` button with a subtle text link (`#btn-toggle-adv-gps`: *"Chế độ định vị GPS nâng cao"* / *"Advanced GPS positioning mode"*) positioned directly below the `"Mở phiên điểm danh"` button, matching the *"Cài đặt kết nối nâng cao"* link on the Student view and toggling `#box-adv-gps-mode` open beneath it.
@@ -83,6 +87,10 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### ✨ Version `v3.4.6` — *Khôi Phục Cụm Nút Điểm Danh Ngắn Gọn (`P / L / E / -`) Trên Cùng 1 Hàng Ngang*
+* **Khôi phục Bộ Nút Điểm danh Ngắn gọn trên Danh sách Lớp (`P`, `L`, `E`, `-`, `Mở khóa` / `Unlock`)**: Đưa các nút thao tác điểm danh thủ công về ký hiệu chuẩn ngắn gọn `P`, `L`, `E`, `-` đi kèm nút `Mở khóa` / `Unlock` (giữ chú thích đầy đủ khi di chuột) và khóa bố cục 1 dòng ngang (`flex-wrap: nowrap`) trong `#tea-roster-container`, giúp mỗi sinh viên luôn nằm gọn trên 1 hàng ngang duy nhất, không bị rớt thành 2 dòng.
+* **Bảo toàn Dòng Thống kê `P: 0 | L: 0 | A: 0 | E: 0` & Toàn bộ Tinh chỉnh `v3.4.5`**: Giữ nguyên dòng thống kê `P: 0 | L: 0 | A: 0 | E: 0`, 1 dòng trạng thái GPS duy nhất trong `#gps-panel`, dòng liên kết chữ *"Chế độ định vị GPS nâng cao"* ngay dưới nút `"Mở phiên điểm danh"`, không viết tắt câu chữ (`SV`, `GV`, `TB 3 SV`), và đồng bộ song ngữ Anh – Việt (`VI / EN`) 100%.
+
 ### ✨ Version `v3.4.5` — *Gộp 1 Dòng Trạng Thái GPS, Dòng Chữ Mở Rộng GPS Nâng Cao, Không Viết Tắt & Đồng Bộ Song Ngữ (`VI / EN`) 100%*
 * **Loại bỏ Lặp 3 Chỗ Trạng Thái GPS trên Thẻ Điểm Danh Sinh Viên**: Gỡ bỏ nhãn `#gps-live-pill` trên tiêu đề thẻ, hộp `#gps-inline-status` và dòng `#stu-gps-telemetry` bị trùng lặp; gộp toàn bộ phản hồi kiểm tra GPS về **1 dòng trạng thái duy nhất** (`#gps-dot` + `#gps-readout`) bên trong khung `#gps-panel`.
 * **Chuyển Nút `"GPS nâng cao"` thành Dòng Chữ Mở Rộng Nằm Ngay Dưới Nút `"Mở phiên điểm danh"`**: Thay thế nút bấm `"GPS nâng cao"` thô cứng bằng dòng liên kết chữ tinh gọn (`#btn-toggle-adv-gps`: *"Chế độ định vị GPS nâng cao"*) đặt ngay bên dưới nút `"Mở phiên điểm danh"` (đồng bộ hoàn toàn với phong cách *"Cài đặt kết nối nâng cao"* ở giao diện Sinh viên), khi bấm vào mới mở khung tùy chọn `#box-adv-gps-mode` bên dưới.
@@ -162,17 +170,17 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.5`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.6`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.5` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.6` |
 | :--- | :--- | :--- |
 | **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)** |
-| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Zero-Scroll (`100dvh`) Student View, Zero Abbreviations & 100% Bilingual (`VI / EN`)** |
+| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Zero-Scroll (`100dvh`) Student View, Single-Line Roster (`P/L/E/-`) & 100% Bilingual (`VI / EN`)** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Single-Line `#gps-panel` Status + 1-Tap Live GPS (`cachedGPS = null`) + `isSubmitting` Lock** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS`) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Smart `17:15–17:30` Priority)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + Legacy URL Auto-Migration** |
-| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **2.5s Live Polling + Zero-Kickout `F5` Reload + Hidden-Roster Search Auto-Rehide & 1-Tap Unlock** |
+| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **2.5s Live Polling + Zero-Kickout `F5` Reload + Single-Row `P/L/E/-/Unlock` Roster & 1-Tap Unlock** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **RAM `CacheService` (~10x faster / Nhanh gấp 10 lần)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Multi-Browser (`Safari+Chrome`), F12, Fresh GPS Timestamp & Spot-Check Lock** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Universal Content-Aware (`Class_ID` + `MSSV`/Name) 2-Way `.XLSX` Sync + Pre-Export Delta Import** |

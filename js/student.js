@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.4.5)
+ * STUDENT CONTROLLER (js/student.js — v3.4.6)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Pre-Check & Activate GPS Panel (#gps-panel: #gps-dot, #gps-readout, #btn-check-gps)
  *  - Fresh GPS Re-Verification on Check-In (No stale coordinate reuse)
@@ -242,7 +242,7 @@ async function handleStudentPreCheckGps() {
       if (readout) {
         readout.textContent = currentLang === 'en'
           ? `GPS ready (Accuracy ±${accVal}m)`
-          : `Đã bật GPS thành công (Sai số ±${accVal}m)`;
+          : `Đã bật GPS (Sai số ±${accVal}m)`;
       }
     }
   } catch (err) {

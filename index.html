@@ -205,11 +205,11 @@
           <div class="gps-panel-top">
             <div class="gps-status-group">
               <span id="gps-dot" class="status-dot dot-idle"></span>
-              <span id="gps-readout" data-i18n="stu_gps_readout_idle">Chưa kiểm tra định vị GPS</span>
+              <span id="gps-readout" data-i18n="stu_gps_readout_idle">Chưa kiểm tra GPS</span>
             </div>
             <button type="button" id="btn-check-gps" class="btn btn-outline btn-sm" onclick="handleStudentPreCheckGps()">
               <svg class="icon icon-sm"><use href="#ic-crosshair"></use></svg>
-              <span data-i18n="stu_btn_check_gps">Kiểm tra định vị GPS</span>
+              <span data-i18n="stu_btn_check_gps">Kiểm tra GPS</span>
             </button>
           </div>
         </div>
@@ -346,9 +346,9 @@
                 </div>
 
                 <div class="btn-row" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border-subtle);">
-                  <button class="btn btn-outline btn-sm" onclick="teacherControlSession('EXTEND_2M')" data-i18n="tea_extend_btn">Thêm 2 phút</button>
+                  <button class="btn btn-outline btn-sm" onclick="teacherControlSession('EXTEND_2M')" data-i18n="tea_extend_btn">+2 Phút</button>
                   <button class="btn btn-outline btn-sm" onclick="teacherControlSession('REOPEN_5M')" data-i18n="tea_reopen_btn">Mở lại 5 phút</button>
-                  <button class="btn btn-danger btn-sm" onclick="teacherControlSession('CLOSE_NOW')" data-i18n="tea_close_btn">Đóng phiên ngay</button>
+                  <button class="btn btn-danger btn-sm" onclick="teacherControlSession('CLOSE_NOW')" data-i18n="tea_close_btn">Đóng phiên</button>
                 </div>
 
                 <div id="tea-session-inline-status" class="inline-feedback hidden"></div>
@@ -367,11 +367,11 @@
             <div style="display:flex; gap:6px; flex-wrap:wrap;">
               <button class="btn btn-primary btn-sm" onclick="triggerRandomSpotCheck()">
                 <svg class="icon icon-sm"><use href="#ic-shuffle"></use></svg>
-                <span data-i18n="tea_spot_check_btn">Gọi ngẫu nhiên sinh viên</span>
+                <span data-i18n="tea_spot_check_btn">Gọi ngẫu nhiên</span>
               </button>
               <button class="btn btn-outline btn-sm" id="btn-toggle-names" onclick="toggleRosterVisibility()">
                 <svg class="icon icon-sm"><use href="#ic-eye"></use></svg>
-                <span data-i18n="tea_show_hide_names">Ẩn hoặc Hiện danh sách</span>
+                <span data-i18n="tea_show_hide_names">Ẩn/Hiện tên</span>
               </button>
             </div>
           </div>
@@ -382,7 +382,7 @@
             <div class="roster-filter-bar">
               <button type="button" id="tab-filter-all" class="filter-tab active" data-roster-filter="ALL" onclick="setRosterFilter('ALL')">Tất cả (0)</button>
               <button type="button" id="tab-filter-present" class="filter-tab" data-roster-filter="PRESENT" onclick="setRosterFilter('PRESENT')">Có mặt (0)</button>
-              <button type="button" id="tab-filter-absent" class="filter-tab" data-roster-filter="ABSENT" onclick="setRosterFilter('ABSENT')">Vắng mặt (0)</button>
+              <button type="button" id="tab-filter-absent" class="filter-tab" data-roster-filter="ABSENT" onclick="setRosterFilter('ABSENT')">Vắng (0)</button>
               <button type="button" id="tab-filter-suspect" class="filter-tab" data-roster-filter="SUSPECT" onclick="setRosterFilter('SUSPECT')">Nghi vấn (0)</button>
             </div>
             <input type="text" id="inp-roster-search" data-i18n-placeholder="tea_search_placeholder" placeholder="Tìm họ tên hoặc mã số sinh viên (Nhấn Enter để đánh dấu Có mặt)..." oninput="renderTeacherRoster()" onkeydown="handleRosterSearchKeydown(event)" style="margin-bottom:0;" />
@@ -402,10 +402,10 @@
 
           <div class="btn-row">
             <button id="btn-reg-gate-toggle" class="btn btn-outline btn-sm" onclick="teacherToggleRegGate()">
-              Đăng ký thiết bị mới: Đang mở
+              ĐK thiết bị: MỞ
             </button>
             <button class="btn btn-outline btn-sm" onclick="teacherRebuildSheet()" data-i18n="tea_rebuild_sheet_btn">
-              Đồng bộ vào Google Sheet
+              Đồng bộ Sheet
             </button>
             <button class="btn btn-danger btn-sm" onclick="logoutTeacher()" data-i18n="tea_logout_btn">
               Đăng xuất
