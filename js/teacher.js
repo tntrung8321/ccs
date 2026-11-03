@@ -149,15 +149,6 @@ async function applyTeacherState(state, isInitialLoad = false) {
   if (!state) return;
   ingestServerScheduleData(state);
 
-  if (state.rotatedTempCode) {
-    const auth = getTeacherAuth();
-    if (auth && auth.token !== state.rotatedTempCode && /^\d{6}$/.test(auth.token)) {
-      saveTeacherAuth(auth.apiUrl, state.rotatedTempCode, auth.persistence);
-      const tokenInput = document.getElementById('inp-tea-token');
-      if (tokenInput) tokenInput.value = state.rotatedTempCode;
-    }
-  }
-
   // Filter out removed test sample class ENG101_G1 while keeping 100% of real classes
   const cleanClasses = (state.classes || []).filter(
     c => c && c.classId && !REMOVED_SAMPLE_CLASSES.includes(String(c.classId).trim().toUpperCase())
@@ -494,14 +485,6 @@ async function teacherControlSession(subAction, extra = {}) {
     subAction: subAction
   }, extra));
   if (res && res.ok) {
-    if (res.rotatedTempCode) {
-      const curAuth = getTeacherAuth();
-      if (curAuth && curAuth.token !== res.rotatedTempCode && /^\d{6}$/.test(curAuth.token)) {
-        saveTeacherAuth(curAuth.apiUrl, res.rotatedTempCode, curAuth.persistence);
-        const tokenInput = document.getElementById('inp-tea-token');
-        if (tokenInput) tokenInput.value = res.rotatedTempCode;
-      }
-    }
     await applyTeacherState(res, false);
   }
 }

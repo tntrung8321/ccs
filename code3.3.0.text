@@ -1189,11 +1189,11 @@ function verifyTeacherToken(ss, submittedToken) {
   }
 
   const tempCode = String(props.getProperty('TEMP_PC_CODE') || '').trim();
-  const prevCode = String(props.getProperty('TEMP_PC_CODE_PREV') || props.getProperty('PREV_TEMP_PC_CODE') || '').trim();
-  const prevExp  = Number(props.getProperty('PREV_TEMP_PC_EXPIRES') || '0');
+  const tempExp  = Number(props.getProperty('TEMP_PC_EXPIRES') || '0');
+  const isTempValid = !tempExp || Date.now() <= tempExp;
 
-  // Accept if submitted token matches visible C9 code, stored TEMP_PC_CODE, or active grace-window PREV_TEMP_PC_CODE
-  if ((sheetCode && cleanToken === sheetCode) || (tempCode && cleanToken === tempCode) || (prevCode && cleanToken === prevCode && Date.now() < prevExp)) {
+  // Accept if submitted token matches visible C9 code or stored TEMP_PC_CODE (while not expired)
+  if (isTempValid && ((sheetCode && cleanToken === sheetCode) || (tempCode && cleanToken === tempCode))) {
     props.setProperty('FAILED_AUTH_COUNT', '0');
     props.deleteProperty('AUTH_LOCKOUT_UNTIL');
     cache.remove('AUTH_LOCKOUT_UNTIL');
@@ -1271,8 +1271,7 @@ function handleTeacherGetState(ss, body) {
     classSchedules: scheduleMetaMap,
     selectedClassId: selectedId,
     activeSession: sessionInfo,
-    roster: rosterSummary,
-    rotatedTempCode: body.rotatedTempCode || undefined
+    roster: rosterSummary
   });
 }
 
@@ -1420,8 +1419,7 @@ function handleTeacherControlSession(ss, body) {
     sesSheet.getRange(targetRow, 7).setValue(formatIso(nowMs));
     invalidateClassCache(classId);
     rebuildSingleClassGrid(ss, classId);
-    const newTempCode = refreshTempPcCode(ss, true);
-    return handleTeacherGetState(ss, { classId: classId, rotatedTempCode: newTempCode });
+    refreshTempPcCode(ss, true);
   } else if (subAction === 'EXTEND_2M') {
     const curClose = parseSheetTimeMs(rowVals[5]);
     const newClose = Math.max(nowMs, curClose) + 2 * 60 * 1000;
@@ -1946,11 +1944,6 @@ function refreshTempPcCode(ss, forceNew) {
   let code = props.getProperty('TEMP_PC_CODE');
   let exp  = Number(props.getProperty('TEMP_PC_EXPIRES') || '0');
   if (forceNew || !code || Date.now() > exp) {
-    const oldCode = String(code || '').trim();
-    if (oldCode) {
-      props.setProperty('PREV_TEMP_PC_CODE', oldCode);
-      props.setProperty('PREV_TEMP_PC_EXPIRES', String(Date.now() + 2 * 60 * 60 * 1000));
-    }
     code = generateNumericCode(6);
     exp  = Date.now() + 2 * 60 * 60 * 1000;
     props.setProperty('TEMP_PC_CODE', code);
