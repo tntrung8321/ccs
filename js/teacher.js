@@ -253,9 +253,7 @@ async function applyTeacherState(state, isInitialLoad = false) {
   document.getElementById('tea-live-count').textContent = isEn
     ? `${pCount + lCount} / ${roster.length} Present`
     : `${pCount + lCount} / ${roster.length} Có mặt`;
-  document.getElementById('tea-live-breakdown').textContent = isEn
-    ? `Present: ${pCount} | Late: ${lCount} | Absent: ${aCount} | Excused: ${eCount}`
-    : `Có mặt: ${pCount} | Đi trễ: ${lCount} | Vắng mặt: ${aCount} | Có phép: ${eCount}`;
+  document.getElementById('tea-live-breakdown').textContent = `P: ${pCount} | L: ${lCount} | A: ${aCount} | E: ${eCount}`;
 
   setupTeacherCountdown(ses, Boolean(activeCfg));
   renderTeacherRoster();
