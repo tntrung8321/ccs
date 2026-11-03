@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.4.7)
+ * LECTURER CONTROLLER (js/teacher.js — v3.4.9)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -480,7 +480,8 @@ async function teacherStartSession() {
     typeof pos.coords.latitude === 'number' &&
     typeof pos.coords.longitude === 'number' &&
     pos.coords.latitude !== 0 &&
-    pos.coords.longitude !== 0
+    pos.coords.longitude !== 0 &&
+    Number(pos.coords.accuracy || 9999) <= 150
   );
 
   const lat = hasTeacherGps ? pos.coords.latitude : 0;

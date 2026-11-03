@@ -1,9 +1,10 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.4.7)
+ * STUDENT CONTROLLER (js/student.js — v3.4.9)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
- *  - Pre-Check & Activate GPS Panel (#gps-panel: #gps-dot, #gps-readout, #btn-check-gps)
- *  - Fresh GPS Re-Verification on Check-In (No stale coordinate reuse)
+ *  - Permanent Student ID Lock after first onboarding (hides input & button)
+ *  - Pre-Check & Activate GPS Panel (#gps-panel) with Live High-Accuracy Warm-Up (No GPS Caching)
+ *  - Instant 2-Step Address Bar Permission Guide (#gps-permission-guide-box) & Live Permission Recovery
  *  - Anti-Spam Submission Lock (`isSubmitting`) & Today's Verified Receipt Card
  * ============================================================================
  */
@@ -26,6 +27,9 @@ window.addEventListener('DOMContentLoaded', () => {
   checkIosStandaloneNotice();
   handleUrlDeepLinks();
   renderStudentCourseSelectors();
+  if (typeof watchBrowserLocationPermission === 'function') {
+    watchBrowserLocationPermission();
+  }
 
   const urlParams = new URLSearchParams(window.location.search);
   if (!urlParams.get('onboard') && !urlParams.get('pair') && safeGetLocal('cc_active_mode', 'STUDENT') === 'TEACHER' && getTeacherAuth()) {
@@ -80,16 +84,41 @@ function renderStudentCourseSelectors() {
   const hasBox = document.getElementById('student-has-courses');
   const noBox = document.getElementById('student-no-courses');
   const addBox = document.getElementById('box-add-course');
+  const inpId = document.getElementById('inp-student-id');
+  const lblId = document.getElementById('lbl-student-id');
+  const btnSubmit = document.getElementById('btn-submit-onboard');
 
   if (instIds.length === 0) {
     hasBox.classList.add('hidden');
     noBox.classList.remove('hidden');
     addBox.classList.remove('hidden');
+    if (inpId) {
+      inpId.disabled = false;
+      inpId.readOnly = false;
+      inpId.classList.remove('hidden');
+    }
+    if (lblId) lblId.classList.remove('hidden');
+    if (btnSubmit) {
+      btnSubmit.disabled = false;
+      btnSubmit.classList.remove('hidden');
+    }
     return;
   }
 
+  // Once Student ID is entered and linked, permanently lock and hide the MSSV input & submit button
   hasBox.classList.remove('hidden');
   noBox.classList.add('hidden');
+  addBox.classList.add('hidden');
+  if (inpId) {
+    inpId.disabled = true;
+    inpId.readOnly = true;
+    inpId.classList.add('hidden');
+  }
+  if (lblId) lblId.classList.add('hidden');
+  if (btnSubmit) {
+    btnSubmit.disabled = true;
+    btnSubmit.classList.add('hidden');
+  }
 
   const selInst = document.getElementById('sel-student-inst');
   const lblInst = document.getElementById('lbl-student-inst');
@@ -97,19 +126,22 @@ function renderStudentCourseSelectors() {
   selInst.classList.toggle('hidden', !showMultiLecturer);
   if (lblInst) lblInst.classList.toggle('hidden', !showMultiLecturer);
 
-  const activeInst = safeGetLocal('cc_active_inst', instIds[0]);
+  let activeInst = safeGetLocal('cc_active_inst', instIds[0]);
+  if (!profiles[activeInst]) activeInst = instIds[0];
   selInst.innerHTML = instIds.map(id => {
     const p = profiles[id];
     return `<option value="${escapeHtml(id)}" ${id === activeInst ? 'selected' : ''}>${escapeHtml(p.lecturerName)} (${escapeHtml(p.studentId)})</option>`;
   }).join('');
+  selInst.value = activeInst;
 
   onStudentInstChange(false);
 }
 
 function onStudentInstChange(preserveManualSelection = false) {
   const profiles = getStudentProfiles();
+  const instIds = Object.keys(profiles);
   const selInstEl = document.getElementById('sel-student-inst');
-  const selInst = selInstEl ? selInstEl.value : '';
+  const selInst = (selInstEl && selInstEl.value && profiles[selInstEl.value]) ? selInstEl.value : (instIds[0] || '');
   const p = profiles[selInst];
   if (!p) return;
 
@@ -122,10 +154,11 @@ function onStudentInstChange(preserveManualSelection = false) {
   );
 
   // Resolve real-time class from Google Calendar / Period Slots (123, 456, 789, 10-12, 13-15) / CLASS_SCHEDULE
+  // If student is enrolled in only 1 class, always auto-select that class so they are never blocked by unselected dropdown
   const scheduleMatch = resolveActiveClassBySchedule(enrolled, new Date());
   const autoClassId = preserveManualSelection && currentSelectedVal
     ? currentSelectedVal
-    : scheduleMatch.matchedClassId; // "" when off-hours
+    : (scheduleMatch.matchedClassId || (enrolled.length === 1 ? enrolled[0].classId : ''));
 
   const unselectedLabel = I18N[currentLang].stu_unselected_class_opt || '-- Chưa chọn lớp - Ngoài khung giờ --';
   const optionsHtml = [
@@ -141,6 +174,7 @@ function onStudentInstChange(preserveManualSelection = false) {
   );
 
   selClass.innerHTML = optionsHtml.join('');
+  selClass.value = autoClassId;
   updateStudentClassSelectionUI(selInst, scheduleMatch);
 
   selClass.onchange = () => {
@@ -191,6 +225,12 @@ function updateStudentClassSelectionUI(instId, scheduleMatch) {
 }
 
 function toggleAddCourseBox() {
+  const profiles = getStudentProfiles();
+  if (Object.keys(profiles).length > 0) {
+    // Once MSSV is bound, do not allow opening the MSSV input box again
+    document.getElementById('box-add-course').classList.add('hidden');
+    return;
+  }
   document.getElementById('box-add-course').classList.toggle('hidden');
   syncStudentViewportScrollLock();
 }
@@ -204,7 +244,8 @@ function toggleAdvancedApiBox() {
  * ============================================================================
  * REQUIREMENT 3: PRE-CHECK & ACTIVATE GPS PANEL (#gps-panel)
  *  - Streamlined single-line GPS status readout (#gps-dot + #gps-readout) with zero repetition.
- *  - Does NOT cache/store old coordinates for attendance submission.
+ *  - Does NOT cache/store old coordinates (`window.cachedGPS = null`), preventing walk-away cheating.
+ *  - Checks browser environment and warns if Precise Location (Vị trí chính xác) is off (`accuracy > 100m`).
  * ============================================================================
  */
 async function handleStudentPreCheckGps() {
@@ -214,6 +255,25 @@ async function handleStudentPreCheckGps() {
   const dot = document.getElementById('gps-dot');
   const readout = document.getElementById('gps-readout');
   const btn = document.getElementById('btn-check-gps');
+
+  const check = evaluateStudentAntiCheat();
+  if (!check.browserOk) {
+    isCheckingGps = false;
+    if (dot) dot.className = 'status-dot dot-err';
+    if (readout) {
+      readout.textContent = currentLang === 'en'
+        ? 'Unsupported in-app browser (Open Safari/Chrome)'
+        : 'Đang mở trong Zalo/Messenger (Hãy mở bằng Safari/Chrome)';
+    }
+    showStatus(
+      currentLang === 'en'
+        ? 'Do not check in inside Zalo or Messenger. Please open your main browser (Safari, Chrome).'
+        : 'Không điểm danh trong Zalo/Messenger. Hãy mở bằng trình duyệt chính (Safari, Chrome).',
+      'err',
+      'checkin-inline-status'
+    );
+    return;
+  }
 
   if (btn) btn.disabled = true;
   if (dot) dot.className = 'status-dot dot-busy';
@@ -226,7 +286,7 @@ async function handleStudentPreCheckGps() {
   try {
     const pos = await getAccuratePosition();
     const spoofCheck = inspectGpsForSpoofing(pos);
-    // Explicitly clear any cached coordinate so check-in always fetches fresh GPS
+    // Explicitly clear any cached coordinate so check-in always fetches fresh live GPS
     window.cachedGPS = null;
 
     if (spoofCheck.hardBlock) {
@@ -238,11 +298,28 @@ async function handleStudentPreCheckGps() {
       }
     } else {
       const accVal = Math.round(pos.coords.accuracy);
-      if (dot) dot.className = 'status-dot dot-ok';
-      if (readout) {
-        readout.textContent = currentLang === 'en'
-          ? `GPS ready (Accuracy ±${accVal}m)`
-          : `Đã bật GPS (Sai số ±${accVal}m)`;
+      if (accVal > 100) {
+        if (dot) dot.className = 'status-dot dot-busy';
+        if (readout) {
+          readout.textContent = currentLang === 'en'
+            ? `GPS accuracy is low (±${accVal}m) — Enable Precise Location`
+            : `Sai số GPS đang lớn (±${accVal}m) — Hãy bật Vị trí chính xác`;
+        }
+        showStatus(
+          currentLang === 'en'
+            ? `Location is on, but accuracy is too coarse (±${accVal}m). Please enable "Precise Location" in your browser/phone settings and turn on Wi-Fi.`
+            : `Đã mở Vị trí nhưng sai số đang quá lớn (±${accVal}m). Vui lòng bật mục "Vị trí chính xác" (Precise Location) trong cài đặt trình duyệt và bật Wi-Fi để điểm danh.`,
+          'warn',
+          'checkin-inline-status'
+        );
+      } else {
+        if (dot) dot.className = 'status-dot dot-ok';
+        if (readout) {
+          readout.textContent = currentLang === 'en'
+            ? `GPS ready (Accuracy ±${accVal}m)`
+            : `Đã bật GPS (Sai số ±${accVal}m)`;
+        }
+        hideStatus('checkin-inline-status');
       }
     }
   } catch (err) {
@@ -253,6 +330,9 @@ async function handleStudentPreCheckGps() {
         ? 'GPS unavailable — Please allow location permission in browser'
         : 'Chưa lấy được định vị GPS — Vui lòng cấp quyền vị trí cho trình duyệt';
     }
+    if (typeof formatGpsErrorGuide === 'function') {
+      showStatus(formatGpsErrorGuide(err), 'err', 'checkin-inline-status');
+    }
   } finally {
     isCheckingGps = false;
     if (btn) btn.disabled = false;
@@ -261,10 +341,16 @@ async function handleStudentPreCheckGps() {
 
 /**
  * ============================================================================
- * STUDENT ONBOARDING (LINK STUDENT ID)
+ * STUDENT ONBOARDING (LINK STUDENT ID — ONE-TIME PERMANENT LOCK)
  * ============================================================================
  */
 async function submitStudentOnboarding() {
+  const existingProfiles = getStudentProfiles();
+  if (Object.keys(existingProfiles).length > 0) {
+    renderStudentCourseSelectors();
+    return true;
+  }
+
   const check = evaluateStudentAntiCheat();
   if (!check.browserOk) {
     showStatus(
@@ -274,7 +360,7 @@ async function submitStudentOnboarding() {
       'err',
       'onboard-inline-status'
     );
-    return;
+    return false;
   }
 
   const apiUrl = normalizeApiUrl(document.getElementById('inp-onboard-api').value);
@@ -286,7 +372,28 @@ async function submitStudentOnboarding() {
       'err',
       'onboard-inline-status'
     );
-    return;
+    return false;
+  }
+
+  const btnSubmit = document.getElementById('btn-submit-onboard');
+  if (btnSubmit) btnSubmit.disabled = true;
+
+  // Trigger native browser location permission prompt synchronously while user click gesture (userActivation) is active
+  if (navigator.geolocation && typeof navigator.geolocation.getCurrentPosition === 'function') {
+    try {
+      navigator.geolocation.getCurrentPosition(
+        () => {
+          window.cachedGPS = null;
+          if (typeof hideGpsPermissionGuideBox === 'function') hideGpsPermissionGuideBox();
+        },
+        (err) => {
+          if (err && err.code === 1 && typeof showGpsPermissionGuideBox === 'function') {
+            showGpsPermissionGuideBox();
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    } catch (e) {}
   }
 
   showStatus(
@@ -297,12 +404,13 @@ async function submitStudentOnboarding() {
 
   const pingRes = await callBackend(apiUrl, { action: 'PING' });
   if (!pingRes || !pingRes.ok) {
+    if (btnSubmit) btnSubmit.disabled = false;
     showStatus(
       currentLang === 'en' ? 'Cannot connect to server. Please check your network.' : 'Không kết nối được tới máy chủ. Vui lòng kiểm tra mạng.',
       'err',
       'onboard-inline-status'
     );
-    return;
+    return false;
   }
 
   const res = await callBackend(apiUrl, {
@@ -314,8 +422,9 @@ async function submitStudentOnboarding() {
   });
 
   if (!res || !res.ok) {
+    if (btnSubmit) btnSubmit.disabled = false;
     showStatus(formatServerMessage(res ? res.code : 'ERR_NETWORK', res ? res.params : {}, res ? res.message : ''), 'err', 'onboard-inline-status');
-    return;
+    return false;
   }
 
   saveStudentProfile(pingRes.installationId || DEFAULT_INST_ID, {
@@ -336,11 +445,12 @@ async function submitStudentOnboarding() {
     id: res.studentId,
     count: (res.enrolledClasses || []).length
   }), 'success', 'checkin-inline-status');
+  return true;
 }
 
 /**
  * ============================================================================
- * REQUIREMENT 3: STUDENT CHECK-IN WITH ANTI-SPAM LOCK & FRESH GPS RE-CHECK
+ * REQUIREMENT 3: STUDENT CHECK-IN WITH ANTI-SPAM LOCK & SEAMLESS GPS REUSE
  * ============================================================================
  */
 async function handleOneTapGpsCheckIn() {
@@ -351,20 +461,61 @@ async function handleOneTapGpsCheckIn() {
 async function executeStudentCheckIn(qrString) {
   if (isSubmitting) return;
 
-  const profiles = getStudentProfiles();
-  const instId = document.getElementById('sel-student-inst').value;
-  const classId = document.getElementById('sel-student-class').value;
+  let profiles = getStudentProfiles();
+  let instIds = Object.keys(profiles);
+
+  // If student typed their MSSV into #inp-student-id and tapped "ĐIỂM DANH NGAY" directly without tapping "Lưu" first, auto-onboard them seamlessly
+  if (instIds.length === 0) {
+    const inpIdEl = document.getElementById('inp-student-id');
+    const typedId = inpIdEl ? inpIdEl.value.trim() : '';
+    if (typedId) {
+      const onboardedOk = await submitStudentOnboarding();
+      if (!onboardedOk) return;
+      profiles = getStudentProfiles();
+      instIds = Object.keys(profiles);
+    }
+  }
+
+  const selInstEl = document.getElementById('sel-student-inst');
+  const instId = (selInstEl && selInstEl.value) ? selInstEl.value : (instIds[0] || '');
   const profile = profiles[instId];
 
   if (!profile) {
     document.getElementById('box-add-course').classList.remove('hidden');
     syncStudentViewportScrollLock();
     showStatus(
-      currentLang === 'en' ? 'Please enter and save your Student ID before checking in.' : 'Vui lòng nhập và lưu mã số sinh viên trước khi điểm danh.',
+      currentLang === 'en' ? 'Please enter and save your Student ID before checking in.' : 'Vui lòng nhập và lưu mã số sinh viên ở khung phía trên trước khi điểm danh.',
       'err',
-      'onboard-inline-status'
+      'checkin-inline-status'
     );
+    const inpIdEl = document.getElementById('inp-student-id');
+    if (inpIdEl) inpIdEl.focus();
     return;
+  }
+
+  const selClassEl = document.getElementById('sel-student-class');
+  let classId = selClassEl ? selClassEl.value : '';
+
+  // Auto-resolve class if dropdown was left unselected (e.g. page opened before class started, or student only has 1 class)
+  if (!classId) {
+    const enrolled = (profile.enrolledClasses || []).filter(
+      c => c && !REMOVED_SAMPLE_CLASSES.includes(String(c.classId || '').trim().toUpperCase())
+    );
+    const liveMatch = resolveActiveClassBySchedule(enrolled, new Date());
+    if (liveMatch && liveMatch.matchedClassId) {
+      classId = liveMatch.matchedClassId;
+    } else if (enrolled.length === 1) {
+      classId = enrolled[0].classId;
+    } else {
+      const lastSaved = safeGetLocal('cc_last_class_' + instId, '');
+      if (lastSaved && enrolled.some(c => c.classId === lastSaved)) {
+        classId = lastSaved;
+      }
+    }
+    if (classId && selClassEl) {
+      selClassEl.value = classId;
+      updateStudentClassSelectionUI(instId, resolveActiveClassBySchedule(enrolled, new Date()));
+    }
   }
 
   if (!classId) {
@@ -375,8 +526,7 @@ async function executeStudentCheckIn(qrString) {
       'warn',
       'checkin-inline-status'
     );
-    const selClass = document.getElementById('sel-student-class');
-    if (selClass) selClass.focus();
+    if (selClassEl) selClassEl.focus();
     return;
   }
 
@@ -416,15 +566,17 @@ async function executeStudentCheckIn(qrString) {
     currentLang === 'en'
       ? 'Verifying GPS location and submitting attendance...'
       : 'Đang kiểm tra vị trí định vị GPS và gửi điểm danh...',
-    'warn'
+    'warn',
+    'checkin-inline-status'
   );
 
   try {
-    // Always acquire fresh GPS on check-in (never reuse old cached position)
+    // Always acquire fresh live GPS on check-in (never reuse old cached position)
     window.cachedGPS = null;
     let pos;
     try {
       pos = await getAccuratePosition();
+      if (typeof hideGpsPermissionGuideBox === 'function') hideGpsPermissionGuideBox();
     } catch (gpsErr) {
       if (dot) dot.className = 'status-dot dot-err';
       if (readout) {
@@ -432,7 +584,13 @@ async function executeStudentCheckIn(qrString) {
           ? 'GPS unavailable — Please allow location permission'
           : 'Chưa lấy được định vị GPS';
       }
-      showStatus(I18N[currentLang].ERR_GPS_UNAVAILABLE, 'err');
+      if (gpsErr && gpsErr.code === 1 && typeof showGpsPermissionGuideBox === 'function') {
+        showGpsPermissionGuideBox();
+      }
+      const errMsg = typeof formatGpsErrorGuide === 'function'
+        ? formatGpsErrorGuide(gpsErr)
+        : I18N[currentLang].ERR_GPS_UNAVAILABLE;
+      showStatus(errMsg, 'err', 'checkin-inline-status');
       resetCheckInButtonImmediate();
       return;
     }
@@ -440,7 +598,7 @@ async function executeStudentCheckIn(qrString) {
     const spoofCheck = inspectGpsForSpoofing(pos);
     if (spoofCheck.hardBlock) {
       if (dot) dot.className = 'status-dot dot-err';
-      showStatus(currentLang === 'en' ? 'Invalid GPS signal.' : 'Tín hiệu định vị GPS không hợp lệ.', 'err');
+      showStatus(currentLang === 'en' ? 'Invalid GPS signal.' : 'Tín hiệu định vị GPS không hợp lệ.', 'err', 'checkin-inline-status');
       resetCheckInButtonImmediate();
       return;
     }
@@ -479,13 +637,17 @@ async function executeStudentCheckIn(qrString) {
 
     if (res && res.ok && res.receipt) {
       const r = res.receipt;
-      saveTodayStudentReceipt(classId, r);
-      renderTodayStudentReceipt(classId);
+      const recordedClassId = r.classId || classId;
+      if (recordedClassId !== classId && selClassEl) {
+        selClassEl.value = recordedClassId;
+      }
+      saveTodayStudentReceipt(recordedClassId, r);
+      renderTodayStudentReceipt(recordedClassId);
       showStatus(formatServerMessage(res.code, {
         status: r.status,
         time: r.time,
         dist: r.distanceMeters
-      }), 'success');
+      }), 'success', 'checkin-inline-status');
     } else if (res && res.code === 'ERR_NETWORK') {
       const checkRec = await callBackend(profile.apiUrl, {
         action: 'CHECK_RECEIPT',
@@ -493,16 +655,18 @@ async function executeStudentCheckIn(qrString) {
         studentId: profile.studentId
       }, 1);
       if (checkRec && checkRec.ok && checkRec.receipt) {
-        saveTodayStudentReceipt(classId, checkRec.receipt);
-        renderTodayStudentReceipt(classId);
+        const recordedClassId = checkRec.receipt.classId || classId;
+        saveTodayStudentReceipt(recordedClassId, checkRec.receipt);
+        renderTodayStudentReceipt(recordedClassId);
         showStatus(formatServerMessage('CONFIRMED_' + (checkRec.receipt.status === 'P' ? 'PRESENT' : 'LATE'), {
           time: checkRec.receipt.time,
           dist: checkRec.receipt.distanceMeters
-        }), 'success');
+        }), 'success', 'checkin-inline-status');
       } else {
         showStatus(
           currentLang === 'en' ? 'Network connection error, please try again.' : 'Lỗi kết nối mạng, vui lòng thử bấm lại.',
-          'err'
+          'err',
+          'checkin-inline-status'
         );
       }
     } else {
@@ -515,12 +679,13 @@ async function executeStudentCheckIn(qrString) {
             currentLang === 'en'
               ? `Attendance for ${classId} is closed. Hint: ${sched.matchedClassId} is currently scheduled — please check your selected class.`
               : `Cổng điểm danh lớp ${classId} đang đóng. Gợi ý: Theo khung giờ hiện tại, lớp ${sched.matchedClassId} đang trong ca học — hãy kiểm tra xem bạn có chọn nhầm lớp không.`,
-            'warn'
+            'warn',
+            'checkin-inline-status'
           );
           return;
         }
       }
-      showStatus(formatServerMessage(errCode, res ? res.params : {}, res ? res.message : ''), 'err');
+      showStatus(formatServerMessage(errCode, res ? res.params : {}, res ? res.message : ''), 'err', 'checkin-inline-status');
     }
   } finally {
     isSubmitting = false;

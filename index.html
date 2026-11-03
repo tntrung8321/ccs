@@ -15,7 +15,7 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.4.7" />
+  <link rel="stylesheet" href="css/styles.css?v=3.4.9" />
 </head>
 <body>
 
@@ -106,6 +106,11 @@
     <!-- SHOWN IF OPENED INSIDE IN-APP WEBVIEW (ZALO / MESSENGER) -->
     <div id="ios-install-banner" class="alert alert-err hidden">
       <div id="t-ios-guard"></div>
+      <div style="margin-top:8px;">
+        <button type="button" id="btn-open-external-browser" class="btn btn-primary btn-sm" onclick="openInExternalMainBrowser()" data-i18n="btn_open_external_browser">
+          Mở ngay bằng trình duyệt chính (Chrome / Safari)
+        </button>
+      </div>
     </div>
 
     <!-- GLOBAL STATUS / RECEIPT ALERT -->
@@ -135,7 +140,6 @@
             <svg class="icon"><use href="#ic-user"></use></svg>
             <span data-i18n="stu_course_title">Thông tin Sinh viên</span>
           </div>
-          <button class="btn btn-outline btn-sm" onclick="toggleAddCourseBox()" data-i18n="stu_add_course_btn">Đổi mã số sinh viên</button>
         </div>
 
         <div id="student-has-courses" class="hidden">
@@ -158,12 +162,12 @@
           </p>
         </div>
 
-        <!-- ONBOARDING / LINK NEW COURSE SUB-PANEL -->
+        <!-- ONBOARDING / LINK NEW COURSE SUB-PANEL (SHOWN ONLY BEFORE FIRST STUDENT ID BINDING) -->
         <div id="box-add-course" class="hidden" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border-subtle);">
-          <label for="inp-student-id" data-i18n="stu_id_label">Mã số sinh viên:</label>
+          <label id="lbl-student-id" for="inp-student-id" data-i18n="stu_id_label">Mã số sinh viên:</label>
           <input type="text" id="inp-student-id" data-i18n-placeholder="stu_id_placeholder" placeholder="Nhập mã số sinh viên..." autocomplete="off" />
 
-          <button class="btn btn-primary" onclick="submitStudentOnboarding()" data-i18n="stu_register_btn">Lưu và Liên kết thiết bị</button>
+          <button id="btn-submit-onboard" class="btn btn-primary" onclick="submitStudentOnboarding()" data-i18n="stu_register_btn">Lưu và Liên kết thiết bị</button>
 
           <!-- INLINE CONTEXTUAL FEEDBACK FOR ONBOARDING -->
           <div id="onboard-inline-status" class="inline-feedback hidden"></div>
@@ -215,6 +219,27 @@
               <span data-i18n="stu_btn_check_gps">Kiểm tra GPS</span>
             </button>
           </div>
+        </div>
+
+        <!-- 2-SECOND ADDRESS BAR PERMISSION UNBLOCK GUIDE (SHOWN AUTOMATICALLY WHEN SITE LOCATION IS BLOCKED) -->
+        <div id="gps-permission-guide-box" class="perm-guide-box hidden">
+          <div class="perm-guide-header">
+            <span id="perm-guide-title" data-i18n="perm_guide_title">Cách mở quyền Vị trí ngay trên thanh địa chỉ (2 giây — Không cần vào Cài đặt máy):</span>
+          </div>
+          <div class="perm-guide-steps">
+            <div class="perm-step-row">
+              <span class="perm-step-badge">1</span>
+              <span id="perm-guide-step1">Bấm nút dấu 3 chấm (•••) hoặc biểu tượng Menu bên trái thanh địa chỉ trình duyệt.</span>
+            </div>
+            <div class="perm-step-row">
+              <span class="perm-step-badge">2</span>
+              <span id="perm-guide-step2">Chọn Cài đặt trang web (hoặc Quyền) -> Vị trí (Location) -> Cho phép (Allow).</span>
+            </div>
+          </div>
+          <button type="button" id="btn-retry-gps-perm" class="btn btn-outline btn-sm" style="margin-top:8px;" onclick="handleStudentPreCheckGps()">
+            <svg class="icon icon-sm"><use href="#ic-refresh"></use></svg>
+            <span id="perm-guide-retry-label" data-i18n="perm_guide_retry_btn">Đã bật xong — Bấm kiểm tra lại GPS</span>
+          </button>
         </div>
 
         <button id="btn-start-checkin" class="btn btn-checkin-hero" onclick="handleOneTapGpsCheckIn()">
@@ -435,8 +460,8 @@
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/schedule-config.js?v=3.4.7"></script>
-  <script src="js/student.js?v=3.4.7"></script>
-  <script src="js/teacher.js?v=3.4.7"></script>
+  <script src="js/schedule-config.js?v=3.4.9"></script>
+  <script src="js/student.js?v=3.4.9"></script>
+  <script src="js/teacher.js?v=3.4.9"></script>
 </body>
 </html>

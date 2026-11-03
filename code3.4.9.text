@@ -1,23 +1,25 @@
 /**
  * ============================================================================
- * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.4.7)
+ * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.4.9)
  * ============================================================================
  * Architecture: Lecturer-Owned Google Sheet + Bound Google Apps Script
- * Key Upgrades & Verified Fixes in v3.4.7:
+ * Key Upgrades & Verified Fixes in v3.4.9:
  *  - Compatible 100% with modular index.html UI & external Sync.gs menu/functions
+ *  - Strict Live GPS Evaluation (50m max accuracy allowance, 100m radius, zero coordinate caching)
+ *  - Auto-Rebind on Check-In after Lecturer Device Reset (REVOKED -> ACTIVE seamlessly when MSSV input is locked)
+ *  - Smart Open-Session Class Fallback on Check-In & Retry-Safe Pre-Lock Rate Limiting
  *  - Default Lecturer-Proximity GPS Evaluation (TEACHER_GPS) + Advanced 3-Student Centroid Anchor (STUDENT_AVG_3)
  *  - Fixed Lecturer 6-digit password & Master Key verification (accepts C9, ScriptProperties & PREV_TEMP_PC_CODE grace window)
  *  - High-Concurrency CacheService layer (absorbs 60+ simultaneous check-ins & fast 2.5s live roster polling)
- *  - Pre-lock Idempotency & Rate-Limiting (blocks F12 spam loops before LockService)
  *  - Blocks re-check-in if Lecturer revoked attendance via Spot-Check (TEACHER_MANUAL '-')
  *  - Accepts 1-Tap GPS tokens & rotated static secrets without false ERR_INVALID_QR
- *  - Precision Anti-Cheat Soft-Flagging (Hardware Fingerprint Safari+Chrome, Exact 6-Decimal Coords, F12/Mock GPS; zero false-positives on simultaneous taps)
+ *  - Precision Anti-Cheat Soft-Flagging (Hardware Fingerprint Safari+Chrome, Exact 6-Decimal Coords, F12/Mock GPS)
  *  - Multi-day class schedule & period auto-detection (T2&6, T2&T6, T3&T5, 10-12, 13-15)
  *  - Universal Content-Aware Drive Roster Sync (auto-detects modified .XLSX/Sheet rosters by Class_ID + MSSV/Name)
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.4.7';
+const SYSTEM_VERSION = '3.4.9';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -720,7 +722,7 @@ function handleStudentOnboard(ss, body) {
 
 function handleStudentCheckIn(ss, body) {
   const studentId  = normalizeId(body.studentId);
-  const classId    = String(body.classId || '').trim();
+  let classId      = String(body.classId || '').trim();
   const clientCred = String(body.credential || '').trim();
   const deviceFp   = String(body.deviceFp || '').trim();
   const qrPayload  = String(body.qrPayload || 'BUTTON_GPS_CHECKIN').trim();
@@ -730,7 +732,7 @@ function handleStudentCheckIn(ss, body) {
   const accuracy   = Number(body.accuracy || 999);
   const clientMeta = body.clientMeta || {};
 
-  if (!studentId || !classId || !clientCred || !qrPayload) {
+  if (!studentId || !clientCred || !qrPayload) {
     return jsonResponse({ ok: false, code: 'ERR_MISSING_FIELDS' });
   }
 
@@ -750,33 +752,66 @@ function handleStudentCheckIn(ss, body) {
     } catch (e) {}
   }
 
-  // 0B. ANTI-SPAM RATE LIMIT BEFORE LOCKSERVICE (Blocks F12 infinite loops in RAM)
+  // 0B. ANTI-SPAM RATE LIMIT BEFORE LOCKSERVICE (Allows retries with the same requestId)
   const spamKey = 'RL_CHK_' + credHash.slice(0, 16);
-  if (cache.get(spamKey)) {
+  const lastSpamReq = cache.get(spamKey);
+  if (lastSpamReq && lastSpamReq !== requestId) {
     return jsonResponse({
       ok: false,
       code: 'ERR_SERVER_BUSY',
       message: 'Vui lòng chờ 2 giây giữa các lần bấm.'
     });
   }
-  cache.put(spamKey, '1', 2);
+  cache.put(spamKey, requestId, 2);
 
   // 1. Validate Class & Roster using row-aware micro-cache (auto-updates if Sync.gs changed rows)
   const classes = getClassesMap(ss, false);
-  const classConfig = classes[classId];
+  let classConfig = classId ? classes[classId] : null;
+  let roster = classConfig ? getClassRosterMap(ss, classId, false) : null;
+  let activeSession = classConfig ? getLatestOpenSession(ss, classId) : null;
+
+  // Smart fallback: if the submitted classId has no open session (or wasn't selected yet),
+  // check if the student is on the roster of a class that currently has an open session.
+  if (!classConfig || !roster || !roster[studentId] || !activeSession) {
+    const enrolledOpen = [];
+    const enrolledAny = [];
+    Object.keys(classes).forEach(cid => {
+      const rMap = getClassRosterMap(ss, cid, false);
+      if (rMap && rMap[studentId]) {
+        enrolledAny.push({ cid: cid, rMap: rMap });
+        const openSes = getLatestOpenSession(ss, cid);
+        if (openSes) {
+          enrolledOpen.push({ cid: cid, ses: openSes, rMap: rMap });
+        }
+      }
+    });
+    if (enrolledOpen.length === 1) {
+      classId = enrolledOpen[0].cid;
+      classConfig = classes[classId];
+      roster = enrolledOpen[0].rMap;
+      activeSession = enrolledOpen[0].ses;
+    } else if ((!classConfig || !roster || !roster[studentId]) && enrolledAny.length === 1) {
+      classId = enrolledAny[0].cid;
+      classConfig = classes[classId];
+      roster = enrolledAny[0].rMap;
+      activeSession = getLatestOpenSession(ss, classId);
+    }
+  }
+
   if (!classConfig) {
+    cache.remove(spamKey);
     return jsonResponse({ ok: false, code: 'ERR_INVALID_CLASS' });
   }
 
-  const roster = getClassRosterMap(ss, classId, false);
-  if (!roster[studentId]) {
+  if (!roster || !roster[studentId]) {
+    cache.remove(spamKey);
     return jsonResponse({ ok: false, code: 'ERR_NOT_ON_ROSTER', params: { id: studentId } });
   }
   const canonicalName = roster[studentId].fullName;
 
   // 2. Find Active Open Session
-  const activeSession = getLatestOpenSession(ss, classId);
   if (!activeSession) {
+    cache.remove(spamKey);
     return jsonResponse({ ok: false, code: 'ERR_SESSION_CLOSED' });
   }
 
@@ -837,6 +872,7 @@ function handleStudentCheckIn(ss, body) {
       : 0;
     const maxCampusRadius = Number(anchorState.maxCampusMeters || 850);
     if (hasCampusRef && (distToCampus - accuracyAllowance) > maxCampusRadius) {
+      cache.remove(spamKey);
       return jsonResponse({
         ok: false,
         code: 'ERR_LOCATION_OUT_OF_RANGE',
@@ -849,6 +885,7 @@ function handleStudentCheckIn(ss, body) {
     }
     // Once at least 1 student has anchored the provisional average, subsequent students must be within radiusMeters of the running average
     if (Array.isArray(anchorState.samples) && anchorState.samples.length > 0 && effectiveDist > activeSession.radiusMeters) {
+      cache.remove(spamKey);
       return jsonResponse({
         ok: false,
         code: 'ERR_LOCATION_OUT_OF_RANGE',
@@ -860,6 +897,7 @@ function handleStudentCheckIn(ss, body) {
       });
     }
   } else if (effectiveDist > activeSession.radiusMeters) {
+    cache.remove(spamKey);
     return jsonResponse({
       ok: false,
       code: 'ERR_LOCATION_OUT_OF_RANGE',
@@ -874,11 +912,12 @@ function handleStudentCheckIn(ss, body) {
   // 5. Acquire LockService ONLY for final credential check & appendRow
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(12000)) {
+    cache.remove(spamKey);
     return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
   }
 
   try {
-    const credCheck = verifyStudentCredential(ss, studentId, clientCred, credHash);
+    const credCheck = verifyStudentCredential(ss, studentId, clientCred, credHash, canonicalName);
     if (!credCheck.ok) {
       return jsonResponse({ ok: false, code: credCheck.code, params: { id: studentId } });
     }
@@ -1637,7 +1676,7 @@ function verifyClassroomQr(scannedText, classConfig, activeSession) {
   return parsed.sec === secret;
 }
 
-function verifyStudentCredential(ss, studentId, clientCred, precomputedHash) {
+function verifyStudentCredential(ss, studentId, clientCred, precomputedHash, canonicalName) {
   const credHash = precomputedHash || sha256Hex(clientCred);
   const cache = CacheService.getScriptCache();
   const cachedHash = cache.get('DEV_HASH_' + studentId);
@@ -1646,10 +1685,12 @@ function verifyStudentCredential(ss, studentId, clientCred, precomputedHash) {
   }
 
   const devSheet = ss.getSheetByName(TAB_DEVICES);
-  if (devSheet.getLastRow() < 2) {
-    return { ok: false, code: 'ERR_CREDENTIAL_MISMATCH' };
-  }
-  const data = devSheet.getRange(2, 1, devSheet.getLastRow() - 1, 5).getValues();
+  const data = devSheet.getLastRow() >= 2
+    ? devSheet.getRange(2, 1, devSheet.getLastRow() - 1, 5).getValues()
+    : [];
+
+  let existingStudentRow = -1;
+  let existingRowData = null;
 
   for (let i = 0; i < data.length; i++) {
     const rowSid = normalizeId(data[i][0]);
@@ -1660,14 +1701,32 @@ function verifyStudentCredential(ss, studentId, clientCred, precomputedHash) {
       return { ok: false, code: 'ERR_DEVICE_BOUND_OTHER' };
     }
     if (rowSid === studentId) {
-      if (rowStatus === 'ACTIVE' && rowHash === credHash) {
+      existingStudentRow = i + 2;
+      existingRowData = data[i];
+    }
+  }
+
+  if (existingStudentRow !== -1 && existingRowData) {
+    const rowHash = String(existingRowData[2]);
+    const rowStatus = String(existingRowData[4]);
+    if (rowStatus === 'ACTIVE') {
+      if (rowHash === credHash) {
         cache.put('DEV_HASH_' + studentId, credHash, 180);
         return { ok: true };
       }
       return { ok: false, code: 'ERR_CREDENTIAL_MISMATCH' };
     }
+    // Device was REVOKED (unlocked by Lecturer) -> auto-rebind immediately on check-in!
+    const nameToSave = canonicalName || String(existingRowData[1] || studentId);
+    devSheet.getRange(existingStudentRow, 2, 1, 4).setValues([[nameToSave, credHash, formatIsoNow(), 'ACTIVE']]);
+    cache.put('DEV_HASH_' + studentId, credHash, 180);
+    return { ok: true };
   }
-  return { ok: false, code: 'ERR_CREDENTIAL_MISMATCH' };
+
+  // Student was not yet in Device_Registry -> auto-bind immediately on check-in
+  devSheet.appendRow([studentId, canonicalName || studentId, credHash, formatIsoNow(), 'ACTIVE', 0, '']);
+  cache.put('DEV_HASH_' + studentId, credHash, 180);
+  return { ok: true };
 }
 
 function resetStudentCredentialInternal(studentId, actor) {
@@ -1822,15 +1881,17 @@ function getLatestSessionForDashboard(ss, classId, bypassCache) {
 
   const lastRow = sheet.getLastRow();
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'LATEST_SES_' + classId + '_' + lastRow;
+  const cacheKey = 'LATEST_SES_' + classId;
 
   if (!bypassCache) {
     const cached = cache.get(cacheKey);
     if (cached) {
       try {
         const ses = JSON.parse(cached);
-        ses.isOpen = !ses.closedManual && Date.now() <= ses.closesAtMs;
-        return ses;
+        if (ses && ses._lastRow === lastRow) {
+          ses.isOpen = !ses.closedManual && Date.now() <= ses.closesAtMs;
+          return ses;
+        }
       } catch (e) {}
     }
   }
@@ -1847,6 +1908,7 @@ function getLatestSessionForDashboard(ss, classId, bypassCache) {
       const isOpen         = !closedManual && nowMs <= closesAtMs;
 
       const sesObj = {
+        _lastRow: lastRow,
         rowIndex: i + 2,
         sessionId: String(data[i][0]),
         classId: classId,

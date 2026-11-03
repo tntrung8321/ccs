@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.4.7)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.4.9)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -538,7 +538,10 @@ const I18N = {
     ERR_GPS_UNAVAILABLE: "[LỖI ĐỊNH VỊ] Chưa lấy được tín hiệu GPS. Vui lòng bật quyền Vị trí (Location) cho trình duyệt rồi thử lại.",
     ERR_SERVER_BUSY: "Hệ thống đang xử lý, vui lòng chờ giây lát...",
     ERR_UNAUTHORIZED: "[TỪ CHỐI] Mật khẩu phiên không đúng hoặc đã hết hạn. Hãy kiểm tra lại ô C9 trên Google Sheet.",
-    DEVICE_RESET_OK: "[ĐÃ MỞ KHÓA] Đã đặt lại khóa thiết bị cho sinh viên {id}."
+    DEVICE_RESET_OK: "[ĐÃ MỞ KHÓA] Đã đặt lại khóa thiết bị cho sinh viên {id}.",
+    btn_open_external_browser: "Mở ngay bằng trình duyệt chính (Chrome / Safari)",
+    perm_guide_title: "Cách mở quyền Vị trí ngay trên thanh địa chỉ (2 giây — Không cần vào Cài đặt tìm web):",
+    perm_guide_retry_btn: "Đã bật xong — Bấm kiểm tra lại GPS"
   },
   en: {
     nav_student: "Student",
@@ -610,7 +613,10 @@ const I18N = {
     ERR_GPS_UNAVAILABLE: "[GPS ERROR] Unable to acquire GPS coordinates. Please enable Location permission in your browser and try again.",
     ERR_SERVER_BUSY: "System is processing requests, please wait a moment...",
     ERR_UNAUTHORIZED: "[UNAUTHORIZED] Invalid or expired session code. Please check Cell C9 in your Google Sheet.",
-    DEVICE_RESET_OK: "[UNLOCKED] Device lock has been reset for Student ID {id}."
+    DEVICE_RESET_OK: "[UNLOCKED] Device lock has been reset for Student ID {id}.",
+    btn_open_external_browser: "Open in main browser (Chrome / Safari)",
+    perm_guide_title: "How to allow Location right from the address bar (2 seconds — No Settings search needed):",
+    perm_guide_retry_btn: "Done — Re-check GPS now"
   }
 };
 
@@ -827,8 +833,16 @@ function evaluateStudentAntiCheat() {
 function inspectGpsForSpoofing(pos) {
   if (!pos || !pos.coords) return { suspicious: true, hardBlock: true, reason: 'No GPS' };
   const c = pos.coords;
-  if (typeof c.accuracy !== 'number' || c.accuracy <= 0) {
-    return { suspicious: true, hardBlock: true, reason: 'Invalid accuracy' };
+  if (
+    typeof c.latitude !== 'number' ||
+    typeof c.longitude !== 'number' ||
+    isNaN(c.latitude) ||
+    isNaN(c.longitude) ||
+    (c.latitude === 0 && c.longitude === 0) ||
+    typeof c.accuracy !== 'number' ||
+    c.accuracy <= 0
+  ) {
+    return { suspicious: true, hardBlock: true, reason: 'Invalid coordinates or accuracy' };
   }
   // Check if geolocation API was overridden in DevTools console
   try {
@@ -998,15 +1012,310 @@ function closeAppModal() {
   document.getElementById('app-modal').classList.add('hidden');
 }
 
-function getAccuratePosition() {
+window.cachedGPS = null;
+window.activeGpsPromise = null;
+
+function isValidGpsPos(pos) {
+  return Boolean(
+    pos &&
+    pos.coords &&
+    typeof pos.coords.latitude === 'number' &&
+    typeof pos.coords.longitude === 'number' &&
+    !isNaN(pos.coords.latitude) &&
+    !isNaN(pos.coords.longitude) &&
+    !(pos.coords.latitude === 0 && pos.coords.longitude === 0) &&
+    typeof pos.coords.accuracy === 'number' &&
+    pos.coords.accuracy > 0
+  );
+}
+
+/**
+ * Live High-Accuracy GPS Acquisition (`maximumAge: 0`, zero coordinate caching):
+ *  - NEVER stores or reuses old GPS coordinates (`window.cachedGPS = null`), preventing walk-away / pre-load cheating.
+ *  - Step 1 (Synchronous User-Gesture Trigger): Calls `navigator.geolocation.getCurrentPosition` synchronously
+ *    inside the Promise executor so iOS Safari and Android Chrome preserve `userActivation` and ALWAYS display
+ *    the native "Allow Location" dialog when site permission is in `'prompt'` state.
+ *  - Step 2 (Sequential Hardware Warm-Up): If the initial fix is already accurate (`<= 65m`), resolves immediately.
+ *    If the initial fix is a coarse cell-tower seed (`> 65m`), starts `watchPosition` (`enableHighAccuracy: true, maximumAge: 0`)
+ *    for up to 3.5s so the GPS chip can lock onto satellites without colliding with Step 1.
+ */
+function acquireLiveHighAccuracyGps(maxWaitMs = 8000, settleAfterFirstFixMs = 3500, targetAccuracyMeters = 65) {
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) return reject(new Error('No Geolocation'));
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true,
-      timeout: 12000,
-      maximumAge: 0
-    });
+    if (!navigator.geolocation) {
+      return reject({ code: 2, message: 'No Geolocation API' });
+    }
+
+    let bestPos = null;
+    let settled = false;
+    let watchId = null;
+    let refineTimer = null;
+
+    const cleanup = () => {
+      if (watchId !== null && typeof navigator.geolocation.clearWatch === 'function') {
+        try { navigator.geolocation.clearWatch(watchId); } catch (e) {}
+        watchId = null;
+      }
+      if (refineTimer) {
+        clearTimeout(refineTimer);
+        refineTimer = null;
+      }
+      if (hardTimer) {
+        clearTimeout(hardTimer);
+        hardTimer = null;
+      }
+    };
+
+    const finishResolve = (pos) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(pos);
+    };
+
+    const finishReject = (err) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err);
+    };
+
+    let hardTimer = setTimeout(() => {
+      if (bestPos) {
+        finishResolve(bestPos);
+      } else {
+        finishReject({ code: 3, message: 'GPS timeout' });
+      }
+    }, maxWaitMs);
+
+    const startRefinementWatch = () => {
+      if (settled || typeof navigator.geolocation.watchPosition !== 'function') {
+        if (bestPos) finishResolve(bestPos);
+        return;
+      }
+      if (!refineTimer) {
+        refineTimer = setTimeout(() => {
+          if (bestPos) finishResolve(bestPos);
+        }, settleAfterFirstFixMs);
+      }
+      try {
+        watchId = navigator.geolocation.watchPosition(
+          (pos) => {
+            if (!isValidGpsPos(pos)) return;
+            if (!bestPos || pos.coords.accuracy < bestPos.coords.accuracy) {
+              bestPos = pos;
+            }
+            if (bestPos.coords.accuracy <= targetAccuracyMeters) {
+              finishResolve(bestPos);
+            }
+          },
+          () => {
+            if (bestPos) finishResolve(bestPos);
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: settleAfterFirstFixMs,
+            maximumAge: 0
+          }
+        );
+      } catch (e) {
+        if (bestPos) finishResolve(bestPos);
+      }
+    };
+
+    // Synchronous call on the click stack guarantees the browser's native Permission Dialog pops up
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (!isValidGpsPos(pos)) {
+          startRefinementWatch();
+          return;
+        }
+        bestPos = pos;
+        if (pos.coords.accuracy <= targetAccuracyMeters) {
+          finishResolve(pos);
+        } else {
+          // Initial reading was a coarse cell-tower seed (> 65m); warm up satellite sensor briefly
+          startRefinementWatch();
+        }
+      },
+      (err) => {
+        if (err && err.code === 1) {
+          finishReject(err);
+          return;
+        }
+        if (bestPos) {
+          finishResolve(bestPos);
+          return;
+        }
+        finishReject(err);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: maxWaitMs,
+        maximumAge: 0
+      }
+    );
   });
+}
+
+function getAccuratePosition() {
+  window.cachedGPS = null;
+
+  if (window.activeGpsPromise) {
+    return window.activeGpsPromise;
+  }
+
+  window.activeGpsPromise = (async () => {
+    try {
+      const pos = await acquireLiveHighAccuracyGps(8000, 3500, 65);
+      window.cachedGPS = null;
+      hideGpsPermissionGuideBox();
+      return pos;
+    } catch (err1) {
+      if (err1 && err1.code === 1) {
+        showGpsPermissionGuideBox(err1);
+        throw err1;
+      }
+      // Single live fallback attempt (still maximumAge: 0, zero cache) if high-accuracy timed out
+      return await new Promise((resolve, reject) => {
+        if (!navigator.geolocation) return reject(err1);
+        navigator.geolocation.getCurrentPosition(
+          (pos2) => {
+            window.cachedGPS = null;
+            if (isValidGpsPos(pos2)) {
+              hideGpsPermissionGuideBox();
+              resolve(pos2);
+            } else {
+              reject(err1);
+            }
+          },
+          (err2) => {
+            if (err2 && err2.code === 1) showGpsPermissionGuideBox(err2);
+            reject(err2 || err1);
+          },
+          { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
+        );
+      });
+    } finally {
+      window.activeGpsPromise = null;
+      window.cachedGPS = null;
+    }
+  })();
+
+  return window.activeGpsPromise;
+}
+
+function formatGpsErrorGuide(err) {
+  const isEn = currentLang === 'en';
+  const ua = navigator.userAgent || '';
+  const isIos = /iPhone|iPad|iPod/i.test(ua);
+  const code = err && typeof err.code === 'number' ? err.code : 0;
+
+  if (code === 1) {
+    if (isIos) {
+      return isEn
+        ? '[LOCATION BLOCKED IN BROWSER] Tap the three-dots (•••) or Page Menu icon on the Safari address bar (or "AA" on older iOS) -> Website Settings -> Location -> Allow.'
+        : '[CHƯA CẤP QUYỀN TRÊN TRÌNH DUYỆT] Bấm nút dấu 3 chấm (•••) hoặc biểu tượng Menu bên trái thanh địa chỉ Safari (hoặc chữ "AA" trên iOS cũ) -> Cài đặt trang web -> Vị trí -> Cho phép.';
+    }
+    return isEn
+      ? '[LOCATION BLOCKED IN BROWSER] Tap the Tune/Sliders (or Lock) icon on the left of the address bar -> Permissions -> Location -> Allow.'
+      : '[CHƯA CẤP QUYỀN TRÊN TRÌNH DUYỆT] Bấm biểu tượng 2 thanh trượt (hoặc Ổ khóa) ngay bên trái thanh địa chỉ phía trên -> Quyền (Permissions) -> Vị trí (Location) -> Cho phép.';
+  }
+
+  return isEn
+    ? '[GPS ERROR] Unable to acquire location. Please turn on Location (GPS) on your phone and allow Location permission in your browser.'
+    : '[LỖI ĐỊNH VỊ] Chưa lấy được tín hiệu GPS. Vui lòng bật nút Vị trí (GPS) trên điện thoại và cho phép quyền Vị trí trên trình duyệt rồi bấm lại.';
+}
+
+function showGpsPermissionGuideBox() {
+  const box = document.getElementById('gps-permission-guide-box');
+  if (!box) return;
+  const isEn = currentLang === 'en';
+  const ua = navigator.userAgent || '';
+  const isIos = /iPhone|iPad|iPod/i.test(ua);
+
+  const titleEl = document.getElementById('perm-guide-title');
+  const step1El = document.getElementById('perm-guide-step1');
+  const step2El = document.getElementById('perm-guide-step2');
+  const retryEl = document.getElementById('perm-guide-retry-label');
+
+  if (titleEl) {
+    titleEl.textContent = I18N[currentLang].perm_guide_title;
+  }
+  if (retryEl) {
+    retryEl.textContent = I18N[currentLang].perm_guide_retry_btn;
+  }
+
+  if (isIos) {
+    if (step1El) {
+      step1El.textContent = isEn
+        ? 'Tap the three-dots (•••) button or the Page Menu icon on the Safari/Chrome address bar (or "AA" on older iOS).'
+        : 'Nhìn lên thanh địa chỉ Safari/Chrome: Bấm nút dấu 3 chấm (•••) hoặc biểu tượng Menu (ô vuông có 2 gạch bên trái tên web; hoặc chữ "AA" trên iOS cũ).';
+    }
+    if (step2El) {
+      step2El.textContent = isEn
+        ? 'Tap ••• (if shown) -> Select "Website Settings" -> "Location" -> Choose "Allow".'
+        : 'Bấm tiếp dấu ••• (nếu có) -> Chọn "Cài đặt trang web" (Website Settings) -> "Vị trí" (Location) -> Chọn "Cho phép" (Allow).';
+    }
+  } else {
+    if (step1El) {
+      step1El.textContent = isEn
+        ? 'Look at the top address bar: Tap the Tune/Sliders (or Lock) icon directly to the left of the website URL (no need to open Phone Settings).'
+        : 'Nhìn lên thanh địa chỉ phía trên: Bấm vào biểu tượng 2 thanh trượt (hoặc Ổ khóa) nằm ngay bên trái địa chỉ trang web (không cần vào Cài đặt máy).';
+    }
+    if (step2El) {
+      step2El.textContent = isEn
+        ? 'Tap "Permissions" -> Turn ON "Location" (or tap "Reset permissions").'
+        : 'Chọn mục "Quyền" (Permissions) -> Gạt bật "Vị trí" (Location) sang Cho phép (hoặc bấm "Đặt lại quyền").';
+    }
+  }
+
+  box.classList.remove('hidden');
+}
+
+function hideGpsPermissionGuideBox() {
+  const box = document.getElementById('gps-permission-guide-box');
+  if (box) box.classList.add('hidden');
+}
+
+let hasBoundPermissionWatcher = false;
+function watchBrowserLocationPermission() {
+  if (hasBoundPermissionWatcher) return;
+  if (!navigator.permissions || typeof navigator.permissions.query !== 'function') return;
+  hasBoundPermissionWatcher = true;
+
+  navigator.permissions.query({ name: 'geolocation' }).then((permStatus) => {
+    if (permStatus.state === 'denied' && currentMode === 'STUDENT') {
+      showGpsPermissionGuideBox();
+    }
+    permStatus.onchange = () => {
+      if (permStatus.state === 'granted') {
+        hideGpsPermissionGuideBox();
+        hideStatus('checkin-inline-status');
+        if (currentMode === 'STUDENT' && typeof handleStudentPreCheckGps === 'function') {
+          handleStudentPreCheckGps();
+        }
+      } else if (permStatus.state === 'denied' && currentMode === 'STUDENT') {
+        showGpsPermissionGuideBox();
+      }
+    };
+  }).catch(() => {});
+}
+
+function openInExternalMainBrowser() {
+  const url = window.location.href;
+  const ua = navigator.userAgent || '';
+  const isAndroid = /Android/i.test(ua);
+  const isIos = /iPhone|iPad|iPod/i.test(ua);
+
+  if (isAndroid) {
+    const cleanUrl = url.replace(/^https?:\/\//i, '');
+    window.location.href = `intent://${cleanUrl}#Intent;scheme=https;package=com.android.chrome;end`;
+    return;
+  }
+  if (isIos) {
+    const safariUrl = url.replace(/^https:\/\//i, 'x-safari-https://').replace(/^http:\/\//i, 'x-safari-http://');
+    window.location.href = safariUrl;
+  }
 }
 
 async function sha256Browser(message) {
@@ -1017,12 +1326,7 @@ async function sha256Browser(message) {
 }
 
 function syncStudentViewportScrollLock() {
-  const camBox = document.getElementById('camera-modal-box');
-  const advBox = document.getElementById('box-advanced-api');
-  const camOpen = camBox && !camBox.classList.contains('hidden');
-  const advOpen = advBox && !advBox.classList.contains('hidden');
-  const lockScroll = currentMode === 'STUDENT' && !camOpen && !advOpen;
-  document.body.classList.toggle('student-locked-scroll', lockScroll);
+  document.body.classList.remove('student-locked-scroll');
 }
 
 function switchMode(mode) {
@@ -1084,6 +1388,10 @@ function applyLanguage() {
     }
   });
   if (typeof onAdvStudentGpsToggle === 'function') onAdvStudentGpsToggle();
+  const permBox = document.getElementById('gps-permission-guide-box');
+  if (permBox && !permBox.classList.contains('hidden') && typeof showGpsPermissionGuideBox === 'function') {
+    showGpsPermissionGuideBox();
+  }
   checkIosStandaloneNotice();
 }
 
@@ -1115,8 +1423,23 @@ function handleUrlDeepLinks() {
     try {
       const decoded = JSON.parse(atob(onboardB64.replace(/-/g, '+').replace(/_/g, '/')));
       if (decoded.api) {
-        document.getElementById('inp-onboard-api').value = normalizeApiUrl(decoded.api);
-        document.getElementById('box-add-course').classList.remove('hidden');
+        const normApi = normalizeApiUrl(decoded.api);
+        const onboardInput = document.getElementById('inp-onboard-api');
+        if (onboardInput) onboardInput.value = normApi;
+        const profiles = getStudentProfiles();
+        const instIds = Object.keys(profiles);
+        if (instIds.length === 0) {
+          const addBox = document.getElementById('box-add-course');
+          if (addBox) addBox.classList.remove('hidden');
+        } else {
+          // Student already bound their MSSV on this device: keep MSSV input hidden and update API URL silently
+          instIds.forEach(k => {
+            profiles[k].apiUrl = normApi;
+          });
+          safeSetLocal('cc_student_profiles', JSON.stringify(profiles));
+          const addBox = document.getElementById('box-add-course');
+          if (addBox) addBox.classList.add('hidden');
+        }
       }
     } catch (e) {}
   } else if (pairB64) {
