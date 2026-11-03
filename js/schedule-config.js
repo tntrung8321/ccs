@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.4.6)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.4.7)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -700,6 +700,19 @@ function migrateStoredUrls() {
       safeSetLocal('cc_teacher_auth', JSON.stringify(tAuth));
     }
   }
+
+  try {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        (regs || []).forEach(r => r.unregister());
+      });
+    }
+    if (window.caches && typeof window.caches.keys === 'function') {
+      window.caches.keys().then(keys => {
+        (keys || []).forEach(k => window.caches.delete(k));
+      });
+    }
+  } catch (e) {}
 }
 
 let currentLang = safeGetLocal('cc_lang', 'vi');

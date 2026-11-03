@@ -2,6 +2,10 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### ✨ Version `v3.4.7` — *Hidden Student ID (`MSSV`) on Roster List & Cache-Busted (`?v=3.4.7`) Instant Script Reload*
+* **Hidden Student IDs (`MSSV`) by Default on the Lecturer Roster List**: Hid raw Student IDs (`(25692791)`) from `.roster-item` rows in `renderTeacherRoster()` (`js/teacher.js`) so students sitting in class cannot copy classmates' Student IDs from the projector screen (displaying only masked last-3 digits `***791` if two students share the exact same full name, while preserving full Student ID search in `#inp-roster-search` and hover tooltips for the Lecturer).
+* **Cache-Busted Script & Stylesheet Loading (`?v=3.4.7`)**: Added explicit `?v=3.4.7` cache-busting query strings and `no-cache` meta headers in `index.html`, plus automatic `ServiceWorker` / `CacheStorage` cleanup in `migrateStoredUrls()`, ensuring browsers immediately load the compact single-row `P | L | E | - | Mở khóa` buttons without serving stale cached JS files.
+
 ### ✨ Version `v3.4.6` — *Compact Single-Row Roster Action Codes (`P / L / E / -`) & Non-Wrapping Student Rows*
 * **Restored Compact Single-Row Roster Action Buttons (`P`, `L`, `E`, `-`, `Mở khóa` / `Unlock`)**: Restored the standard single-letter attendance status buttons (`P`, `L`, `E`, `-`) alongside `Mở khóa` / `Unlock` (with descriptive tooltips on hover) and single-line flex layout (`flex-wrap: nowrap`) in `#tea-roster-container`, keeping every student row on a single horizontal line without wrapping onto two lines.
 * **Preserved Compact `P: 0 | L: 0 | A: 0 | E: 0` Breakdown & `v3.4.5` UI Refinements**: Preserved the compact `P: 0 | L: 0 | A: 0 | E: 0` live breakdown counter, single-line GPS status in `#gps-panel`, subtle Advanced GPS link below `"Mở phiên điểm danh"`, removal of prose abbreviations (`SV`, `GV`, `TB 3 SV`), and 100% bilingual (`VI / EN`) switching.
@@ -87,6 +91,10 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### ✨ Version `v3.4.7` — *Mặc Định Ẩn Mã Số Sinh Viên (`MSSV`) Trên Danh Sách Lớp & Chống Kẹt Cache Trình Duyệt (`?v=3.4.7`)*
+* **Mặc định Ẩn `MSSV` trên Danh sách Lớp (`renderTeacherRoster`)**: Ẩn hoàn toàn dãy số MSSV (`(25692791)`) trên từng dòng `.roster-item` để sinh viên ngồi dưới lớp không thể nhìn trộm MSSV của bạn trên màn hình chiếu để điểm danh hộ (chỉ hiện 3 số cuối dạng ẩn `***791` nếu trong lớp có 2 sinh viên trùng khít họ tên; Giảng viên vẫn gõ tìm theo MSSV bình thường ở ô tìm kiếm hoặc di chuột vào tên để xem).
+* **Ép Trình Duyệt Tải Ngay File Mới (`?v=3.4.7` Cache-Buster)**: Gắn tham số phiên bản `?v=3.4.7` vào toàn bộ thẻ `<link rel="stylesheet" href="css/styles.css?v=3.4.7">` và `<script src="js/...?v=3.4.7">` trong `index.html` kèm lệnh tự động xóa bộ nhớ đệm cũ trong `migrateStoredUrls()`, khắc phục triệt để tình trạng trình duyệt lưu cache file `js/teacher.js` cũ làm chưa hiện bộ nút `P | L | E | - | Mở khóa`.
+
 ### ✨ Version `v3.4.6` — *Khôi Phục Cụm Nút Điểm Danh Ngắn Gọn (`P / L / E / -`) Trên Cùng 1 Hàng Ngang*
 * **Khôi phục Bộ Nút Điểm danh Ngắn gọn trên Danh sách Lớp (`P`, `L`, `E`, `-`, `Mở khóa` / `Unlock`)**: Đưa các nút thao tác điểm danh thủ công về ký hiệu chuẩn ngắn gọn `P`, `L`, `E`, `-` đi kèm nút `Mở khóa` / `Unlock` (giữ chú thích đầy đủ khi di chuột) và khóa bố cục 1 dòng ngang (`flex-wrap: nowrap`) trong `#tea-roster-container`, giúp mỗi sinh viên luôn nằm gọn trên 1 hàng ngang duy nhất, không bị rớt thành 2 dòng.
 * **Bảo toàn Dòng Thống kê `P: 0 | L: 0 | A: 0 | E: 0` & Toàn bộ Tinh chỉnh `v3.4.5`**: Giữ nguyên dòng thống kê `P: 0 | L: 0 | A: 0 | E: 0`, 1 dòng trạng thái GPS duy nhất trong `#gps-panel`, dòng liên kết chữ *"Chế độ định vị GPS nâng cao"* ngay dưới nút `"Mở phiên điểm danh"`, không viết tắt câu chữ (`SV`, `GV`, `TB 3 SV`), và đồng bộ song ngữ Anh – Việt (`VI / EN`) 100%.
@@ -170,12 +178,12 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.6`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.7`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.6` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.7` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)** |
-| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Zero-Scroll (`100dvh`) Student View, Single-Line Roster (`P/L/E/-`) & 100% Bilingual (`VI / EN`)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.4.7`)** |
+| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Zero-Scroll (`100dvh`) Student View, Hidden-MSSV Single-Line Roster (`P/L/E/-`) & 100% Bilingual (`VI / EN`)** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Single-Line `#gps-panel` Status + 1-Tap Live GPS (`cachedGPS = null`) + `isSubmitting` Lock** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS`) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Smart `17:15–17:30` Priority)** |

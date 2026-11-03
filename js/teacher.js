@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.4.6)
+ * LECTURER CONTROLLER (js/teacher.js — v3.4.7)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -658,13 +658,20 @@ function renderTeacherRoster() {
     return;
   }
 
+  const nameCounts = {};
+  list.forEach(s => {
+    const key = String(s.fullName || '').trim().toLowerCase();
+    nameCounts[key] = (nameCounts[key] || 0) + 1;
+  });
+
   container.innerHTML = filtered.map(st => {
     const suspectNote = suspectMap[st.studentId];
+    const isDuplicateName = (nameCounts[String(st.fullName || '').trim().toLowerCase()] || 0) > 1;
+    const maskedTail = isDuplicateName && st.studentId ? ` (***${String(st.studentId).slice(-3)})` : '';
     return `
       <div class="roster-item ${suspectNote ? 'suspect-row' : ''}">
         <div class="roster-student-info">
-          <strong>${escapeHtml(st.fullName)}</strong>
-          <span style="color:var(--muted); font-size:0.78rem; font-family:var(--font-mono);">(${escapeHtml(st.studentId)})</span>
+          <strong title="MSSV: ${escapeHtml(st.studentId)}">${escapeHtml(st.fullName)}${escapeHtml(maskedTail)}</strong>
           <span class="status-pill st-${st.status}">${escapeHtml(st.status)}</span>
           ${st.time ? `<span style="font-size:0.75rem; color:var(--muted); font-family:var(--font-mono);">${escapeHtml(st.time)}</span>` : ''}
           ${st.distance !== '' && st.distance !== undefined ? `<span style="font-size:0.74rem; color:#0f766e; font-weight:600; font-family:var(--font-mono);">(${escapeHtml(st.distance)}m)</span>` : ''}

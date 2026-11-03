@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.4.6)
+ * STUDENT CONTROLLER (js/student.js — v3.4.7)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Pre-Check & Activate GPS Panel (#gps-panel: #gps-dot, #gps-readout, #btn-check-gps)
  *  - Fresh GPS Re-Verification on Check-In (No stale coordinate reuse)
