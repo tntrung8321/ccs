@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.4.2)
+ * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.4.3)
  * ============================================================================
  * Architecture: Lecturer-Owned Google Sheet + Bound Google Apps Script
- * Key Upgrades & Verified Fixes in v3.4.2:
+ * Key Upgrades & Verified Fixes in v3.4.3:
  *  - Compatible 100% with modular index.html UI & external Sync.gs menu/functions
  *  - Default Lecturer-Proximity GPS Evaluation (TEACHER_GPS) + Advanced 3-Student Centroid Anchor (STUDENT_AVG_3)
  *  - Fixed Lecturer 6-digit password & Master Key verification (accepts C9 & ScriptProperties)
@@ -11,13 +11,13 @@
  *  - Pre-lock Idempotency & Rate-Limiting (blocks F12 spam loops before LockService)
  *  - Blocks re-check-in if Lecturer revoked attendance via Spot-Check (TEACHER_MANUAL '-')
  *  - Accepts 1-Tap GPS tokens & rotated static secrets without false ERR_INVALID_QR
- *  - Server-side Multi-Browser (Safari + Chrome) & Fake GPS Soft-Flagging (SUSPECT_WITH_)
+ *  - Precision Anti-Cheat Soft-Flagging (Hardware Fingerprint Safari+Chrome, Exact 6-Decimal Coords, F12/Mock GPS; zero false-positives on simultaneous taps)
  *  - Multi-day class schedule & period auto-detection (T2&6, T2&T6, T3&T5, 10-12, 13-15)
  *  - Universal Content-Aware Drive Roster Sync (auto-detects modified .XLSX/Sheet rosters by Class_ID + MSSV/Name)
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.4.2';
+const SYSTEM_VERSION = '3.4.3';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -55,6 +55,24 @@ function onOpen(e) {
     else if (typeof setupSyncMenu === 'function') setupSyncMenu();
     else if (typeof onOpenSync === 'function') onOpenSync(e);
   } catch (err) {}
+
+  try {
+    syncDashboardVersionBadge_(SpreadsheetApp.getActiveSpreadsheet());
+  } catch (err) {}
+}
+
+function syncDashboardVersionBadge_(ss) {
+  if (!ss) return;
+  const sheet = ss.getSheetByName(TAB_DASHBOARD);
+  if (!sheet) return;
+  const apiUrl = String(sheet.getRange('B4').getValue() || '').trim();
+  if (apiUrl && apiUrl.startsWith('https://script.google.com/')) {
+    const expectedText = '✅ Verified & Ready (v' + SYSTEM_VERSION + ')';
+    const currentB6 = String(sheet.getRange('B6').getValue() || '').trim();
+    if (currentB6 !== expectedText) {
+      sheet.getRange('B6').setValue(expectedText).setFontColor('#15803d').setFontWeight('bold');
+    }
+  }
 }
 
 /**
@@ -1002,9 +1020,6 @@ function handleStudentCheckIn(ss, body) {
       } else if (sameHardwareFp && diffSec <= 20 && pairDist <= 5) {
         suspectReasons.push('SUSPECT_WITH_' + prev.studentId + '|Cùng cấu hình máy (' + diffSec + 's) với ' + prev.studentId);
         break;
-      } else if (diffSec <= 2 && Math.abs(prev.rawDist - rawDist) <= 1) {
-        suspectReasons.push('SUSPECT_WITH_' + prev.studentId + '|Bấm cùng lúc (' + diffSec + 's) với ' + prev.studentId);
-        break;
       }
     }
 
@@ -1209,6 +1224,7 @@ function verifyTeacherToken(ss, submittedToken) {
 function handleTeacherAuth(ss, body) {
   const check = verifyTeacherToken(ss, body.teacherToken);
   if (!check.ok) return jsonResponse(check);
+  try { syncDashboardVersionBadge_(ss); } catch (e) {}
   return handleTeacherGetState(ss, body);
 }
 

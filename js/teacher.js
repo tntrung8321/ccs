@@ -425,40 +425,18 @@ async function teacherControlSession(subAction, extra = {}) {
   if (res && res.ok) await applyTeacherState(res, false);
 }
 
-function parseTimeSec(timeStr) {
-  if (!timeStr) return null;
-  const m = String(timeStr).match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  if (!m) return null;
-  return parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3] || '0', 10);
-}
-
 function detectCoCheckInSuspects(roster) {
-  const checked = (roster || [])
-    .filter(s => (s.status === 'P' || s.status === 'L') && s.time)
-    .map(s => ({ ...s, sec: parseTimeSec(s.time) }))
-    .filter(s => s.sec !== null)
-    .sort((a, b) => a.sec - b.sec);
-
   const suspectMap = {};
   (roster || []).forEach(s => {
     if (s.source && String(s.source).startsWith('SUSPECT_WITH_')) {
       const parts = String(s.source).split('|');
       const partnerId = parts[0].replace('SUSPECT_WITH_', '');
-      suspectMap[s.studentId] = parts[1] || `Trùng thiết bị/giờ với ${partnerId}`;
+      suspectMap[s.studentId] = parts[1] || `Trùng thiết bị/tọa độ với ${partnerId}`;
       if (partnerId && partnerId !== 'DEVTOOLS' && !suspectMap[partnerId]) {
-        suspectMap[partnerId] = `Trùng thiết bị/giờ với ${s.studentId}`;
+        suspectMap[partnerId] = `Trùng thiết bị/tọa độ với ${s.studentId}`;
       }
     }
   });
-  for (let i = 0; i < checked.length; i++) {
-    for (let j = i + 1; j < checked.length; j++) {
-      const diff = Math.abs(checked[j].sec - checked[i].sec);
-      if (diff <= 2) {
-        if (!suspectMap[checked[i].studentId]) suspectMap[checked[i].studentId] = `Cùng lúc (${diff}s) với ${checked[j].fullName}`;
-        if (!suspectMap[checked[j].studentId]) suspectMap[checked[j].studentId] = `Cùng lúc (${diff}s) với ${checked[i].fullName}`;
-      }
-    }
-  }
   return suspectMap;
 }
 
@@ -511,7 +489,7 @@ function renderTeacherRoster() {
 
   if (suspectIds.length > 0) {
     suspectBanner.classList.remove('hidden');
-    suspectBanner.textContent = `[CẢNH BÁO KIỂM TRA] Phát hiện ${suspectIds.length} trường hợp trùng thiết bị hoặc bấm sát nhau <= 2 giây (đánh dấu vàng).`;
+    suspectBanner.textContent = `[CẢNH BÁO KIỂM TRA] Phát hiện ${suspectIds.length} trường hợp nghi vấn kỹ thuật (trùng cấu hình máy Safari+Chrome, trùng tọa độ tuyệt đối hoặc can thiệp định vị).`;
   } else {
     suspectBanner.classList.add('hidden');
   }

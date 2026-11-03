@@ -2,6 +2,10 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🔧 Version `v3.4.3` — *Precision Anti-Cheat Soft-Flagging & Auto-Updated `B6` Version Badge*
+* **Eliminated Co-Timing (`<= 2s`) False Positives on the `"Nghi vấn"` Tab**: Removed the raw `<= 2 seconds` simultaneous check-in rule from `detectCoCheckInSuspects` (`js/teacher.js`) and `handleStudentCheckIn` (`code3.3.0.text`) so students tapping check-in at the same moment in class are never falsely flagged. The `"Nghi vấn"` (`SUSPECT`) filter now flags **only verified technical anomalies**: identical hardware fingerprints across two browsers on the same phone (`Safari + Chrome`, `sameHardwareFp && diffSec <= 20 && pairDist <= 5`), exact 6-decimal coordinate duplication (`sameExactCoords`), or DevTools / Mock GPS spoofing (`F12_GEO_OVERRIDE`, `MOCK_ACCURACY_PATTERN`, `STALE_GPS_TIMESTAMP`).
+* **Automatic `Setup_&_Dashboard` Cell `B6` Version Refresh**: Added `syncDashboardVersionBadge_(ss)` to `onOpen` and `handleTeacherAuth` so cell `B6` automatically updates to `✅ Verified & Ready (v3.4.3)` whenever the Sheet is opened or the Lecturer logs in.
+
 ### ✨ Version `v3.4.2` — *Lecturer UI Decluttering, 1-Tap Device Unlock & Projector Auto-Rehide*
 * **Single-Column Lecturer Session Control & Removed Decorative Radar Box**: Removed the secondary `.gps-station-box` column (`.radar-circle` and `#poster-class-title`) from Panel 1 of the Lecturer Dashboard and integrated `#tea-gps-anchor-hint`, `#btn-toggle-adv-gps`, and `#box-adv-gps-mode` directly inside `#teacher-session-control-box` for a cleaner, faster single-column layout.
 * **Removed Redundant `"Che MSSV"` Button & Unused QR Generator Library**: Removed `#btn-toggle-privacy` (`Che MSSV`) from the Panel 2 Roster header so only the 2 core actions (`Gọi ngẫu nhiên 1 SV` and `Ẩn/Hiện danh sách`) remain. Removed the unused `qrcode.min.js` library and legacy classroom QR poster nodes while preserving `html5-qrcode.min.js` for scanning Course Onboarding and Lecturer Pairing QR codes from the Google Sheet (`Setup_&_Dashboard`).
@@ -68,6 +72,10 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.4.3` — *Chuẩn Hóa Cảnh Báo Nghi Vấn Kỹ Thuật (Không Báo Nhầm Khi Cả Lớp Bấm Cùng Lúc) & Tự Động Cập Nhật Ô `B6`*
+* **Loại bỏ Báo nhầm `"Bấm cùng lúc <= 2 giây"` trong Tab `"Nghi vấn"`**: Gỡ bỏ điều kiện trùng thời gian bấm $\le 2$ giây đơn thuần trong `detectCoCheckInSuspects` (`js/teacher.js`) và `handleStudentCheckIn` (`code3.3.0.text`) để khi cả lớp 50–60 sinh viên cùng bấm điểm danh một lúc không bị báo vàng nhầm. Tab **`Nghi vấn`** giờ chỉ báo khi có **bằng chứng kỹ thuật rõ ràng**: dùng 1 máy mở 2 trình duyệt (`Safari + Chrome` trùng cấu hình phần cứng `deviceFp` trong 20s và $\le 5\text{m}$), trùng tọa độ GPS tuyệt đối đến 6 chữ số thập phân (`sameExactCoords`), hoặc can thiệp định vị (`F12_GEO_OVERRIDE`, `Mock GPS`).
+* **Tự động Cập nhật Phiên bản tại Ô `B6` (`Setup_&_Dashboard`)**: Bổ sung `syncDashboardVersionBadge_(ss)` vào `onOpen` và `handleTeacherAuth` để ô `B6` tự động cập nhật lên `✅ Verified & Ready (v3.4.3)` ngay khi mở Google Sheet hoặc khi Giảng viên đăng nhập.
+
 ### ✨ Version `v3.4.2` — *Tinh Gọn Giao Diện Giảng Viên, Mở Khóa Thiết Bị 1 Chạm & Tự Động Ẩn Lại Danh Sách Trên Máy Chiếu*
 * **Gộp Cột Điều khiển Phiên 1 Cột & Loại bỏ Khung Radar Trang trí**: Gỡ bỏ cột phụ `.gps-station-box` (biểu tượng `.radar-circle` và tiêu đề lặp `#poster-class-title`) ở Mục 1 của Giảng viên; tích hợp gọn dòng trạng thái `#tea-gps-anchor-hint` và nút `#btn-toggle-adv-gps` (`"Chế độ GPS nâng cao"`) ngay bên trong khung `#teacher-session-control-box`.
 * **Loại bỏ Nút `"Che MSSV"` Dư thừa & Thư viện Tạo QR Cũ (`qrcode.min.js`)**: Gỡ bỏ nút `#btn-toggle-privacy` (`Che MSSV`) trên thanh tiêu đề Mục 2 để chỉ giữ lại 2 nút cốt lõi (`Gọi ngẫu nhiên 1 SV` và `Ẩn/Hiện danh sách`). Loại bỏ thư viện `qrcode.min.js` không còn sử dụng nhưng giữ nguyên `html5-qrcode.min.js` để sinh viên và giảng viên quét mã QR Khóa học / QR Ghép nối có sẵn trong Google Sheet (`Setup_&_Dashboard`).
@@ -132,9 +140,9 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.2`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.3`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.2` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.3` |
 | :--- | :--- | :--- |
 | **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Zero-Scroll (`100dvh`) Student View, Decluttered 1-Col Lecturer UI & Inline Alerts** |
