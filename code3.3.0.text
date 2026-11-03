@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.4.4)
+ * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.4.5)
  * ============================================================================
  * Architecture: Lecturer-Owned Google Sheet + Bound Google Apps Script
- * Key Upgrades & Verified Fixes in v3.4.4:
+ * Key Upgrades & Verified Fixes in v3.4.5:
  *  - Compatible 100% with modular index.html UI & external Sync.gs menu/functions
  *  - Default Lecturer-Proximity GPS Evaluation (TEACHER_GPS) + Advanced 3-Student Centroid Anchor (STUDENT_AVG_3)
  *  - Fixed Lecturer 6-digit password & Master Key verification (accepts C9, ScriptProperties & PREV_TEMP_PC_CODE grace window)
@@ -17,7 +17,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.4.4';
+const SYSTEM_VERSION = '3.4.5';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)

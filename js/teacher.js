@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.4.4)
+ * LECTURER CONTROLLER (js/teacher.js — v3.4.5)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -33,7 +33,10 @@ function resetToDefaultLecturerApi() {
   safeRemoveLocal('cc_teacher_auth');
   safeRemoveSession('cc_teacher_auth');
   safeRemoveSession('cc_tea_state_cache');
-  showStatus('Đã đặt lại URL mặc định.', 'success');
+  showStatus(
+    currentLang === 'en' ? 'Restored default server URL.' : 'Đã khôi phục đường dẫn máy chủ mặc định.',
+    'success'
+  );
 }
 
 async function restoreTeacherSessionOnLoad(auth) {
@@ -74,11 +77,21 @@ async function loginTeacher() {
   document.getElementById('inp-tea-api').value = apiUrl;
 
   if (!apiUrl || !token) {
-    showStatus('Vui lòng nhập mật khẩu phiên từ Google Sheet hoặc Master Key.', 'err');
+    showStatus(
+      currentLang === 'en'
+        ? 'Please enter the session code from Google Sheet or your Master Key.'
+        : 'Vui lòng nhập mật khẩu phiên từ Google Sheet hoặc khóa chính (Master Key).',
+      'err'
+    );
     return;
   }
 
-  showStatus('Đang xác thực mật khẩu phiên với Google Sheet...', 'warn');
+  showStatus(
+    currentLang === 'en'
+      ? 'Verifying session code with Google Sheet...'
+      : 'Đang xác thực mật khẩu phiên với Google Sheet...',
+    'warn'
+  );
   const res = await callBackend(apiUrl, {
     action: 'TEACHER_AUTH',
     teacherToken: token
@@ -138,7 +151,12 @@ async function refreshTeacherState(force = false) {
       await applyTeacherState(res, false);
     } else if (res && res.code === 'ERR_UNAUTHORIZED') {
       logoutTeacher();
-      showStatus('Mã phiên trên Sheet đã thay đổi hoặc hết hạn. Vui lòng đăng nhập lại bằng mã mới trên Sheet.', 'warn');
+      showStatus(
+        currentLang === 'en'
+          ? 'Session code on Google Sheet has changed or expired. Please sign in again.'
+          : 'Mã phiên trên Google Sheet đã thay đổi hoặc hết hạn. Vui lòng đăng nhập lại bằng mã mới trên Sheet.',
+        'warn'
+      );
     }
   } finally {
     isPollingTeacher = false;
@@ -195,6 +213,7 @@ async function applyTeacherState(state, isInitialLoad = false) {
   }
 
   const sel = document.getElementById('sel-tea-class');
+  const isEn = currentLang === 'en';
   const unselectedLabel = I18N[currentLang].tea_unselected_class_opt || '-- Chưa chọn lớp - Ngoài khung giờ --';
 
   const optionsHtml = [
@@ -202,7 +221,7 @@ async function applyTeacherState(state, isInitialLoad = false) {
   ].concat(
     cleanClasses.map(c => {
       const isSelected = c.classId === selectedTeacherClassId;
-      const openTag = c.sessionOpenNow ? ' [ĐANG MỞ]' : '';
+      const openTag = c.sessionOpenNow ? (isEn ? ' [OPEN]' : ' [ĐANG MỞ]') : '';
       return `<option value="${escapeHtml(c.classId)}" ${isSelected ? 'selected' : ''}>${escapeHtml(formatClassOptionLabel(c) + openTag)}</option>`;
     })
   );
@@ -216,10 +235,13 @@ async function applyTeacherState(state, isInitialLoad = false) {
   updateTeacherClassOverviewUI(activeCfg, ses, scheduleMatch);
 
   if (activeCfg) {
-    document.getElementById('btn-reg-gate-toggle').textContent =
-      `ĐK thiết bị: ${activeCfg.regOpen ? 'MỞ' : 'KHÓA'}`;
+    document.getElementById('btn-reg-gate-toggle').textContent = isEn
+      ? `New Device Registration: ${activeCfg.regOpen ? 'OPEN' : 'LOCKED'}`
+      : `Đăng ký thiết bị mới: ${activeCfg.regOpen ? 'Đang mở' : 'Đang khóa'}`;
   } else {
-    document.getElementById('btn-reg-gate-toggle').textContent = 'ĐK thiết bị: --';
+    document.getElementById('btn-reg-gate-toggle').textContent = isEn
+      ? 'New Device Registration: No class selected'
+      : 'Đăng ký thiết bị mới: Chưa chọn lớp';
   }
 
   const roster = activeCfg ? (state.roster || []) : [];
@@ -228,8 +250,12 @@ async function applyTeacherState(state, isInitialLoad = false) {
   const eCount = roster.filter(r => r.status === 'E').length;
   const aCount = roster.filter(r => !r.status || r.status === '-').length;
 
-  document.getElementById('tea-live-count').textContent = `${pCount + lCount} / ${roster.length} Có mặt`;
-  document.getElementById('tea-live-breakdown').textContent = `P: ${pCount} | L: ${lCount} | Vắng: ${aCount} | Phép: ${eCount}`;
+  document.getElementById('tea-live-count').textContent = isEn
+    ? `${pCount + lCount} / ${roster.length} Present`
+    : `${pCount + lCount} / ${roster.length} Có mặt`;
+  document.getElementById('tea-live-breakdown').textContent = isEn
+    ? `Present: ${pCount} | Late: ${lCount} | Absent: ${aCount} | Excused: ${eCount}`
+    : `Có mặt: ${pCount} | Đi trễ: ${lCount} | Vắng mặt: ${aCount} | Có phép: ${eCount}`;
 
   setupTeacherCountdown(ses, Boolean(activeCfg));
   renderTeacherRoster();
@@ -239,32 +265,43 @@ function updateTeacherClassOverviewUI(activeCfg, ses, scheduleMatch) {
   const hintBar = document.getElementById('tea-schedule-hint');
   const selectedNameEl = document.getElementById('tea-selected-class-display');
   const confirmBtn = document.getElementById('btn-tea-confirm-open');
+  const isEn = currentLang === 'en';
 
   if (selectedNameEl) {
     if (activeCfg) {
       selectedNameEl.textContent = `${activeCfg.classId} — ${activeCfg.className || activeCfg.classId}`;
       selectedNameEl.style.color = 'var(--primary)';
     } else {
-      selectedNameEl.textContent = 'Chưa chọn lớp (Ngoài khung giờ tự động)';
+      selectedNameEl.textContent = isEn
+        ? 'No class selected (Outside automatic schedule)'
+        : 'Chưa chọn lớp (Ngoài khung giờ tự động)';
       selectedNameEl.style.color = 'var(--warn-text)';
     }
   }
 
   if (confirmBtn) {
     const codeLabel = activeCfg ? activeCfg.classId : '';
-    confirmBtn.textContent = `Xác nhận mở lớp ${codeLabel}`;
+    confirmBtn.textContent = isEn
+      ? `Confirm Open ${codeLabel}`
+      : `Xác nhận mở lớp ${codeLabel}`;
   }
 
   if (hintBar) {
     if (scheduleMatch && !scheduleMatch.isOffHours && scheduleMatch.matchedClassId) {
       hintBar.className = 'schedule-hint-bar matched';
-      hintBar.textContent = `Theo lịch: ${scheduleMatch.label}`;
+      hintBar.textContent = isEn
+        ? `Scheduled class: ${scheduleMatch.label}`
+        : `Theo lịch dạy: ${scheduleMatch.label}`;
     } else if (!activeCfg) {
       hintBar.className = 'schedule-hint-bar off-hours';
-      hintBar.textContent = 'Ngoài giờ dạy — Chọn lớp thủ công nếu mở bù.';
+      hintBar.textContent = isEn
+        ? 'Outside scheduled teaching hours — Select a class manually to open a make-up session.'
+        : 'Ngoài khung giờ dạy — Vui lòng chọn lớp thủ công nếu mở điểm danh bù.';
     } else {
       hintBar.className = 'schedule-hint-bar';
-      hintBar.textContent = `Đang chọn: ${activeCfg.classId}`;
+      hintBar.textContent = isEn
+        ? `Selected class: ${activeCfg.classId}`
+        : `Lớp đang chọn: ${activeCfg.classId}`;
     }
   }
 }
@@ -278,8 +315,14 @@ function updateTeacherClassOverviewUI(activeCfg, ses, scheduleMatch) {
  */
 function promptOpenSessionConfirm() {
   const classId = document.getElementById('sel-tea-class').value;
+  const isEn = currentLang === 'en';
   if (!classId) {
-    showStatus('Vui lòng chọn một lớp học phần ở danh sách phía trên trước khi mở phiên điểm danh.', 'warn');
+    showStatus(
+      isEn
+        ? 'Please select a class section from the dropdown above before opening an attendance session.'
+        : 'Vui lòng chọn một lớp học phần ở danh sách phía trên trước khi mở phiên điểm danh.',
+      'warn'
+    );
     document.getElementById('sel-tea-class').focus();
     return;
   }
@@ -290,10 +333,14 @@ function promptOpenSessionConfirm() {
   const confirmBtn = document.getElementById('btn-tea-confirm-open');
 
   if (confirmLabel) {
-    confirmLabel.textContent = `Bạn chuẩn bị mở phiên điểm danh cho lớp [${classId}]. Vui lòng xác nhận:`;
+    confirmLabel.textContent = isEn
+      ? `You are about to open an attendance session for class [${classId}]. Please confirm:`
+      : `Bạn chuẩn bị mở phiên điểm danh cho lớp [${classId}]. Vui lòng xác nhận:`;
   }
   if (confirmBtn) {
-    confirmBtn.textContent = `Xác nhận mở lớp ${classId}`;
+    confirmBtn.textContent = isEn
+      ? `Confirm Open ${classId}`
+      : `Xác nhận mở lớp ${classId}`;
   }
 
   if (triggerBtn) triggerBtn.classList.add('hidden');
@@ -333,26 +380,28 @@ function setupTeacherCountdown(ses, hasSelectedClass = true) {
   if (teacherCountdownTimer) clearInterval(teacherCountdownTimer);
   const badge = document.getElementById('tea-session-badge');
   const timerEl = document.getElementById('tea-countdown');
+  const isEn = currentLang === 'en';
 
   if (!hasSelectedClass) {
     badge.className = 'badge-neutral';
-    badge.textContent = 'CHƯA CHỌN LỚP';
+    badge.textContent = isEn ? 'NO CLASS SELECTED' : 'CHƯA CHỌN LỚP';
     timerEl.textContent = '--:--';
     return;
   }
 
   if (!ses || !ses.isOpen) {
     badge.className = 'badge-err';
-    badge.textContent = 'PHIÊN ĐANG ĐÓNG';
+    badge.textContent = isEn ? 'SESSION CLOSED' : 'PHIÊN ĐANG ĐÓNG';
     timerEl.textContent = '00:00';
     return;
   }
 
   const updateTick = () => {
     const now = Date.now();
+    const enNow = currentLang === 'en';
     if (now > ses.closesAtMs) {
       badge.className = 'badge-err';
-      badge.textContent = 'ĐÃ HẾT GIỜ';
+      badge.textContent = enNow ? 'SESSION ENDED' : 'ĐÃ HẾT GIỜ';
       timerEl.textContent = '00:00';
       clearInterval(teacherCountdownTimer);
       return;
@@ -360,12 +409,12 @@ function setupTeacherCountdown(ses, hasSelectedClass = true) {
     if (now <= ses.presentUntilMs) {
       const remSec = Math.max(0, Math.floor((ses.presentUntilMs - now) / 1000));
       badge.className = 'badge-ok';
-      badge.textContent = 'ĐANG MỞ — CÓ MẶT (P)';
+      badge.textContent = enNow ? 'OPEN — RECORDING PRESENT (P)' : 'ĐANG MỞ — GHI NHẬN CÓ MẶT (P)';
       timerEl.textContent = formatMmSs(remSec);
     } else {
       const remSec = Math.max(0, Math.floor((ses.closesAtMs - now) / 1000));
       badge.className = 'badge-warn';
-      badge.textContent = 'ĐANG MỞ — ĐI TRỄ (L)';
+      badge.textContent = enNow ? 'OPEN — RECORDING LATE (L)' : 'ĐANG MỞ — GHI NHẬN ĐI TRỄ (L)';
       timerEl.textContent = formatMmSs(remSec);
     }
   };
@@ -382,10 +431,15 @@ function onAdvStudentGpsToggle() {
   const chk = document.getElementById('chk-use-student-avg3');
   const hint = document.getElementById('tea-gps-anchor-hint');
   if (!hint) return;
+  const isEn = currentLang === 'en';
   if (chk && chk.checked) {
-    hint.textContent = 'Đang bật: Lấy tâm theo TB 3 SV đầu tiên.';
+    hint.textContent = isEn
+      ? 'Advanced mode enabled: Classroom center will be set to the average GPS location of the first 3 verified students.'
+      : 'Chế độ nâng cao đang bật: Lấy trung bình vị trí định vị GPS của 3 sinh viên đầu tiên làm tâm phòng học.';
   } else {
-    hint.textContent = 'Mặc định: Theo vị trí GV (Tự lấy TB 3 SV đầu nếu máy không có GPS).';
+    hint.textContent = isEn
+      ? 'Default: Distance is evaluated from the Lecturer location (Only uses the average of the first 3 students if the Lecturer device has no GPS).'
+      : 'Mặc định: Đánh giá khoảng cách theo vị trí của Giảng viên (Chỉ tự động lấy trung bình vị trí của 3 sinh viên đầu tiên nếu thiết bị Giảng viên không có định vị GPS).';
   }
 }
 
@@ -403,15 +457,28 @@ function probeLecturerDeviceGpsFast() {
 async function teacherStartSession() {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
+  const isEn = currentLang === 'en';
   if (!auth || !classId) {
-    showStatus('Vui lòng chọn lớp học phần trước khi mở phiên điểm danh.', 'warn', 'tea-session-inline-status');
+    showStatus(
+      isEn
+        ? 'Please select a class section before opening an attendance session.'
+        : 'Vui lòng chọn lớp học phần trước khi mở phiên điểm danh.',
+      'warn',
+      'tea-session-inline-status'
+    );
     return;
   }
 
   const advChk = document.getElementById('chk-use-student-avg3');
   const forceStudentAvg3 = Boolean(advChk && advChk.checked);
 
-  showStatus('Đang định vị phòng học và mở phiên điểm danh...', 'warn', 'tea-session-inline-status');
+  showStatus(
+    isEn
+      ? 'Locating classroom and opening attendance session...'
+      : 'Đang định vị phòng học và mở phiên điểm danh...',
+    'warn',
+    'tea-session-inline-status'
+  );
   const pos = forceStudentAvg3 ? null : await probeLecturerDeviceGpsFast();
   const hasTeacherGps = Boolean(
     !forceStudentAvg3 &&
@@ -431,15 +498,24 @@ async function teacherStartSession() {
   const anchorHintEl = document.getElementById('tea-gps-anchor-hint');
   if (anchorHintEl) {
     anchorHintEl.textContent = hasTeacherGps
-      ? `Mặc định: Theo vị trí GV (±${acc}m).`
-      : 'Đang bật: Lấy tâm theo TB 3 SV đầu tiên.';
+      ? (isEn
+          ? `Default: Evaluated from Lecturer location (Accuracy ±${acc}m).`
+          : `Mặc định: Đánh giá khoảng cách theo vị trí của Giảng viên (Sai số ±${acc}m).`)
+      : (isEn
+          ? 'Active: Classroom center is averaged from the first 3 verified students.'
+          : 'Đang bật: Lấy tâm phòng học theo trung bình vị trí của 3 sinh viên đầu tiên.');
   }
 
   await executeStartSessionRequest(auth, classId, hasTeacherGps, lat, lng, acc, anchorMode);
 }
 
 async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAccuracy = 0, anchorMode = 'TEACHER_GPS') {
-  showStatus(`Đang mở phiên điểm danh cho lớp ${classId}...`, 'warn', 'tea-session-inline-status');
+  const isEn = currentLang === 'en';
+  showStatus(
+    isEn ? `Opening attendance session for ${classId}...` : `Đang mở phiên điểm danh cho lớp ${classId}...`,
+    'warn',
+    'tea-session-inline-status'
+  );
   const res = await callBackend(auth.apiUrl, {
     action: 'TEACHER_START_SESSION',
     teacherToken: auth.token,
@@ -460,13 +536,21 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
     await applyTeacherState(res, false);
     showStatus(
       useGps
-        ? `Đã mở phiên lớp ${classId} (Tâm GV ±${gpsAccuracy}m).`
-        : `Đã mở phiên lớp ${classId} (Tâm TB 3 SV đầu tiên).`,
+        ? (isEn
+            ? `Opened session for ${classId} (Evaluated from Lecturer location ±${gpsAccuracy}m).`
+            : `Đã mở phiên lớp ${classId} (Đánh giá theo vị trí Giảng viên ±${gpsAccuracy}m).`)
+        : (isEn
+            ? `Opened session for ${classId} (Averaging the first 3 verified students as classroom center).`
+            : `Đã mở phiên lớp ${classId} (Chế độ lấy trung bình GPS 3 sinh viên đầu tiên làm tâm phòng học).`),
       'success',
       'tea-session-inline-status'
     );
   } else {
-    showStatus(res && res.message ? res.message : 'Không thể mở phiên điểm danh.', 'err', 'tea-session-inline-status');
+    showStatus(
+      res && res.message ? res.message : (isEn ? 'Unable to open attendance session.' : 'Không thể mở phiên điểm danh.'),
+      'err',
+      'tea-session-inline-status'
+    );
   }
 }
 
@@ -474,7 +558,7 @@ async function teacherControlSession(subAction, extra = {}) {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
   if (!auth || !classId) {
-    showStatus('Vui lòng chọn lớp học phần trước.', 'warn');
+    showStatus(currentLang === 'en' ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.', 'warn');
     return;
   }
   cancelOpenSessionConfirm();
@@ -491,13 +575,19 @@ async function teacherControlSession(subAction, extra = {}) {
 
 function detectCoCheckInSuspects(roster) {
   const suspectMap = {};
+  const isEn = currentLang === 'en';
   (roster || []).forEach(s => {
     if (s.source && String(s.source).startsWith('SUSPECT_WITH_')) {
       const parts = String(s.source).split('|');
       const partnerId = parts[0].replace('SUSPECT_WITH_', '');
-      suspectMap[s.studentId] = parts[1] || `Trùng thiết bị/tọa độ với ${partnerId}`;
+      const defaultReason = isEn
+        ? `Duplicate device or coordinates with ${partnerId}`
+        : `Trùng thiết bị hoặc tọa độ với ${partnerId}`;
+      suspectMap[s.studentId] = parts[1] || defaultReason;
       if (partnerId && partnerId !== 'DEVTOOLS' && !suspectMap[partnerId]) {
-        suspectMap[partnerId] = `Trùng thiết bị/tọa độ với ${s.studentId}`;
+        suspectMap[partnerId] = isEn
+          ? `Duplicate device or coordinates with ${s.studentId}`
+          : `Trùng thiết bị hoặc tọa độ với ${s.studentId}`;
       }
     }
   });
@@ -516,10 +606,11 @@ function renderTeacherRoster() {
   const container = document.getElementById('tea-roster-container');
   const suspectBanner = document.getElementById('tea-suspect-banner');
   if (!container) return;
+  const isEn = currentLang === 'en';
 
   if (!selectedTeacherClassId) {
     if (suspectBanner) suspectBanner.classList.add('hidden');
-    container.innerHTML = '<div style="padding:16px; text-align:center; color:var(--muted);">Vui lòng chọn một lớp học phần để xem danh sách sinh viên.</div>';
+    container.innerHTML = `<div style="padding:16px; text-align:center; color:var(--muted);">${isEn ? 'Please select a class section to view the student roster.' : 'Vui lòng chọn một lớp học phần để xem danh sách sinh viên.'}</div>`;
     return;
   }
 
@@ -540,20 +631,22 @@ function renderTeacherRoster() {
   const tabPresent = document.getElementById('tab-filter-present');
   const tabAbsent = document.getElementById('tab-filter-absent');
   const tabSuspect = document.getElementById('tab-filter-suspect');
-  if (tabAll) tabAll.textContent = `Tất cả (${countAll})`;
-  if (tabPresent) tabPresent.textContent = `Có mặt (${countPresent})`;
-  if (tabAbsent) tabAbsent.textContent = `Vắng (${countAbsent})`;
-  if (tabSuspect) tabSuspect.textContent = `Nghi vấn (${countSuspect})`;
+  if (tabAll) tabAll.textContent = isEn ? `All (${countAll})` : `Tất cả (${countAll})`;
+  if (tabPresent) tabPresent.textContent = isEn ? `Present (${countPresent})` : `Có mặt (${countPresent})`;
+  if (tabAbsent) tabAbsent.textContent = isEn ? `Absent (${countAbsent})` : `Vắng mặt (${countAbsent})`;
+  if (tabSuspect) tabSuspect.textContent = isEn ? `Suspect (${countSuspect})` : `Nghi vấn (${countSuspect})`;
 
   if (!showRosterNames && !query) {
     if (suspectBanner) suspectBanner.classList.add('hidden');
-    container.innerHTML = '<div style="padding:16px; text-align:center; color:var(--muted);">Đã ẩn danh sách (Gõ tên/MSSV ở ô tìm kiếm để điểm danh nhanh).</div>';
+    container.innerHTML = `<div style="padding:16px; text-align:center; color:var(--muted);">${isEn ? 'Student roster is hidden on projector (Type a name or Student ID in the search box above for quick attendance).' : 'Đã ẩn danh sách sinh viên trên màn hình chiếu (Gõ họ tên hoặc mã số sinh viên ở ô tìm kiếm phía trên để điểm danh nhanh).'}</div>`;
     return;
   }
 
   if (suspectIds.length > 0) {
     suspectBanner.classList.remove('hidden');
-    suspectBanner.textContent = `[NGHI VẤN] Có ${suspectIds.length} trường hợp trùng thiết bị/tọa độ hoặc can thiệp GPS.`;
+    suspectBanner.textContent = isEn
+      ? `[VERIFICATION ALERT] Detected ${suspectIds.length} technical anomaly case(s) (duplicate hardware fingerprint, identical coordinates, or GPS tampering).`
+      : `[CẢNH BÁO KIỂM TRA] Phát hiện ${suspectIds.length} trường hợp nghi vấn kỹ thuật (trùng cấu hình máy, trùng tọa độ tuyệt đối hoặc can thiệp định vị GPS).`;
   } else {
     suspectBanner.classList.add('hidden');
   }
@@ -568,7 +661,7 @@ function renderTeacherRoster() {
   });
 
   if (filtered.length === 0) {
-    container.innerHTML = '<div style="padding:16px; text-align:center; color:var(--muted);">Không có sinh viên nào khớp bộ lọc.</div>';
+    container.innerHTML = `<div style="padding:16px; text-align:center; color:var(--muted);">${isEn ? 'No students match the current filter.' : 'Không có sinh viên nào khớp bộ lọc.'}</div>`;
     return;
   }
 
@@ -582,14 +675,14 @@ function renderTeacherRoster() {
           <span class="status-pill st-${st.status}">${escapeHtml(st.status)}</span>
           ${st.time ? `<span style="font-size:0.75rem; color:var(--muted); font-family:var(--font-mono);">${escapeHtml(st.time)}</span>` : ''}
           ${st.distance !== '' && st.distance !== undefined ? `<span style="font-size:0.74rem; color:#0f766e; font-weight:600; font-family:var(--font-mono);">(${escapeHtml(st.distance)}m)</span>` : ''}
-          ${suspectNote ? `<span class="suspect-tag">[NGHI VẤN] ${escapeHtml(suspectNote)}</span>` : ''}
+          ${suspectNote ? `<span class="suspect-tag">[${isEn ? 'SUSPECT' : 'NGHI VẤN'}] ${escapeHtml(suspectNote)}</span>` : ''}
         </div>
-        <div style="display:flex; gap:4px;">
-          <button class="btn btn-outline btn-sm" onclick="teacherManualMark('${escapeHtml(st.studentId)}','P')">P</button>
-          <button class="btn btn-outline btn-sm" onclick="teacherManualMark('${escapeHtml(st.studentId)}','L')">L</button>
-          <button class="btn btn-outline btn-sm" onclick="teacherManualMark('${escapeHtml(st.studentId)}','E')">E</button>
-          <button class="btn btn-outline btn-sm" title="Hủy điểm danh" onclick="teacherManualMark('${escapeHtml(st.studentId)}','-')">-</button>
-          <button class="btn btn-outline btn-sm" title="Đặt lại khóa thiết bị" onclick="teacherResetStudentDevice('${escapeHtml(st.studentId)}')">Mở khóa</button>
+        <div style="display:flex; gap:4px; flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" onclick="teacherManualMark('${escapeHtml(st.studentId)}','P')">${isEn ? 'Present' : 'Có mặt'}</button>
+          <button class="btn btn-outline btn-sm" onclick="teacherManualMark('${escapeHtml(st.studentId)}','L')">${isEn ? 'Late' : 'Đi trễ'}</button>
+          <button class="btn btn-outline btn-sm" onclick="teacherManualMark('${escapeHtml(st.studentId)}','E')">${isEn ? 'Excused' : 'Có phép'}</button>
+          <button class="btn btn-outline btn-sm" title="${isEn ? 'Revoke attendance' : 'Hủy điểm danh'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','-')">${isEn ? 'Absent' : 'Vắng'}</button>
+          <button class="btn btn-outline btn-sm" title="${isEn ? 'Reset device lock' : 'Đặt lại khóa thiết bị'}" onclick="teacherResetStudentDevice('${escapeHtml(st.studentId)}')">${isEn ? 'Unlock' : 'Mở khóa'}</button>
         </div>
       </div>
     `;
@@ -611,26 +704,43 @@ async function handleRosterSearchKeydown(event) {
     const target = matches[0];
     searchInput.value = '';
     await teacherManualMark(target.studentId, 'P');
-    showStatus(`Đã ghi nhận CÓ MẶT (P) nhanh cho ${target.fullName} (${target.studentId}).`, 'success', 'tea-session-inline-status');
+    showStatus(
+      currentLang === 'en'
+        ? `Marked PRESENT (P) for ${target.fullName} (${target.studentId}).`
+        : `Đã ghi nhận CÓ MẶT (P) nhanh cho ${target.fullName} (${target.studentId}).`,
+      'success',
+      'tea-session-inline-status'
+    );
   }
 }
 
 function triggerRandomSpotCheck() {
   const list = (teacherState && teacherState.roster) || [];
   const checkedIn = list.filter(s => s.status === 'P' || s.status === 'L');
+  const isEn = currentLang === 'en';
   if (checkedIn.length === 0) {
-    showStatus('Chưa có sinh viên nào điểm danh trong phiên này.', 'warn');
+    showStatus(
+      isEn ? 'No students have checked in during this session yet.' : 'Chưa có sinh viên nào điểm danh trong phiên này.',
+      'warn'
+    );
     return;
   }
 
   const pick = checkedIn[Math.floor(Math.random() * checkedIn.length)];
   openAppModal(
-    'Kiểm tra Ngẫu nhiên Sĩ số',
-    `Họ tên: ${pick.fullName}\nMSSV: ${pick.studentId} (Điểm danh lúc: ${pick.time || 'N/A'})`,
-    'Vắng mặt (Hủy & Khóa điểm danh)',
+    isEn ? 'Random Attendance Spot-Check' : 'Kiểm tra Ngẫu nhiên Sĩ số',
+    isEn
+      ? `Full Name: ${pick.fullName}\nStudent ID: ${pick.studentId} (Checked in at: ${pick.time || 'N/A'})`
+      : `Họ và tên: ${pick.fullName}\nMã số sinh viên: ${pick.studentId} (Điểm danh lúc: ${pick.time || 'N/A'})`,
+    isEn ? 'Mark Absent (Revoke & Lock)' : 'Vắng mặt (Hủy và Khóa điểm danh)',
     async () => {
       await teacherManualMark(pick.studentId, '-');
-      showStatus(`Đã hủy điểm danh và khóa nộp lại trong phiên này đối với ${pick.fullName} (${pick.studentId}).`, 'warn');
+      showStatus(
+        isEn
+          ? `Revoked attendance and locked re-submission in this session for ${pick.fullName} (${pick.studentId}).`
+          : `Đã hủy điểm danh và khóa nộp lại trong phiên này đối với ${pick.fullName} (${pick.studentId}).`,
+        'warn'
+      );
     }
   );
 }
@@ -651,7 +761,7 @@ async function teacherManualMark(studentId, status) {
     status: status
   });
   if (res && res.ok) await applyTeacherState(res, false);
-  else showStatus(res && res.message ? res.message : 'Lỗi cập nhật trạng thái.', 'err');
+  else showStatus(res && res.message ? res.message : (currentLang === 'en' ? 'Error updating status.' : 'Lỗi cập nhật trạng thái.'), 'err');
 }
 
 async function teacherResetStudentDevice(studentId) {
@@ -670,15 +780,20 @@ async function teacherResetStudentDevice(studentId) {
   if (res && res.ok) {
     showStatus(formatServerMessage('DEVICE_RESET_OK', { id: studentId }), 'success', 'tea-session-inline-status');
   } else {
-    showStatus(res && res.message ? res.message : 'Không thể mở khóa thiết bị.', 'warn', 'tea-session-inline-status');
+    showStatus(
+      res && res.message ? res.message : (currentLang === 'en' ? 'Unable to unlock device.' : 'Không thể mở khóa thiết bị.'),
+      'warn',
+      'tea-session-inline-status'
+    );
   }
 }
 
 async function teacherToggleRegGate() {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
+  const isEn = currentLang === 'en';
   if (!auth || !classId) {
-    showStatus('Vui lòng chọn lớp học phần trước.', 'warn', 'tea-admin-inline-status');
+    showStatus(isEn ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.', 'warn', 'tea-admin-inline-status');
     return;
   }
   const res = await callBackend(auth.apiUrl, {
@@ -688,15 +803,26 @@ async function teacherToggleRegGate() {
   });
   if (res && res.ok) {
     await applyTeacherState(res, false);
-    showStatus('Đã cập nhật trạng thái cổng đăng ký thiết bị mới.', 'success', 'tea-admin-inline-status');
+    showStatus(
+      isEn ? 'Updated new device registration gate status.' : 'Đã cập nhật trạng thái cổng đăng ký thiết bị mới.',
+      'success',
+      'tea-admin-inline-status'
+    );
   }
 }
 
 async function teacherRebuildSheet() {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
+  const isEn = currentLang === 'en';
   if (!auth) return;
-  showStatus('Đang kiểm tra danh sách Drive & đồng bộ kết quả vào Google Sheet...', 'warn', 'tea-admin-inline-status');
+  showStatus(
+    isEn
+      ? 'Checking Drive rosters and syncing attendance to Google Sheet...'
+      : 'Đang kiểm tra danh sách Drive và đồng bộ kết quả vào Google Sheet...',
+    'warn',
+    'tea-admin-inline-status'
+  );
   const res = await callBackend(auth.apiUrl, {
     action: 'TEACHER_REBUILD_REPORT',
     teacherToken: auth.token,
@@ -708,9 +834,19 @@ async function teacherRebuildSheet() {
       const namesStr = Array.isArray(res.newStudentNames) && res.newStudentNames.length > 0
         ? ` (${res.newStudentNames.join(', ')})`
         : '';
-      showStatus(`Đã bổ sung ${res.newStudentsAdded} sinh viên mới từ Drive${namesStr} và đồng bộ Google Sheet thành công.`, 'success', 'tea-admin-inline-status');
+      showStatus(
+        isEn
+          ? `Added ${res.newStudentsAdded} new student(s) from Drive${namesStr} and synced Google Sheet.`
+          : `Đã bổ sung ${res.newStudentsAdded} sinh viên mới từ Drive${namesStr} và đồng bộ Google Sheet thành công.`,
+        'success',
+        'tea-admin-inline-status'
+      );
     } else {
-      showStatus('Đã đồng bộ dữ liệu vào Google Sheet thành công.', 'success', 'tea-admin-inline-status');
+      showStatus(
+        isEn ? 'Successfully synced attendance data to Google Sheet.' : 'Đã đồng bộ dữ liệu vào Google Sheet thành công.',
+        'success',
+        'tea-admin-inline-status'
+      );
     }
   }
 }

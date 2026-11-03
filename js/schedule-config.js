@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.4.4)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.4.5)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -125,6 +125,7 @@ function getTimeWindowFromPeriodNumbers(startPeriod, endPeriod) {
   const startTime = minsToHhMm(startMins);
   const endTime = minsToHhMm(endMins);
 
+  const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
   return {
     startPeriod: s,
     endPeriod: e,
@@ -132,7 +133,7 @@ function getTimeWindowFromPeriodNumbers(startPeriod, endPeriod) {
     endTime,
     startMins,
     endMins,
-    label: `Tiết ${s}-${e} (${startTime} - ${endTime})`
+    label: isEn ? `Periods ${s}-${e} (${startTime} - ${endTime})` : `Tiết ${s}-${e} (${startTime} - ${endTime})`
   };
 }
 
@@ -284,7 +285,9 @@ function resolveActiveClassBySchedule(availableClasses, now = new Date()) {
       matchedClassId: openClass.classId,
       matchedClass: openClass,
       source: 'OPEN_SESSION',
-      label: `${openClass.classId} — Đang mở phiên điểm danh`,
+      label: currentLang === 'en'
+        ? `${openClass.classId} — Attendance session is open`
+        : `${openClass.classId} — Đang mở phiên điểm danh`,
       isOffHours: false
     };
   }
@@ -305,7 +308,9 @@ function resolveActiveClassBySchedule(availableClasses, now = new Date()) {
             matchedClassId: matched.classId,
             matchedClass: matched,
             source: 'GOOGLE_CALENDAR',
-            label: `Lịch Google Calendar: ${matched.classId} (${ev.startTime} - ${ev.endTime})`,
+            label: currentLang === 'en'
+              ? `Google Calendar: ${matched.classId} (${ev.startTime} - ${ev.endTime})`
+              : `Lịch Google Calendar: ${matched.classId} (${ev.startTime} - ${ev.endTime})`,
             isOffHours: false
           };
         }
@@ -464,59 +469,66 @@ function resolveActiveClassBySchedule(availableClasses, now = new Date()) {
  */
 const I18N = {
   vi: {
+    nav_student: "Sinh viên",
+    nav_teacher: "Giảng viên",
     cam_modal_title: "Quét mã QR",
     stu_course_title: "Thông tin Sinh viên",
-    stu_add_course_btn: "Đổi MSSV",
+    stu_add_course_btn: "Đổi mã số sinh viên",
     stu_select_lecturer: "Giảng viên:",
     stu_select_class: "Lớp học phần:",
     stu_unselected_class_opt: "-- Chưa chọn lớp - Ngoài khung giờ --",
-    stu_no_course_desc: "Nhập MSSV để liên kết lớp (1 lần đầu kỳ).",
-    stu_scan_onboard_qr: "Quét QR Khóa học",
+    stu_no_course_desc: "Nhập mã số sinh viên để liên kết lớp học (chỉ cần thực hiện 1 lần đầu học kỳ).",
+    stu_scan_onboard_qr: "Quét mã QR Khóa học",
     stu_toggle_api_link: "Cài đặt kết nối nâng cao",
-    stu_api_url_label: "URL Web App:",
-    stu_id_label: "Mã số sinh viên (MSSV):",
-    stu_register_btn: "Lưu & Liên kết",
+    stu_api_url_label: "Đường dẫn máy chủ (Web App URL):",
+    stu_id_label: "Mã số sinh viên:",
+    stu_id_placeholder: "Nhập mã số sinh viên...",
+    stu_register_btn: "Lưu và Liên kết thiết bị",
     stu_checkin_title: "Điểm danh Lớp học",
-    stu_gps_readout_idle: "Chưa kiểm tra GPS",
-    stu_btn_check_gps: "Kiểm tra GPS",
+    stu_gps_readout_idle: "Chưa kiểm tra định vị GPS",
+    stu_btn_check_gps: "Kiểm tra định vị GPS",
     btn_cancel_scan: "Đóng",
+    modal_confirm_title: "Xác nhận",
+    modal_confirm_btn: "Đồng ý",
     stu_one_tap_checkin_btn: "ĐIỂM DANH NGAY",
     stu_submitting_btn: "Đang gửi dữ liệu...",
-    stu_scan_checkin_btn: "Quét mã QR phòng học",
-    stu_submit_manual_qr: "Gửi mã",
     tea_login_title: "Đăng nhập Giảng viên",
-    tea_login_desc: "Nhập Mã 6 số trên Google Sheet hoặc Master Key.",
-    tea_scan_pair_qr: "Quét QR Ghép nối",
-    tea_api_url_label: "URL Web App (ô B4):",
-    tea_token_label: "Mã phiên (6 số) hoặc Master Key:",
+    tea_login_desc: "Nhập mã phiên 6 chữ số trên Google Sheet hoặc khóa chính (Master Key).",
+    tea_scan_pair_qr: "Quét mã QR Ghép nối",
+    tea_config_url_link: "Cấu hình đường dẫn kết nối",
+    tea_reset_url_btn: "Khôi phục đường dẫn mặc định",
+    tea_api_url_label: "Đường dẫn máy chủ (Ô B4 trên Google Sheet):",
+    tea_token_label: "Mã phiên (6 chữ số) hoặc Khóa chính (Master Key):",
+    tea_token_placeholder: "Nhập mã phiên 6 chữ số hoặc Master Key...",
     tea_session_type_label: "Chế độ lưu đăng nhập:",
-    tea_persist_phone: "Thiết bị cá nhân (Giữ đăng nhập)",
-    tea_persist_pc: "Máy phòng học (Tự thoát sau 60p)",
+    tea_persist_phone: "Thiết bị cá nhân của Giảng viên (Giữ đăng nhập)",
+    tea_persist_pc: "Máy tính phòng học (Tự động đăng xuất sau 60 phút)",
     tea_login_btn: "Đăng nhập Giảng viên",
-    tea_panel1_title: "1. Điều khiển Phiên",
+    tea_panel1_title: "1. Điều khiển Phiên điểm danh",
     tea_fullscreen_btn: "Toàn màn hình",
     tea_select_class: "Lớp học phần đang điều khiển:",
     tea_unselected_class_opt: "-- Chưa chọn lớp - Ngoài khung giờ --",
-    tea_calibrate_gps_chk: "Cập nhật Tâm phòng học theo GPS thiết bị này khi Mở phiên",
     tea_open_trigger_btn: "Mở phiên điểm danh",
+    tea_confirm_open_prompt: "Xác nhận mở phiên điểm danh cho lớp học phần này?",
+    tea_confirm_open_btn: "Xác nhận mở lớp",
     tea_cancel_open_btn: "Hủy",
-    tea_extend_btn: "+2 Phút",
+    tea_adv_gps_link: "Chế độ định vị GPS nâng cao",
+    tea_adv_gps_label: "Sử dụng định vị GPS của sinh viên (Lấy trung bình vị trí 3 sinh viên đầu tiên làm tâm phòng học)",
+    tea_extend_btn: "Thêm 2 phút",
     tea_reopen_btn: "Mở lại 5 phút",
     tea_close_btn: "Đóng phiên ngay",
-    tea_panel2_title: "2. Danh sách Lớp",
-    tea_spot_check_btn: "Gọi ngẫu nhiên",
-    tea_privacy_btn: "Che MSSV",
-    tea_show_hide_names: "Ẩn/Hiện tên",
-    tea_panel4_title: "3. Quản trị & Đồng bộ",
-    tea_print_qr_btn: "In bảng QR",
-    tea_replace_qr_btn: "Đổi khóa QR",
-    tea_rebuild_sheet_btn: "Đồng bộ Sheet",
+    tea_panel2_title: "2. Danh sách Sinh viên",
+    tea_spot_check_btn: "Gọi ngẫu nhiên sinh viên",
+    tea_show_hide_names: "Ẩn hoặc Hiện danh sách",
+    tea_search_placeholder: "Tìm họ tên hoặc mã số sinh viên (Nhấn Enter để đánh dấu Có mặt)...",
+    tea_panel4_title: "3. Quản trị và Đồng bộ dữ liệu",
+    tea_rebuild_sheet_btn: "Đồng bộ vào Google Sheet",
     tea_logout_btn: "Đăng xuất",
     ONBOARD_CONFIRMED: "[HOÀN TẤT] Đã liên kết sinh viên: {name} ({id}).",
     CONFIRMED_PRESENT: "[THÀNH CÔNG] Ghi nhận CÓ MẶT lúc {time} (Khoảng cách: {dist}m).",
     CONFIRMED_LATE: "[THÀNH CÔNG] Ghi nhận ĐI TRỄ lúc {time} (Khoảng cách: {dist}m).",
     ALREADY_RECORDED: "[ĐÃ GHI NHẬN] Bạn đã điểm danh buổi này rồi (Trạng thái: {status} lúc {time}).",
-    ERR_NOT_ON_ROSTER: "[LỖI] Không tìm thấy MSSV {id} trong danh sách lớp.",
+    ERR_NOT_ON_ROSTER: "[LỖI] Không tìm thấy mã số sinh viên {id} trong danh sách lớp.",
     ERR_DEVICE_BOUND_OTHER: "[KHÓA THIẾT BỊ] Trình duyệt này đã được gắn cố định với một MSSV khác.",
     ERR_CREDENTIAL_MISMATCH: "[SAI THIẾT BỊ] Thiết bị/trình duyệt không khớp với đăng ký gốc của MSSV {id}. Vui lòng báo Giảng viên mở khóa nếu đổi điện thoại.",
     ERR_REG_LOCKED: "[ĐANG KHÓA] Giảng viên hiện đang khóa cổng đăng ký thiết bị mới.",
@@ -526,56 +538,63 @@ const I18N = {
     ERR_GPS_UNAVAILABLE: "[LỖI ĐỊNH VỊ] Chưa lấy được tín hiệu GPS. Vui lòng bật quyền Vị trí (Location) cho trình duyệt rồi thử lại.",
     ERR_SERVER_BUSY: "Hệ thống đang xử lý, vui lòng chờ giây lát...",
     ERR_UNAUTHORIZED: "[TỪ CHỐI] Mật khẩu phiên không đúng hoặc đã hết hạn. Hãy kiểm tra lại ô C9 trên Google Sheet.",
-    DEVICE_RESET_OK: "[ĐÃ MỞ KHÓA] Đã đặt lại khóa thiết bị cho MSSV {id}."
+    DEVICE_RESET_OK: "[ĐÃ MỞ KHÓA] Đã đặt lại khóa thiết bị cho sinh viên {id}."
   },
   en: {
+    nav_student: "Student",
+    nav_teacher: "Lecturer",
     cam_modal_title: "Scan QR Code",
-    stu_course_title: "Student Profile",
-    stu_add_course_btn: "Change ID",
+    stu_course_title: "Student Information",
+    stu_add_course_btn: "Change Student ID",
     stu_select_lecturer: "Lecturer:",
     stu_select_class: "Course Section:",
-    stu_unselected_class_opt: "-- No class selected - Off-schedule hours --",
-    stu_no_course_desc: "Enter Student ID once to link classes.",
-    stu_scan_onboard_qr: "Scan Course QR",
+    stu_unselected_class_opt: "-- No class selected - Outside scheduled hours --",
+    stu_no_course_desc: "Enter your Student ID to link your enrolled classes (only required once per semester).",
+    stu_scan_onboard_qr: "Scan Course QR Code",
     stu_toggle_api_link: "Advanced Connection Settings",
-    stu_api_url_label: "Web App URL:",
-    stu_id_label: "Student ID (MSSV):",
-    stu_register_btn: "Link Device",
+    stu_api_url_label: "Server Endpoint (Web App URL):",
+    stu_id_label: "Student ID:",
+    stu_id_placeholder: "Enter your Student ID...",
+    stu_register_btn: "Save and Link Device",
     stu_checkin_title: "Class Attendance",
-    stu_gps_readout_idle: "GPS not checked",
-    stu_btn_check_gps: "Check GPS",
+    stu_gps_readout_idle: "GPS location not checked yet",
+    stu_btn_check_gps: "Check GPS Location",
     btn_cancel_scan: "Close",
+    modal_confirm_title: "Confirmation",
+    modal_confirm_btn: "Confirm",
     stu_one_tap_checkin_btn: "CHECK IN NOW",
-    stu_submitting_btn: "Sending data...",
-    stu_scan_checkin_btn: "Scan Classroom QR",
-    stu_submit_manual_qr: "Submit",
+    stu_submitting_btn: "Submitting attendance...",
     tea_login_title: "Lecturer Sign In",
-    tea_login_desc: "Enter 6-digit Sheet code or Master Key.",
-    tea_scan_pair_qr: "Scan Pairing QR",
-    tea_api_url_label: "Web App URL (Cell B4):",
-    tea_token_label: "6-Digit Code or Master Key:",
-    tea_session_type_label: "Session Persistence:",
-    tea_persist_phone: "Personal Device (Keep Signed In)",
-    tea_persist_pc: "Shared PC (Auto-Logout 60m)",
-    tea_login_btn: "Sign In",
-    tea_panel1_title: "1. Session Control",
+    tea_login_desc: "Enter the 6-digit session code from Google Sheet or your Master Key.",
+    tea_scan_pair_qr: "Scan Pairing QR Code",
+    tea_config_url_link: "Configure Connection URL",
+    tea_reset_url_btn: "Restore Default URL",
+    tea_api_url_label: "Server Endpoint (Cell B4 in Google Sheet):",
+    tea_token_label: "Session Code (6 digits) or Master Key:",
+    tea_token_placeholder: "Enter 6-digit code or Master Key...",
+    tea_session_type_label: "Sign-In Persistence Mode:",
+    tea_persist_phone: "Personal Lecturer Device (Keep Signed In)",
+    tea_persist_pc: "Classroom Computer (Auto Sign-Out After 60 Minutes)",
+    tea_login_btn: "Sign In as Lecturer",
+    tea_panel1_title: "1. Attendance Session Control",
     tea_fullscreen_btn: "Fullscreen",
-    tea_select_class: "Selected Class Section:",
-    tea_unselected_class_opt: "-- No class selected - Off-schedule hours --",
-    tea_calibrate_gps_chk: "Update Room GPS Center from this device on Session Start",
+    tea_select_class: "Active Class Section:",
+    tea_unselected_class_opt: "-- No class selected - Outside scheduled hours --",
     tea_open_trigger_btn: "Open Attendance Session",
+    tea_confirm_open_prompt: "Confirm opening attendance session for this class section?",
+    tea_confirm_open_btn: "Confirm Open Session",
     tea_cancel_open_btn: "Cancel",
-    tea_extend_btn: "+2 Mins",
-    tea_reopen_btn: "Reopen 5m",
+    tea_adv_gps_link: "Advanced GPS Location Mode",
+    tea_adv_gps_label: "Use Student GPS (Average the first 3 verified students as the classroom center)",
+    tea_extend_btn: "Add 2 Minutes",
+    tea_reopen_btn: "Reopen for 5 Minutes",
     tea_close_btn: "Close Session Now",
-    tea_panel2_title: "2. Class Roster",
-    tea_spot_check_btn: "Random Check",
-    tea_privacy_btn: "Mask IDs",
-    tea_show_hide_names: "Show/Hide",
-    tea_panel4_title: "3. Administration & Sync",
-    tea_print_qr_btn: "Print QR",
-    tea_replace_qr_btn: "Rotate Secret",
-    tea_rebuild_sheet_btn: "Sync Sheet",
+    tea_panel2_title: "2. Student Roster",
+    tea_spot_check_btn: "Random Student Spot-Check",
+    tea_show_hide_names: "Show or Hide Roster",
+    tea_search_placeholder: "Search full name or Student ID (Press Enter to mark Present)...",
+    tea_panel4_title: "3. Administration and Data Sync",
+    tea_rebuild_sheet_btn: "Sync to Google Sheet",
     tea_logout_btn: "Sign Out",
     ONBOARD_CONFIRMED: "[LINKED] Student verified: {name} ({id}).",
     CONFIRMED_PRESENT: "[CONFIRMED] Recorded PRESENT at {time} (Distance: {dist}m).",
@@ -583,15 +602,15 @@ const I18N = {
     ALREADY_RECORDED: "[RECORDED] Attendance already logged ({status} at {time}).",
     ERR_NOT_ON_ROSTER: "[ERROR] Student ID {id} was not found on the class roster.",
     ERR_DEVICE_BOUND_OTHER: "[DEVICE LOCKED] This browser is already bound to another Student ID.",
-    ERR_CREDENTIAL_MISMATCH: "[DEVICE MISMATCH] Browser does not match original registration for {id}. Ask your lecturer to reset your device lock.",
+    ERR_CREDENTIAL_MISMATCH: "[DEVICE MISMATCH] Browser does not match original registration for {id}. Ask your lecturer to unlock your device if you changed phones.",
     ERR_REG_LOCKED: "[LOCKED] New device registration is currently closed.",
     ERR_SESSION_CLOSED: "[CLOSED] Attendance session is currently closed.",
     ERR_INVALID_QR: "[INVALID] Invalid session token.",
-    ERR_LOCATION_OUT_OF_RANGE: "[OUT OF RANGE] You are {dist}m away from classroom center (Max allowed: {max}m).",
-    ERR_GPS_UNAVAILABLE: "[GPS ERROR] Unable to acquire GPS coordinates. Please enable Location permission and retry.",
-    ERR_SERVER_BUSY: "Processing request, please wait...",
-    ERR_UNAUTHORIZED: "[UNAUTHORIZED] Invalid or expired session code. Check Cell C9 in Google Sheet.",
-    DEVICE_RESET_OK: "[UNLOCKED] Device lock reset for Student ID {id}."
+    ERR_LOCATION_OUT_OF_RANGE: "[OUT OF RANGE] You are {dist}m away from classroom center (Maximum allowed: {max}m). Please move into the classroom and try again.",
+    ERR_GPS_UNAVAILABLE: "[GPS ERROR] Unable to acquire GPS coordinates. Please enable Location permission in your browser and try again.",
+    ERR_SERVER_BUSY: "System is processing requests, please wait a moment...",
+    ERR_UNAUTHORIZED: "[UNAUTHORIZED] Invalid or expired session code. Please check Cell C9 in your Google Sheet.",
+    DEVICE_RESET_OK: "[UNLOCKED] Device lock has been reset for Student ID {id}."
   }
 };
 
@@ -883,7 +902,12 @@ async function startCameraScanner(purpose) {
     );
   } catch (err) {
     modalBox.classList.add('hidden');
-    showStatus('Không mở được Camera. Vui lòng cấp quyền Camera cho trình duyệt.', 'warn');
+    showStatus(
+      currentLang === 'en'
+        ? 'Unable to open camera. Please grant camera permission in your browser.'
+        : 'Không mở được máy ảnh. Vui lòng cấp quyền máy ảnh cho trình duyệt.',
+      'warn'
+    );
   }
 }
 
@@ -896,13 +920,17 @@ async function stopCameraScanner() {
 }
 
 function handleScannedQrText(text, purpose) {
+  const isEn = currentLang === 'en';
   if (text.includes('?onboard=') || text.includes('?pair=')) {
     try {
       const url = new URL(text);
       if (url.searchParams.get('onboard')) {
         const obj = JSON.parse(atob(url.searchParams.get('onboard').replace(/-/g, '+').replace(/_/g, '/')));
         document.getElementById('inp-onboard-api').value = normalizeApiUrl(obj.api);
-        showStatus('Đã nạp cấu hình khóa học. Vui lòng nhập MSSV.', 'success');
+        showStatus(
+          isEn ? 'Course configuration loaded. Please enter your Student ID.' : 'Đã nạp cấu hình khóa học. Vui lòng nhập mã số sinh viên.',
+          'success'
+        );
         return;
       }
       if (url.searchParams.get('pair')) {
@@ -919,7 +947,10 @@ function handleScannedQrText(text, purpose) {
     const obj = JSON.parse(text);
     if (obj.type === 'ONBOARD' && obj.api) {
       document.getElementById('inp-onboard-api').value = normalizeApiUrl(obj.api);
-      showStatus('Đã nạp cấu hình khóa học. Vui lòng nhập MSSV.', 'success');
+      showStatus(
+        isEn ? 'Course configuration loaded. Please enter your Student ID.' : 'Đã nạp cấu hình khóa học. Vui lòng nhập mã số sinh viên.',
+        'success'
+      );
       return;
     }
     if (obj.type === 'TEACHER_PAIR' && obj.api && obj.tkey) {
@@ -933,7 +964,7 @@ function handleScannedQrText(text, purpose) {
   if (purpose === 'CHECKIN') {
     executeStudentCheckIn(text);
   } else {
-    showStatus('Mã QR không hợp lệ.', 'warn');
+    showStatus(isEn ? 'Invalid QR code.' : 'Mã QR không hợp lệ.', 'warn');
   }
 }
 
@@ -941,7 +972,8 @@ function openAppModal(title, bodyText, confirmLabel, onConfirm) {
   document.getElementById('app-modal-title').textContent = stripRemainingEmojis(title);
   document.getElementById('app-modal-body').textContent = stripRemainingEmojis(bodyText);
   const confirmBtn = document.getElementById('app-modal-confirm');
-  confirmBtn.textContent = stripRemainingEmojis(confirmLabel || 'Đồng ý');
+  const defaultConfirm = currentLang === 'en' ? 'Confirm' : 'Đồng ý';
+  confirmBtn.textContent = stripRemainingEmojis(confirmLabel || defaultConfirm);
   confirmBtn.onclick = async () => {
     closeAppModal();
     if (typeof onConfirm === 'function') await onConfirm();
@@ -1017,6 +1049,10 @@ function toggleLanguage() {
   safeSetLocal('cc_lang', currentLang);
   applyLanguage();
   if (typeof renderStudentCourseSelectors === 'function') renderStudentCourseSelectors();
+  if (typeof onAdvStudentGpsToggle === 'function') onAdvStudentGpsToggle();
+  if (typeof teacherState !== 'undefined' && teacherState && typeof applyTeacherState === 'function') {
+    applyTeacherState(teacherState, false);
+  }
 }
 
 function applyLanguage() {
@@ -1028,6 +1064,13 @@ function applyLanguage() {
       el.textContent = I18N[currentLang][key];
     }
   });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    if (I18N[currentLang][key]) {
+      el.setAttribute('placeholder', I18N[currentLang][key]);
+    }
+  });
+  if (typeof onAdvStudentGpsToggle === 'function') onAdvStudentGpsToggle();
   checkIosStandaloneNotice();
 }
 

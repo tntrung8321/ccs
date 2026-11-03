@@ -2,6 +2,12 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### ✨ Version `v3.4.5` — *Single-Line GPS Readout, Subtle Advanced GPS Link, Zero Abbreviations & Complete Bilingual (`VI / EN`) UI*
+* **Eliminated Triple-Repetition on the Student Check-In Card**: Removed redundant `#gps-live-pill`, `#gps-inline-status`, and `#stu-gps-telemetry` elements so GPS pre-check and live positioning feedback are consolidated into a single clean status line (`#gps-dot` + `#gps-readout`) inside `#gps-panel`.
+* **Subtle Text Link for Advanced GPS Mode Below `"Mở phiên điểm danh"`**: Replaced the bulky `"GPS nâng cao"` button with a subtle text link (`#btn-toggle-adv-gps`: *"Chế độ định vị GPS nâng cao"* / *"Advanced GPS positioning mode"*) positioned directly below the `"Mở phiên điểm danh"` button, matching the *"Cài đặt kết nối nâng cao"* link on the Student view and toggling `#box-adv-gps-mode` open beneath it.
+* **Zero Abbreviations Across All Student & Lecturer Views**: Replaced all shorthand and abbreviated labels (`SV`, `GV`, `TB 3 SV`, `60p`, `5p`, `+2 Phút`, `ĐK thiết bị`, `P: 0 | L: 0`) with clear, unabbreviated terminology (`sinh viên`, `Giảng viên`, `trung bình vị trí 3 sinh viên đầu tiên`, `60 phút`, `5 phút`, `Thêm 2 phút`, `Đăng ký thiết bị mới: Đang mở`, `Có mặt: 0 | Đi trễ: 0 | Vắng mặt: 0 | Có phép: 0`).
+* **100% Bilingual (`VI / EN`) Synchronization**: Added complete `data-i18n` and `data-i18n-placeholder` bindings across `index.html` and full dynamic string localization in `js/schedule-config.js`, `js/student.js`, and `js/teacher.js`. Switching `VI / EN` (`toggleLanguage()`) immediately re-renders both Student and Lecturer dashboards without mixed-language text.
+
 ### ✨ Version `v3.4.4` — *Compact UI Copy, Fast 2.5s Live Roster Polling & Zero-Kickout Session Reload*
 * **Compact Lecturer & Student UI**: Removed redundant `"Toàn màn hình"` (`#btn-projector-fs`) and `"Làm mới"` (`#btn-refresh-tea`) buttons, eliminated duplicate class/session headers, shortened all GPS and inline status readouts across Student and Lecturer modes, and tucked the 3-student centroid override inside the collapsible `"GPS nâng cao"` toggle.
 * **Fast 2.5s Live Roster Polling & Instant Visibility Refresh**: Reduced the active Lecturer polling interval from `4.5s` to `2.5s` with an in-flight request lock (`isRefreshingTeaState`), added instant sync when returning to the browser tab (`visibilitychange` / `focus`), and enabled cached class/roster reads in `handleTeacherGetState(ss, body)` (`getClassesMap(ss, false)` and `getClassRosterMap(ss, selectedId, false)`) to cut Google Sheets read overhead on every 2.5s poll.
@@ -77,6 +83,12 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### ✨ Version `v3.4.5` — *Gộp 1 Dòng Trạng Thái GPS, Dòng Chữ Mở Rộng GPS Nâng Cao, Không Viết Tắt & Đồng Bộ Song Ngữ (`VI / EN`) 100%*
+* **Loại bỏ Lặp 3 Chỗ Trạng Thái GPS trên Thẻ Điểm Danh Sinh Viên**: Gỡ bỏ nhãn `#gps-live-pill` trên tiêu đề thẻ, hộp `#gps-inline-status` và dòng `#stu-gps-telemetry` bị trùng lặp; gộp toàn bộ phản hồi kiểm tra GPS về **1 dòng trạng thái duy nhất** (`#gps-dot` + `#gps-readout`) bên trong khung `#gps-panel`.
+* **Chuyển Nút `"GPS nâng cao"` thành Dòng Chữ Mở Rộng Nằm Ngay Dưới Nút `"Mở phiên điểm danh"`**: Thay thế nút bấm `"GPS nâng cao"` thô cứng bằng dòng liên kết chữ tinh gọn (`#btn-toggle-adv-gps`: *"Chế độ định vị GPS nâng cao"*) đặt ngay bên dưới nút `"Mở phiên điểm danh"` (đồng bộ hoàn toàn với phong cách *"Cài đặt kết nối nâng cao"* ở giao diện Sinh viên), khi bấm vào mới mở khung tùy chọn `#box-adv-gps-mode` bên dưới.
+* **Rà Soát & Loại Bỏ Hoàn Toàn Từ Viết Tắt**: Thay thế toàn bộ các từ viết tắt (`SV`, `GV`, `TB 3 SV`, `60p`, `5p`, `+2 Phút`, `ĐK thiết bị`, `P: 0 | L: 0`) bằng câu chữ đầy đủ, rõ nghĩa (`sinh viên`, `Giảng viên`, `trung bình vị trí 3 sinh viên đầu tiên`, `60 phút`, `5 phút`, `Thêm 2 phút`, `Đăng ký thiết bị mới: Đang mở`, `Có mặt: 0 | Đi trễ: 0 | Vắng mặt: 0 | Có phép: 0`).
+* **Đồng Bộ Song Ngữ Anh – Việt (`VI / EN`) Tuyệt Đối Không Lẫn Ngôn Ngữ**: Bổ sung đầy đủ khóa dịch `data-i18n`, `data-i18n-placeholder` trong `index.html` và từ điển song ngữ cho toàn bộ chuỗi thông báo động trong `js/schedule-config.js`, `js/student.js`, `js/teacher.js`. Khi bấm chuyển đổi `VI / EN` (`toggleLanguage()`), cả giao diện Sinh viên và Giảng viên đều tự động cập nhật sang tiếng Anh hoặc tiếng Việt 100% ngay lập tức.
+
 ### ✨ Version `v3.4.4` — *Tinh Gọn Câu Chữ Giao Diện, Cập Nhật Sĩ Số Nhanh `2.5s` & Tải Lại Trang (`F5`) Không Văng Phiên*
 * **Tinh gọn Giao diện Giảng viên & Sinh viên**: Gỡ bỏ nút `"Toàn màn hình"` (`#btn-projector-fs`) và `"Làm mới"` (`#btn-refresh-tea`) dư thừa, loại bỏ tiêu đề lớp/phiên bị lặp, rút gọn toàn bộ câu thông báo GPS/trạng thái ở cả 2 chế độ Sinh viên & Giảng viên, và ẩn gọn tùy chọn lấy trung bình 3 sinh viên đầu tiên vào trong nút `"GPS nâng cao"`.
 * **Cập nhật Danh sách Điểm danh Nhanh `2.5s` & Đồng bộ Tức thì Khi Chuyển Tab**: Giảm chu kỳ tự động làm mới danh sách của Giảng viên từ `4.5s` xuống `2.5s` kèm khóa chống chồng chéo request (`isRefreshingTeaState`), tự động cập nhật ngay lập tức khi quay lại tab trình duyệt (`visibilitychange` / `focus`), đồng thời kích hoạt đọc bộ nhớ đệm `CacheService` trong `handleTeacherGetState` (`getClassesMap(ss, false)` và `getClassRosterMap(ss, selectedId, false)`) giúp phản hồi cực nhanh trên mỗi chu kỳ `2.5s`.
@@ -150,14 +162,14 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.4`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.5`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.4` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.5` |
 | :--- | :--- | :--- |
 | **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)** |
-| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Zero-Scroll (`100dvh`) Student View, Compact 1-Col Lecturer UI & Short Inline Alerts** |
-| **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Pre-Check `#gps-panel` + 1-Tap Live GPS (`cachedGPS = null`) + `isSubmitting` Lock** |
-| **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS`) + Collapsible `GPS nâng cao` 3-Student Centroid (`STUDENT_AVG_3`)** |
+| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Zero-Scroll (`100dvh`) Student View, Zero Abbreviations & 100% Bilingual (`VI / EN`)** |
+| **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Single-Line `#gps-panel` Status + 1-Tap Live GPS (`cachedGPS = null`) + `isSubmitting` Lock** |
+| **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS`) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Smart `17:15–17:30` Priority)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + Legacy URL Auto-Migration** |
 | **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **2.5s Live Polling + Zero-Kickout `F5` Reload + Hidden-Roster Search Auto-Rehide & 1-Tap Unlock** |

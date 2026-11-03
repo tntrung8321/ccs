@@ -1,13 +1,13 @@
 /**
  * ============================================================================
- * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.4.3)
+ * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.4.5)
  * ============================================================================
  * Architecture: Lecturer-Owned Google Sheet + Bound Google Apps Script
- * Key Upgrades & Verified Fixes in v3.4.3:
+ * Key Upgrades & Verified Fixes in v3.4.5:
  *  - Compatible 100% with modular index.html UI & external Sync.gs menu/functions
  *  - Default Lecturer-Proximity GPS Evaluation (TEACHER_GPS) + Advanced 3-Student Centroid Anchor (STUDENT_AVG_3)
- *  - Fixed Lecturer 6-digit password & Master Key verification (accepts C9 & ScriptProperties)
- *  - High-Concurrency CacheService layer (absorbs 60+ simultaneous check-ins)
+ *  - Fixed Lecturer 6-digit password & Master Key verification (accepts C9, ScriptProperties & PREV_TEMP_PC_CODE grace window)
+ *  - High-Concurrency CacheService layer (absorbs 60+ simultaneous check-ins & fast 2.5s live roster polling)
  *  - Pre-lock Idempotency & Rate-Limiting (blocks F12 spam loops before LockService)
  *  - Blocks re-check-in if Lecturer revoked attendance via Spot-Check (TEACHER_MANUAL '-')
  *  - Accepts 1-Tap GPS tokens & rotated static secrets without false ERR_INVALID_QR
@@ -17,7 +17,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.4.3';
+const SYSTEM_VERSION = '3.4.5';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -1189,9 +1189,11 @@ function verifyTeacherToken(ss, submittedToken) {
   }
 
   const tempCode = String(props.getProperty('TEMP_PC_CODE') || '').trim();
+  const tempExp  = Number(props.getProperty('TEMP_PC_EXPIRES') || '0');
+  const isTempValid = !tempExp || Date.now() <= tempExp;
 
-  // Accept if submitted token matches either the visible C9 code on the Sheet OR the stored TEMP_PC_CODE
-  if ((sheetCode && cleanToken === sheetCode) || (tempCode && cleanToken === tempCode)) {
+  // Accept if submitted token matches visible C9 code or stored TEMP_PC_CODE (while not expired)
+  if (isTempValid && ((sheetCode && cleanToken === sheetCode) || (tempCode && cleanToken === tempCode))) {
     props.setProperty('FAILED_AUTH_COUNT', '0');
     props.deleteProperty('AUTH_LOCKOUT_UNTIL');
     cache.remove('AUTH_LOCKOUT_UNTIL');
@@ -1230,7 +1232,7 @@ function handleTeacherAuth(ss, body) {
 
 function handleTeacherGetState(ss, body) {
   const classId = String(body.classId || '').trim();
-  const classes = getClassesMap(ss, true);
+  const classes = getClassesMap(ss, false);
   const scheduleMetaMap = getStoredClassSchedulesMap();
   const classList = Object.values(classes).map(c => Object.assign({}, c, {
     sessionOpenNow: Boolean(getLatestOpenSession(ss, c.classId)),
@@ -1243,7 +1245,7 @@ function handleTeacherGetState(ss, body) {
 
   if (selectedId) {
     sessionInfo = getLatestSessionForDashboard(ss, selectedId, true);
-    const rosterMap = getClassRosterMap(ss, selectedId, true);
+    const rosterMap = getClassRosterMap(ss, selectedId, false);
     const sessionChecks = sessionInfo ? getSessionAttendanceMap(ss, sessionInfo.sessionId) : {};
 
     rosterSummary = Object.values(rosterMap).map(st => {
