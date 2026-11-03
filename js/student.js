@@ -1,7 +1,8 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.4.9)
+ * STUDENT CONTROLLER (js/student.js — v3.5.0)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
+ *  - Compact Single-Line Attendance Summary Bar (Present / Late / Excused / Absent) with Zero Extra Requests
  *  - Permanent Student ID Lock after first onboarding (hides input & button)
  *  - Pre-Check & Activate GPS Panel (#gps-panel) with Live High-Accuracy Warm-Up (No GPS Caching)
  *  - Instant 2-Step Address Bar Permission Guide (#gps-permission-guide-box) & Live Permission Recovery
@@ -12,6 +13,7 @@
 let isSubmitting = false;
 let isCheckingGps = false;
 let checkInCooldownTimer = null;
+let stuAttHistoryExpanded = false;
 window.cachedGPS = null; // Kept null so check-in always verifies fresh live GPS
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -52,22 +54,29 @@ async function syncStudentLiveScheduleFromServer() {
   const apiUrl = activeProfile ? activeProfile.apiUrl : DEFAULT_LECTURER_API;
 
   try {
-    const pingRes = await callBackend(apiUrl, { action: 'PING' }, 1);
+    const pingPayload = { action: 'PING' };
+    if (activeProfile && activeProfile.studentId) {
+      pingPayload.studentId = activeProfile.studentId;
+    }
+    const pingRes = await callBackend(apiUrl, pingPayload, 1);
     if (pingRes && pingRes.ok) {
       ingestServerScheduleData(pingRes);
-      // Merge any updated class metadata (such as scheduleInfo / sessionOpenNow) into stored enrolledClasses
+      // Merge any updated class metadata (such as scheduleInfo / sessionOpenNow / attendanceStats) into stored enrolledClasses
       if (activeProfile && Array.isArray(pingRes.classes) && Array.isArray(activeProfile.enrolledClasses)) {
         const serverClassMap = {};
         pingRes.classes.forEach(sc => {
           if (sc && sc.classId) serverClassMap[sc.classId] = sc;
         });
+        const statsMap = (pingRes.studentStats && typeof pingRes.studentStats === 'object') ? pingRes.studentStats : {};
         activeProfile.enrolledClasses = activeProfile.enrolledClasses.map(ec => {
           const sc = serverClassMap[ec.classId];
+          const st = statsMap[ec.classId] || ec.attendanceStats || null;
           return sc ? Object.assign({}, ec, {
             className: sc.className || ec.className,
             scheduleInfo: sc.scheduleInfo || ec.scheduleInfo,
-            sessionOpenNow: Boolean(sc.sessionOpenNow)
-          }) : ec;
+            sessionOpenNow: Boolean(sc.sessionOpenNow),
+            attendanceStats: st
+          }) : Object.assign({}, ec, { attendanceStats: st });
         });
         saveStudentProfile(activeInst, activeProfile);
       }
@@ -102,6 +111,7 @@ function renderStudentCourseSelectors() {
       btnSubmit.disabled = false;
       btnSubmit.classList.remove('hidden');
     }
+    renderStudentAttendanceSummary('', '');
     return;
   }
 
@@ -154,11 +164,14 @@ function onStudentInstChange(preserveManualSelection = false) {
   );
 
   // Resolve real-time class from Google Calendar / Period Slots (123, 456, 789, 10-12, 13-15) / CLASS_SCHEDULE
-  // If student is enrolled in only 1 class, always auto-select that class so they are never blocked by unselected dropdown
+  // Fallback to open session class, last selected class, or first enrolled class so attendance stats are always shown
   const scheduleMatch = resolveActiveClassBySchedule(enrolled, new Date());
+  const openSesClass = enrolled.find(c => c && c.sessionOpenNow);
+  const savedLastClass = safeGetLocal('cc_last_class_' + selInst, '');
+  const validLastClass = (savedLastClass && enrolled.some(c => c.classId === savedLastClass)) ? savedLastClass : '';
   const autoClassId = preserveManualSelection && currentSelectedVal
     ? currentSelectedVal
-    : (scheduleMatch.matchedClassId || (enrolled.length === 1 ? enrolled[0].classId : ''));
+    : (scheduleMatch.matchedClassId || (openSesClass ? openSesClass.classId : '') || validLastClass || (enrolled[0] ? enrolled[0].classId : ''));
 
   const unselectedLabel = I18N[currentLang].stu_unselected_class_opt || '-- Chưa chọn lớp - Ngoài khung giờ --';
   const optionsHtml = [
@@ -221,7 +234,294 @@ function updateStudentClassSelectionUI(instId, scheduleMatch) {
     }
   }
 
+  renderStudentAttendanceSummary(instId, selectedClassId);
   renderTodayStudentReceipt(selectedClassId);
+}
+
+function normalizeSessionDayKey(sessionKey) {
+  const raw = String(sessionKey || '').trim();
+  if (!raw) return getTodayDateKey();
+  // Match SES_<classId>_20261103_151600 -> 2026-11-03
+  const mSes = raw.match(/_(\d{4})(\d{2})(\d{2})_/);
+  if (mSes) return `${mSes[1]}-${mSes[2]}-${mSes[3]}`;
+  // Match 2026-11-03
+  const mIso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (mIso) return `${mIso[1]}-${mIso[2]}-${mIso[3]}`;
+  return raw;
+}
+
+function formatDisplayDateFromKey(dayKey) {
+  const norm = normalizeSessionDayKey(dayKey);
+  const m = norm.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  const d = new Date();
+  const pad2 = n => String(n).padStart(2, '0');
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+function formatNowTimeHhMmSs() {
+  const d = new Date();
+  const pad2 = n => String(n).padStart(2, '0');
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+function recordLocalStudentSessionMark(studentId, classId, sessionKey, status, timeStr = '') {
+  const sid = String(studentId || '').trim().toUpperCase();
+  const cid = String(classId || '').trim();
+  const dayKey = normalizeSessionDayKey(sessionKey);
+  const st = String(status || '').trim().toUpperCase();
+  if (!sid || !cid || !dayKey) return;
+
+  const storageKey = `cc_stu_att_marks_${sid}_${cid}`;
+  let map = {};
+  try {
+    const raw = safeGetLocal(storageKey, null);
+    if (raw) map = JSON.parse(raw) || {};
+  } catch (e) {
+    map = {};
+  }
+
+  if (st === 'P' || st === 'L' || st === 'E' || st === 'A' || st === '-') {
+    const normalizedStatus = st === '-' ? 'A' : st;
+    const prev = map[dayKey];
+    const prevTime = (prev && typeof prev === 'object' && prev.time) ? prev.time : '';
+    map[dayKey] = {
+      status: normalizedStatus,
+      date: formatDisplayDateFromKey(dayKey),
+      time: timeStr || prevTime || formatNowTimeHhMmSs(),
+      ts: (prev && typeof prev === 'object' && prev.ts) ? prev.ts : Date.now()
+    };
+    safeSetLocal(storageKey, JSON.stringify(map));
+  }
+}
+
+function getLocalStudentAttendanceHistory(studentId, classId) {
+  const sid = String(studentId || '').trim().toUpperCase();
+  const cid = String(classId || '').trim();
+  if (!sid || !cid) return [];
+
+  // Ensure today's receipt (if any) is synced into local marks
+  try {
+    const todayRecRaw = safeGetLocal(`cc_receipt_${cid}_${getTodayDateKey()}`, null);
+    if (todayRecRaw) {
+      const rec = JSON.parse(todayRecRaw);
+      if (rec && (!rec.studentId || String(rec.studentId).trim().toUpperCase() === sid) && rec.status) {
+        recordLocalStudentSessionMark(sid, cid, getTodayDateKey(), rec.status, rec.time || '');
+      }
+    }
+  } catch (e) {}
+
+  let localMap = {};
+  try {
+    const raw = safeGetLocal(`cc_stu_att_marks_${sid}_${cid}`, null);
+    if (raw) localMap = JSON.parse(raw) || {};
+  } catch (e) {
+    localMap = {};
+  }
+
+  const list = [];
+  Object.keys(localMap).forEach(k => {
+    const item = localMap[k];
+    if (!item) return;
+    if (typeof item === 'string') {
+      list.push({
+        dayKey: k,
+        status: item === '-' ? 'A' : item,
+        date: formatDisplayDateFromKey(k),
+        time: '',
+        ts: 0
+      });
+    } else if (typeof item === 'object' && item.status) {
+      list.push({
+        dayKey: k,
+        status: item.status === '-' ? 'A' : item.status,
+        date: item.date || formatDisplayDateFromKey(k),
+        time: item.time || '',
+        ts: Number(item.ts || 0)
+      });
+    }
+  });
+
+  list.sort((a, b) => {
+    if (b.dayKey !== a.dayKey) return b.dayKey.localeCompare(a.dayKey);
+    return b.ts - a.ts;
+  });
+  return list;
+}
+
+function getMergedStudentClassStats(studentId, classId, serverStats) {
+  const sid = String(studentId || '').trim().toUpperCase();
+  const cid = String(classId || '').trim();
+  const srv = (serverStats && typeof serverStats === 'object')
+    ? serverStats
+    : { P: 0, L: 0, E: 0, A: 0, total: 0 };
+
+  if (!sid || !cid) {
+    return {
+      P: Number(srv.P || 0),
+      L: Number(srv.L || 0),
+      E: Number(srv.E || 0),
+      A: Number(srv.A || 0),
+      total: Number(srv.total || 0),
+      history: []
+    };
+  }
+
+  const history = getLocalStudentAttendanceHistory(sid, cid);
+  let localP = 0, localL = 0, localE = 0, localA = 0;
+  history.forEach(item => {
+    const v = item.status;
+    if (v === 'P') localP++;
+    else if (v === 'L') localL++;
+    else if (v === 'E') localE++;
+    else if (v === 'A') localA++;
+  });
+
+  const srvTotal = Number(srv.P || 0) + Number(srv.L || 0) + Number(srv.E || 0) + Number(srv.A || 0);
+  const localTotal = localP + localL + localE + localA;
+
+  if (srvTotal > localTotal) {
+    return {
+      P: Math.max(Number(srv.P || 0), localP),
+      L: Math.max(Number(srv.L || 0), localL),
+      E: Math.max(Number(srv.E || 0), localE),
+      A: Math.max(Number(srv.A || 0), localA),
+      total: Math.max(srvTotal, localTotal),
+      history: history
+    };
+  }
+  if (localTotal > 0) {
+    return { P: localP, L: localL, E: localE, A: localA, total: localTotal, history: history };
+  }
+  return {
+    P: Number(srv.P || 0),
+    L: Number(srv.L || 0),
+    E: Number(srv.E || 0),
+    A: Number(srv.A || 0),
+    total: srvTotal,
+    history: history
+  };
+}
+
+function updateStoredStudentClassStats(instId, classId, statsObj) {
+  if (!instId || !classId || !statsObj) return;
+  const profiles = getStudentProfiles();
+  const p = profiles[instId];
+  if (!p || !Array.isArray(p.enrolledClasses)) return;
+  p.enrolledClasses = p.enrolledClasses.map(ec =>
+    ec && ec.classId === classId ? Object.assign({}, ec, { attendanceStats: statsObj }) : ec
+  );
+  saveStudentProfile(instId, p);
+}
+
+function toggleStudentAttendanceHistory() {
+  stuAttHistoryExpanded = !stuAttHistoryExpanded;
+  const selClassEl = document.getElementById('sel-student-class');
+  renderStudentAttendanceSummary('', selClassEl ? selClassEl.value : '');
+}
+
+function renderStudentAttendanceSummary(instId, classId) {
+  const bar = document.getElementById('stu-attendance-summary');
+  if (!bar) return;
+
+  const profiles = getStudentProfiles();
+  const instIds = Object.keys(profiles);
+  // Support both renderStudentAttendanceSummary(instId, classId) and renderStudentAttendanceSummary(classId)
+  if (classId === undefined && instId && !profiles[instId]) {
+    classId = instId;
+    instId = '';
+  }
+  const activeInst = (instId && profiles[instId]) ? instId : safeGetLocal('cc_active_inst', instIds[0] || '');
+  const p = profiles[activeInst];
+
+  let targetStudentId = p ? p.studentId : '';
+  let targetClassId = classId || '';
+  let serverStats = null;
+
+  if (p && Array.isArray(p.enrolledClasses) && p.enrolledClasses.length > 0) {
+    if (!targetClassId) {
+      targetClassId = safeGetLocal('cc_last_class_' + activeInst, '') || p.enrolledClasses[0].classId;
+    }
+    const cls = p.enrolledClasses.find(c => c && c.classId === targetClassId) || p.enrolledClasses[0];
+    if (cls) {
+      targetClassId = cls.classId;
+      serverStats = cls.attendanceStats || null;
+    }
+  }
+
+  // If Lecturer is testing on the same browser and just marked a student in Lecturer mode, allow live preview sync
+  if (typeof getTeacherAuth === 'function' && getTeacherAuth()) {
+    try {
+      const lastPreviewRaw = safeGetLocal('cc_tea_last_preview_mark', null);
+      if (lastPreviewRaw) {
+        const preview = JSON.parse(lastPreviewRaw);
+        if (preview && preview.studentId && preview.classId) {
+          if (!targetStudentId || !targetClassId || preview.classId === targetClassId || preview.studentId === targetStudentId) {
+            targetStudentId = preview.studentId;
+            targetClassId = preview.classId;
+            if (p && p.studentId !== preview.studentId) {
+              serverStats = null;
+            }
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  const st = getMergedStudentClassStats(targetStudentId, targetClassId, serverStats);
+  const countP = Number(st.P || 0);
+  const countL = Number(st.L || 0);
+  const countE = Number(st.E || 0);
+  const countA = Number(st.A || 0);
+  const isEn = currentLang === 'en';
+  const historyList = Array.isArray(st.history) ? st.history : [];
+
+  function formatStatusRowBadge(statusChar) {
+    if (statusChar === 'P') {
+      return `<span class="att-dot dot-p"></span><span>${isEn ? 'Present' : 'Có mặt'}</span>`;
+    }
+    if (statusChar === 'L') {
+      return `<span class="att-dot dot-l"></span><span>${isEn ? 'Late' : 'Đi trễ'}</span>`;
+    }
+    if (statusChar === 'E') {
+      return `<span class="att-dot dot-e"></span><span>${isEn ? 'Excused' : 'Có phép'}</span>`;
+    }
+    return `<span class="att-dot dot-a"></span><span>${isEn ? 'Absent' : 'Vắng'}</span>`;
+  }
+
+  const historyHtml = historyList.length > 0
+    ? historyList.map(item => {
+        const timePart = item.time ? ` • ${escapeHtml(item.time)}` : '';
+        return `
+          <div class="att-history-row">
+            <span class="att-history-time">${escapeHtml(item.date)}${timePart}</span>
+            <span class="att-history-status">${formatStatusRowBadge(item.status)}</span>
+          </div>
+        `;
+      }).join('')
+    : `<div class="att-history-empty">${isEn ? 'No attendance history recorded on this device yet.' : 'Chưa có lịch sử điểm danh trên thiết bị này.'}</div>`;
+
+  bar.classList.toggle('expanded', stuAttHistoryExpanded);
+  bar.innerHTML = `
+    <div class="stu-att-header-row">
+      <div class="stu-att-chips">
+        <span class="att-stat-item"><span class="att-dot dot-p"></span><span>${isEn ? 'Present' : 'Có mặt'}:</span> <strong>${countP}</strong></span>
+        <span class="att-stat-item"><span class="att-dot dot-l"></span><span>${isEn ? 'Late' : 'Đi trễ'}:</span> <strong>${countL}</strong></span>
+        <span class="att-stat-item"><span class="att-dot dot-e"></span><span>${isEn ? 'Excused' : 'Có phép'}:</span> <strong>${countE}</strong></span>
+        <span class="att-stat-item"><span class="att-dot dot-a"></span><span>${isEn ? 'Absent' : 'Vắng'}:</span> <strong>${countA}</strong></span>
+      </div>
+      <svg class="att-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </div>
+    <div id="stu-att-history-drawer" class="stu-att-history-drawer ${stuAttHistoryExpanded ? '' : 'hidden'}">
+      ${historyHtml}
+    </div>
+  `;
+  const drawerEl = document.getElementById('stu-att-history-drawer');
+  if (drawerEl && drawerEl !== bar) {
+    drawerEl.innerHTML = historyHtml;
+    drawerEl.classList.toggle('hidden', !stuAttHistoryExpanded);
+  }
+  bar.classList.remove('hidden');
 }
 
 function toggleAddCourseBox() {
@@ -325,13 +625,25 @@ async function handleStudentPreCheckGps() {
   } catch (err) {
     window.cachedGPS = null;
     if (dot) dot.className = 'status-dot dot-err';
-    if (readout) {
-      readout.textContent = currentLang === 'en'
-        ? 'GPS unavailable — Please allow location permission in browser'
-        : 'Chưa lấy được định vị GPS — Vui lòng cấp quyền vị trí cho trình duyệt';
-    }
-    if (typeof formatGpsErrorGuide === 'function') {
-      showStatus(formatGpsErrorGuide(err), 'err', 'checkin-inline-status');
+    if (err && err.code === 1) {
+      if (readout) {
+        readout.textContent = currentLang === 'en'
+          ? 'Location permission blocked'
+          : 'Chưa cấp quyền Vị trí';
+      }
+      if (typeof showGpsPermissionGuideBox === 'function') {
+        showGpsPermissionGuideBox();
+      }
+      hideStatus('checkin-inline-status');
+    } else {
+      if (readout) {
+        readout.textContent = currentLang === 'en'
+          ? 'GPS unavailable'
+          : 'Chưa lấy được định vị GPS';
+      }
+      if (typeof formatGpsErrorGuide === 'function') {
+        showStatus(formatGpsErrorGuide(err), 'err', 'checkin-inline-status');
+      }
     }
   } finally {
     isCheckingGps = false;
@@ -579,18 +891,27 @@ async function executeStudentCheckIn(qrString) {
       if (typeof hideGpsPermissionGuideBox === 'function') hideGpsPermissionGuideBox();
     } catch (gpsErr) {
       if (dot) dot.className = 'status-dot dot-err';
-      if (readout) {
-        readout.textContent = currentLang === 'en'
-          ? 'GPS unavailable — Please allow location permission'
-          : 'Chưa lấy được định vị GPS';
+      if (gpsErr && gpsErr.code === 1) {
+        if (readout) {
+          readout.textContent = currentLang === 'en'
+            ? 'Location permission blocked'
+            : 'Chưa cấp quyền Vị trí';
+        }
+        if (typeof showGpsPermissionGuideBox === 'function') {
+          showGpsPermissionGuideBox();
+        }
+        hideStatus('checkin-inline-status');
+      } else {
+        if (readout) {
+          readout.textContent = currentLang === 'en'
+            ? 'GPS unavailable'
+            : 'Chưa lấy được định vị GPS';
+        }
+        const errMsg = typeof formatGpsErrorGuide === 'function'
+          ? formatGpsErrorGuide(gpsErr)
+          : I18N[currentLang].ERR_GPS_UNAVAILABLE;
+        showStatus(errMsg, 'err', 'checkin-inline-status');
       }
-      if (gpsErr && gpsErr.code === 1 && typeof showGpsPermissionGuideBox === 'function') {
-        showGpsPermissionGuideBox();
-      }
-      const errMsg = typeof formatGpsErrorGuide === 'function'
-        ? formatGpsErrorGuide(gpsErr)
-        : I18N[currentLang].ERR_GPS_UNAVAILABLE;
-      showStatus(errMsg, 'err', 'checkin-inline-status');
       resetCheckInButtonImmediate();
       return;
     }
@@ -641,7 +962,11 @@ async function executeStudentCheckIn(qrString) {
       if (recordedClassId !== classId && selClassEl) {
         selClassEl.value = recordedClassId;
       }
+      if (r.attendanceStats) {
+        updateStoredStudentClassStats(instId, recordedClassId, r.attendanceStats);
+      }
       saveTodayStudentReceipt(recordedClassId, r);
+      renderStudentAttendanceSummary(instId, recordedClassId);
       renderTodayStudentReceipt(recordedClassId);
       showStatus(formatServerMessage(res.code, {
         status: r.status,
@@ -656,7 +981,11 @@ async function executeStudentCheckIn(qrString) {
       }, 1);
       if (checkRec && checkRec.ok && checkRec.receipt) {
         const recordedClassId = checkRec.receipt.classId || classId;
+        if (checkRec.receipt.attendanceStats) {
+          updateStoredStudentClassStats(instId, recordedClassId, checkRec.receipt.attendanceStats);
+        }
         saveTodayStudentReceipt(recordedClassId, checkRec.receipt);
+        renderStudentAttendanceSummary(instId, recordedClassId);
         renderTodayStudentReceipt(recordedClassId);
         showStatus(formatServerMessage('CONFIRMED_' + (checkRec.receipt.status === 'P' ? 'PRESENT' : 'LATE'), {
           time: checkRec.receipt.time,
@@ -732,38 +1061,34 @@ function saveTodayStudentReceipt(classId, receiptObj) {
   if (!classId || !receiptObj) return;
   const key = `cc_receipt_${classId}_${getTodayDateKey()}`;
   safeSetLocal(key, JSON.stringify(receiptObj));
+  if (receiptObj.studentId && receiptObj.status) {
+    recordLocalStudentSessionMark(
+      receiptObj.studentId,
+      classId,
+      receiptObj.sessionId || getTodayDateKey(),
+      receiptObj.status,
+      receiptObj.time || ''
+    );
+  }
 }
 
 function renderTodayStudentReceipt(classId) {
   const box = document.getElementById('student-today-receipt');
-  if (!box) return;
-  if (!classId) {
-    box.classList.add('hidden');
-    return;
-  }
+  if (box) box.classList.add('hidden');
+  if (!classId) return;
   const key = `cc_receipt_${classId}_${getTodayDateKey()}`;
   const raw = safeGetLocal(key, null);
-  if (!raw) {
-    box.classList.add('hidden');
-    return;
-  }
+  if (!raw) return;
   try {
     const r = JSON.parse(raw);
-    const isEn = currentLang === 'en';
-    const statusText = r.status === 'P'
-      ? (isEn ? 'PRESENT (P)' : 'CÓ MẶT (P)')
-      : (r.status === 'L' ? (isEn ? 'LATE (L)' : 'ĐI TRỄ (L)') : r.status);
-    box.innerHTML = `
-      <div class="receipt-title">
-        <span>${isEn ? `Today's Attendance Receipt (${escapeHtml(classId)})` : `Biên lai điểm danh hôm nay (${escapeHtml(classId)})`}</span>
-        <span>${escapeHtml(statusText)}</span>
-      </div>
-      <div class="receipt-meta">
-        ${isEn ? 'Student ID' : 'Mã số sinh viên'}: ${escapeHtml(r.studentId || '')} | ${isEn ? 'Time' : 'Giờ'}: ${escapeHtml(r.time || '')} | ${isEn ? 'Distance' : 'Khoảng cách'}: ${escapeHtml(r.distanceMeters !== undefined ? r.distanceMeters + 'm' : 'N/A')}
-      </div>
-    `;
-    box.classList.remove('hidden');
-  } catch (e) {
-    box.classList.add('hidden');
-  }
+    if (r && r.studentId && r.status) {
+      recordLocalStudentSessionMark(
+        r.studentId,
+        classId,
+        r.sessionId || getTodayDateKey(),
+        r.status,
+        r.time || ''
+      );
+    }
+  } catch (e) {}
 }

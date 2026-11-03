@@ -15,7 +15,7 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.4.9" />
+  <link rel="stylesheet" href="css/styles.css?v=3.5.0" />
 </head>
 <body>
 
@@ -207,6 +207,20 @@
           <span id="shield-id-status"></span>
         </div>
 
+        <!-- UTILITARIAN ACADEMIC STUDENT ATTENDANCE SUMMARY + EXPANDABLE LOCAL HISTORY BOX -->
+        <div id="stu-attendance-summary" class="stu-att-summary-bar" onclick="toggleStudentAttendanceHistory()" title="Bấm để xem lịch sử điểm danh trên thiết bị">
+          <div class="stu-att-header-row">
+            <div class="stu-att-chips">
+              <span class="att-stat-item"><span class="att-dot dot-p"></span><span data-i18n="stu_att_p">Có mặt</span>: <strong>0</strong></span>
+              <span class="att-stat-item"><span class="att-dot dot-l"></span><span data-i18n="stu_att_l">Đi trễ</span>: <strong>0</strong></span>
+              <span class="att-stat-item"><span class="att-dot dot-e"></span><span data-i18n="stu_att_e">Có phép</span>: <strong>0</strong></span>
+              <span class="att-stat-item"><span class="att-dot dot-a"></span><span data-i18n="stu_att_a">Vắng</span>: <strong>0</strong></span>
+            </div>
+            <svg class="att-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div id="stu-att-history-drawer" class="stu-att-history-drawer hidden"></div>
+        </div>
+
         <!-- SINGLE STREAMLINED GPS STATUS BAR (NO REPETITION) -->
         <div id="gps-panel">
           <div class="gps-panel-top">
@@ -224,22 +238,18 @@
         <!-- 2-SECOND ADDRESS BAR PERMISSION UNBLOCK GUIDE (SHOWN AUTOMATICALLY WHEN SITE LOCATION IS BLOCKED) -->
         <div id="gps-permission-guide-box" class="perm-guide-box hidden">
           <div class="perm-guide-header">
-            <span id="perm-guide-title" data-i18n="perm_guide_title">Cách mở quyền Vị trí ngay trên thanh địa chỉ (2 giây — Không cần vào Cài đặt máy):</span>
+            <span id="perm-guide-title" data-i18n="perm_guide_title">Cách mở quyền Vị trí trên thanh địa chỉ:</span>
           </div>
           <div class="perm-guide-steps">
             <div class="perm-step-row">
               <span class="perm-step-badge">1</span>
-              <span id="perm-guide-step1">Bấm nút dấu 3 chấm (•••) hoặc biểu tượng Menu bên trái thanh địa chỉ trình duyệt.</span>
+              <span id="perm-guide-step1">Bấm nút ••• hoặc biểu tượng Menu (hoặc 2 thanh trượt) trên thanh địa chỉ.</span>
             </div>
             <div class="perm-step-row">
               <span class="perm-step-badge">2</span>
-              <span id="perm-guide-step2">Chọn Cài đặt trang web (hoặc Quyền) -> Vị trí (Location) -> Cho phép (Allow).</span>
+              <span id="perm-guide-step2">Chọn Cài đặt trang web (hoặc Quyền) → Vị trí → Cho phép.</span>
             </div>
           </div>
-          <button type="button" id="btn-retry-gps-perm" class="btn btn-outline btn-sm" style="margin-top:8px;" onclick="handleStudentPreCheckGps()">
-            <svg class="icon icon-sm"><use href="#ic-refresh"></use></svg>
-            <span id="perm-guide-retry-label" data-i18n="perm_guide_retry_btn">Đã bật xong — Bấm kiểm tra lại GPS</span>
-          </button>
         </div>
 
         <button id="btn-start-checkin" class="btn btn-checkin-hero" onclick="handleOneTapGpsCheckIn()">
@@ -460,8 +470,8 @@
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/schedule-config.js?v=3.4.9"></script>
-  <script src="js/student.js?v=3.4.9"></script>
-  <script src="js/teacher.js?v=3.4.9"></script>
+  <script src="js/schedule-config.js?v=3.5.0"></script>
+  <script src="js/student.js?v=3.5.0"></script>
+  <script src="js/teacher.js?v=3.5.0"></script>
 </body>
 </html>

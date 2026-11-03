@@ -786,6 +786,160 @@ select.unselected-warning {
   min-width: 26px;
 }
 
+.roster-actions .btn-mark-active-P {
+  background: var(--success-bg);
+  color: var(--success-text);
+  border-color: var(--success-border);
+  font-weight: 800;
+}
+
+.roster-actions .btn-mark-active-L {
+  background: #fefce8;
+  color: #854d0e;
+  border-color: #fde047;
+  font-weight: 800;
+}
+
+.roster-actions .btn-mark-active-E {
+  background: #fff7ed;
+  color: #c2410c;
+  border-color: #fdba74;
+  font-weight: 800;
+}
+
+/* Utilitarian Academic Student Attendance Summary Bar + Expandable Local History Drawer */
+.stu-att-summary-bar {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 120ms ease-out, background-color 120ms ease-out;
+}
+
+.stu-att-summary-bar:hover {
+  border-color: #94a3b8;
+}
+
+.stu-att-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.stu-att-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.att-stat-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.77rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.att-stat-item strong {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.att-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.att-dot.dot-p {
+  background: #16a34a;
+}
+
+.att-dot.dot-l {
+  background: #eab308;
+}
+
+.att-dot.dot-e {
+  background: #f97316;
+}
+
+.att-dot.dot-a {
+  background: #dc2626;
+}
+
+.att-chevron {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: transform 150ms ease-out;
+}
+
+.stu-att-summary-bar.expanded .att-chevron {
+  transform: rotate(180deg);
+}
+
+.stu-att-history-drawer {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.att-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  background: #ffffff;
+  border: 1px solid var(--border-subtle);
+  font-size: 0.75rem;
+}
+
+.att-history-time {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.att-history-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.att-history-empty {
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding: 2px 0;
+}
+
 @media (max-width: 440px) {
   .roster-item {
     flex-wrap: wrap;
@@ -817,15 +971,15 @@ select.unselected-warning {
 }
 
 .st-L {
-  background: var(--warn-bg);
-  color: var(--warn-text);
-  border: 1px solid var(--warn-border);
+  background: #fefce8;
+  color: #854d0e;
+  border: 1px solid #fde047;
 }
 
 .st-E {
-  background: #e0f2fe;
-  color: #075985;
-  border: 1px solid #7dd3fc;
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fdba74;
 }
 
 .st-- {

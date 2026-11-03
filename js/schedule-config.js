@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.4.9)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.5.0)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -540,8 +540,13 @@ const I18N = {
     ERR_UNAUTHORIZED: "[TỪ CHỐI] Mật khẩu phiên không đúng hoặc đã hết hạn. Hãy kiểm tra lại ô C9 trên Google Sheet.",
     DEVICE_RESET_OK: "[ĐÃ MỞ KHÓA] Đã đặt lại khóa thiết bị cho sinh viên {id}.",
     btn_open_external_browser: "Mở ngay bằng trình duyệt chính (Chrome / Safari)",
-    perm_guide_title: "Cách mở quyền Vị trí ngay trên thanh địa chỉ (2 giây — Không cần vào Cài đặt tìm web):",
-    perm_guide_retry_btn: "Đã bật xong — Bấm kiểm tra lại GPS"
+    perm_guide_title: "Cách mở quyền Vị trí trên thanh địa chỉ:",
+    perm_guide_retry_btn: "Kiểm tra lại GPS",
+    stu_att_summary_label: "Chuyên cần:",
+    stu_att_p: "Có mặt",
+    stu_att_l: "Đi trễ",
+    stu_att_e: "Có phép",
+    stu_att_a: "Vắng"
   },
   en: {
     nav_student: "Student",
@@ -615,8 +620,13 @@ const I18N = {
     ERR_UNAUTHORIZED: "[UNAUTHORIZED] Invalid or expired session code. Please check Cell C9 in your Google Sheet.",
     DEVICE_RESET_OK: "[UNLOCKED] Device lock has been reset for Student ID {id}.",
     btn_open_external_browser: "Open in main browser (Chrome / Safari)",
-    perm_guide_title: "How to allow Location right from the address bar (2 seconds — No Settings search needed):",
-    perm_guide_retry_btn: "Done — Re-check GPS now"
+    perm_guide_title: "How to allow Location on the address bar:",
+    perm_guide_retry_btn: "Re-check GPS",
+    stu_att_summary_label: "Attendance:",
+    stu_att_p: "Present",
+    stu_att_l: "Late",
+    stu_att_e: "Excused",
+    stu_att_a: "Absent"
   }
 };
 
@@ -1236,40 +1246,37 @@ function showGpsPermissionGuideBox() {
   const titleEl = document.getElementById('perm-guide-title');
   const step1El = document.getElementById('perm-guide-step1');
   const step2El = document.getElementById('perm-guide-step2');
-  const retryEl = document.getElementById('perm-guide-retry-label');
 
   if (titleEl) {
     titleEl.textContent = I18N[currentLang].perm_guide_title;
-  }
-  if (retryEl) {
-    retryEl.textContent = I18N[currentLang].perm_guide_retry_btn;
   }
 
   if (isIos) {
     if (step1El) {
       step1El.textContent = isEn
-        ? 'Tap the three-dots (•••) button or the Page Menu icon on the Safari/Chrome address bar (or "AA" on older iOS).'
-        : 'Nhìn lên thanh địa chỉ Safari/Chrome: Bấm nút dấu 3 chấm (•••) hoặc biểu tượng Menu (ô vuông có 2 gạch bên trái tên web; hoặc chữ "AA" trên iOS cũ).';
+        ? 'Tap the ••• button or Page Menu icon (or "AA") on the Safari address bar.'
+        : 'Bấm nút ••• hoặc biểu tượng Menu (hoặc chữ AA) trên thanh địa chỉ Safari.';
     }
     if (step2El) {
       step2El.textContent = isEn
-        ? 'Tap ••• (if shown) -> Select "Website Settings" -> "Location" -> Choose "Allow".'
-        : 'Bấm tiếp dấu ••• (nếu có) -> Chọn "Cài đặt trang web" (Website Settings) -> "Vị trí" (Location) -> Chọn "Cho phép" (Allow).';
+        ? 'Select "Website Settings" -> "Location" -> "Allow".'
+        : 'Chọn "Cài đặt trang web" (Website Settings) -> "Vị trí" -> "Cho phép".';
     }
   } else {
     if (step1El) {
       step1El.textContent = isEn
-        ? 'Look at the top address bar: Tap the Tune/Sliders (or Lock) icon directly to the left of the website URL (no need to open Phone Settings).'
-        : 'Nhìn lên thanh địa chỉ phía trên: Bấm vào biểu tượng 2 thanh trượt (hoặc Ổ khóa) nằm ngay bên trái địa chỉ trang web (không cần vào Cài đặt máy).';
+        ? 'Tap the Tune/Sliders (or Lock) icon on the left of the address bar.'
+        : 'Bấm biểu tượng 2 thanh trượt (hoặc Ổ khóa) bên trái thanh địa chỉ.';
     }
     if (step2El) {
       step2El.textContent = isEn
-        ? 'Tap "Permissions" -> Turn ON "Location" (or tap "Reset permissions").'
-        : 'Chọn mục "Quyền" (Permissions) -> Gạt bật "Vị trí" (Location) sang Cho phép (hoặc bấm "Đặt lại quyền").';
+        ? 'Select "Permissions" -> Turn ON "Location".'
+        : 'Chọn "Quyền" (Permissions) -> Bật "Vị trí" (Location) sang Cho phép.';
     }
   }
 
   box.classList.remove('hidden');
+  hideStatus('checkin-inline-status');
 }
 
 function hideGpsPermissionGuideBox() {
@@ -1357,6 +1364,12 @@ function switchMode(mode) {
     stuBtn.classList.add('active');
     teaView.classList.add('hidden');
     stuView.classList.remove('hidden');
+    if (typeof renderStudentCourseSelectors === 'function') renderStudentCourseSelectors();
+    if (typeof renderStudentAttendanceSummary === 'function') {
+      const selEl = document.getElementById('sel-student-class');
+      renderStudentAttendanceSummary('', selEl ? selEl.value : '');
+    }
+    if (typeof syncStudentLiveScheduleFromServer === 'function') syncStudentLiveScheduleFromServer();
   }
   syncStudentViewportScrollLock();
 }

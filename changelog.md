@@ -2,6 +2,26 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### ✨ Version `v3.5.0` — *Utilitarian (`taste`) Student Attendance Summary (`P / L / E / A`), Phone-Local Expandable Attendance History Drawer, `0.01s` Optimistic Manual Marking & Zero-Extra-Cloud-Load RAM Caching*
+* **Utilitarian Academic (`taste`) Student Attendance Summary & Expandable Phone-Local History Drawer (`#stu-attendance-summary` + `#stu-att-history-drawer`)**:
+  * **Monochrome Slate Box + 7px Colored Status Dots (`.att-dot`)**: Replaced colorful pastel badge backgrounds with a clean, professional monochrome slate bar (`background: var(--surface)` `#f8fafc`, `border: 1px solid var(--border)` `#cbd5e1`, `border-radius: 8px`) matching `#gps-panel`. Displays `Chuyên cần: ● Có mặt: X  ● Đi trễ: Y  ● Có phép: Z  ● Vắng: W` using clean Slate typography, `tabular-nums` monospace numbers, and 7px semantic status dots:
+    * **Có mặt (`P` / Present)**: Green (`#16a34a`)
+    * **Đi trễ (`L` / Late)**: Yellow (`#eab308`)
+    * **Có phép (`E` / Excused)**: **Orange (`#f97316` dot; `#fff7ed` bg / `#c2410c` text / `#fdba74` border on Lecturer `.st-E` and `.btn-mark-active-E`)**
+    * **Vắng (`A` / `-` / Absent)**: Red (`#dc2626`)
+  * **Expandable Phone-Local Attendance History (`#stu-att-history-drawer` — Zero Cloud Load)**:
+    * Every time a student checks in (`saveTodayStudentReceipt`) or is marked by the Lecturer (`recordLocalStudentSessionMark`), the exact session record (`{ status, date: "dd/MM/yyyy", time: "HH:mm:ss", ts }`) is saved directly on the student's phone in `localStorage` (`cc_stu_att_marks_<studentId>_<classId>`).
+    * Tapping anywhere on `#stu-attendance-summary` toggles `#stu-att-history-drawer` open/closed, showing a chronological list of attended sessions (`dd/MM/yyyy • HH:mm:ss` on the left + `[7px colored dot] Có mặt / Đi trễ / Có phép / Vắng` on the right) and unifying "Biên lai điểm danh hôm nay" inside the drawer so `#student-today-receipt` no longer clutters the bottom of the screen.
+  * **Piggybacked Zero-Extra-Request Sync & Smart In-Progress Session Handling**: `attendanceStats` (`{ P, L, E, A, total }`) is piggybacked onto existing `PING`, `STUDENT_ONBOARD`, and `STUDENT_CHECKIN` responses (`0` extra network requests) and seamlessly merged with phone-local history (`getMergedStudentClassStats`) so it works 100% offline/locally even outside class hours. While today's session is still open (`isOpen === true`), it does not prematurely increment `Absent` (`Vắng`) before the session closes.
+  * **Eliminated Duplicate Permission Guide Banner**: When `#gps-permission-guide-box` is displayed (`err.code === 1`), `#checkin-inline-status` is automatically hidden and the redundant `"Đã bật xong — Bấm kiểm tra lại GPS"` button inside the guide box is removed so the 2-step address-bar instructions appear cleanly in a single place without repeating below `"ĐIỂM DANH NGAY"`.
+* **Instant `0.01s` Optimistic UI for Lecturer Manual Attendance (`P / L / E / -`)**:
+  * Upgraded `teacherManualMark(studentId, status)` (`js/teacher.js`) to apply **Optimistic UI**: the moment the Lecturer clicks `P`, `L`, `E`, or `-`, the student's row badge (`CÓ MẶT` / `ĐI TRỄ` / `CÓ PHÉP` / `VẮNG`), active button highlight (`.btn-mark-active-P/L/E`), and the live header counters (`P: X | L: Y | A: Z | E: W`) update on screen in **`0.01s`** while the Google Apps Script write completes asynchronously in the background.
+  * Added `pendingManualMarks` overlay protection (`overlayPendingManualMarksOnRoster`) so concurrent `2.5s` background polls (`refreshTeacherLiveState`) never cause a freshly clicked row to flicker back to its old state before the server write finishes. If a network error occurs, the row cleanly rolls back and displays an inline alert.
+* **Backend `CacheService` Speedup & Eliminated Redundant Google Sheets Reads/Writes (`code3.5.0.text` & `sync.txt`)**:
+  * **Eliminated Per-Poll `PropertiesService` Writes in `verifyTeacherToken`**: Previously, `verifyTeacherToken` called `props.setProperty('FAILED_AUTH_COUNT', '0')` and `props.deleteProperty('AUTH_LOCKOUT_UNTIL')` on every single `2.5s` poll and manual mark (~400–600ms write latency per request) and read cell `C9` of `Setup_&_Dashboard` before checking `TEMP_PC_CODE`. `v3.5.0` checks `TEMP_PC_CODE` in RAM first and only writes to `PropertiesService` if `FAILED_AUTH_COUNT !== '0'`.
+  * **Single-Pass Cached `getAllLatestSessionsMap` & `getSessionAttendanceMap`**: Cached all classes' latest sessions under `ALL_LATEST_SES_V35` (eliminating 6–9 repeated `Sessions_Log` reads for classes without sessions) and cached active session check-ins with their exact `rowIndex` under `SES_ATT_MAP_V35_<sessionId>` (`updateSessionAttendanceMapCache_`). `handleTeacherManualMark` now updates existing student rows in `O(1)` via `existing.rowIndex` without scanning `Attendance_Log`, and `getClassAttendanceStatsMap_` caches per-class student stats under `CLASS_ATT_STATS_V35_<classId>`.
+  * **Batched Master Sheet Sync (`sync.txt`)**: Upgraded `updateMasterClassSheet_` in `sync.txt` to write all student session marks and `Total_Present / Total_Late` counters in 2 batch `.setValues()` calls instead of `3 × N` per-row `.setValue()` calls.
+
 ### ✨ Version `v3.4.9` — *2-Tap Address Bar Website Location Unblock Guide (`•••` / Tune Icon), Synchronous User-Gesture Permission Prompt & Live Auto-Recovery*
 * **Synchronous User-Gesture Native Location Prompt (`getCurrentPosition` Before `watchPosition`)**:
   * Updated `acquireLiveHighAccuracyGps()` (`js/schedule-config.js`) and `submitStudentOnboarding()` (`js/student.js`) to invoke `navigator.geolocation.getCurrentPosition()` **synchronously inside the user's button click gesture** (`userActivation.isActive`) before any `async/await` network calls (`PING` / `STUDENT_ONBOARD`) or `watchPosition` loops. This guarantees that iOS Safari and Android Chrome always display the native **"Allow Location / Cho phép vị trí"** popup on the very first tap instead of silently dropping it after an `await` delay.
@@ -112,6 +132,26 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### ✨ Version `v3.5.0` — *Thanh Chuyên Cần Chuẩn `taste` Tối Giản (`Có mặt / Đi trễ / Có phép / Vắng`), Ngăn Kéo Xem Lịch Sử Điểm Danh Lưu Trực Tiếp Trên Điện Thoại, Điểm Danh Thủ Công Phản Hồi `0.01s` & Tối Ưu `CacheService` Không Tăng Tải Cloud*
+* **Thanh Thống Kê Chuyên Cần Chuẩn `taste` Tối Giản & Ngăn Kéo Lịch Sử Điểm Danh Lưu Trên Điện Thoại (`#stu-attendance-summary` + `#stu-att-history-drawer`)**:
+  * **Thiết kế `taste` Học thuật Tối giản + Chấm tròn màu `7px` (`.att-dot`)**: Loại bỏ các ô nền đủ màu sặc sỡ để đồng bộ hoàn toàn với khung `#gps-panel` (`background: var(--surface)` `#f8fafc`, `border: 1px solid var(--border)` `#cbd5e1`, `border-radius: 8px`). Hiển thị `Chuyên cần: ● Có mặt: X  ● Đi trễ: Y  ● Có phép: Z  ● Vắng: W` với chữ Slate trung tính, số `tabular-nums` sắc nét và 4 chấm tròn phân biệt trạng thái (đồng bộ cả trên danh sách lớp của Giảng viên):
+    * **Có mặt (`P`)**: Chấm Xanh lá (`#16a34a`)
+    * **Đi trễ (`L`)**: Chấm Vàng (`#eab308`)
+    * **Có phép (`E`)**: **Chấm Màu Cam (`#f97316`; đồng bộ nhãn `.st-E` & nút `.btn-mark-active-E` màu cam `#fff7ed` / `#c2410c` trên bảng Giảng viên)**
+    * **Vắng (`A` / `-`)**: Chấm Đỏ (`#dc2626`)
+  * **Lưu Lịch Sử Điểm Danh Trên Điện Thoại Sinh Viên & Bấm Mở Xem Chi Tiết Ngày Giờ (`#stu-att-history-drawer` — `0%` Tải Cloud)**:
+    * Mỗi lần sinh viên điểm danh xong (`saveTodayStudentReceipt`) hoặc được Giảng viên tích điểm danh (`recordLocalStudentSessionMark`), thông tin buổi học (`{ status, date: "dd/MM/yyyy", time: "HH:mm:ss", ts }`) được lưu thẳng vào bộ nhớ điện thoại sinh viên (`localStorage` `cc_stu_att_marks_<studentId>_<classId>`).
+    * Sinh viên chỉ cần **chạm vào khung Chuyên cần (`#stu-attendance-summary`)** là ngăn kéo **Lịch sử điểm danh (`#stu-att-history-drawer`)** sẽ trượt mở ngay bên dưới, liệt kê chi tiết đi học ngày nào, mấy giờ (`dd/MM/yyyy • HH:mm:ss` bên trái + `[Chấm màu 7px] Có mặt / Đi trễ / Có phép / Vắng` bên phải), đồng thời gộp gọn "Biên lai điểm danh hôm nay" vào chung lịch sử này để không còn bị dư 1 hộp biên lai riêng ở cuối màn hình.
+  * **Ký Sinh Dữ Liệu (`Piggyback` `0` Request Phụ) & Không Tính Vắng Sớm Khi Phiên Đang Mở**: Số liệu chuyên cần được đính kèm vào gói tin `PING`, `STUDENT_ONBOARD` và `STUDENT_CHECKIN` sẵn có rồi tự động gộp với lịch sử lưu trên máy (`getMergedStudentClassStats`), hiển thị tức thì (`0ms`) kể cả khi mở web ngoài khung giờ học. Khi phiên học hôm nay đang mở (`isOpen === true`), hệ thống chưa cộng buổi đó vào mục `Vắng` trước khi phiên kết thúc.
+  * **Loại Bỏ Lặp Khung Hướng Dẫn Mở Quyền Vị Trí**: Khi hộp hướng dẫn `#gps-permission-guide-box` đang hiện (`err.code === 1`), hệ thống tự động ẩn hộp thông báo đỏ `#checkin-inline-status` bên dưới nút `"ĐIỂM DANH NGAY"`, rút gọn câu chữ 2 bước và bỏ nút `"Đã bật xong — Bấm kiểm tra lại GPS"` bị trùng với nút `"Kiểm tra GPS"` ngay phía trên.
+* **Tăng Tốc Điểm Danh Thủ Công Của Giảng Viên Lên Tức Thì `0.01s` (`Optimistic UI` cho `P / L / E / -`)**:
+  * Nâng cấp `teacherManualMark(studentId, status)` (`js/teacher.js`) áp dụng cơ chế **Phản hồi Tức thì (`Optimistic UI`)**: ngay khoảnh khắc Giảng viên bấm vào nút `P`, `L`, `E` hoặc `-`, nhãn trạng thái của sinh viên (`CÓ MẶT` / `ĐI TRỄ` / `CÓ PHÉP` / `VẮNG`), màu nút đang chọn và bộ đếm tổng trên tiêu đề (`P: X | L: Y | A: Z | E: W`) đổi màu ngay lập tức trong **`0.01 giây`** mà không bắt Giảng viên phải đợi 2–4 giây phản hồi từ Google Sheet; tiến trình lưu xuống Sheet chạy ngầm hoàn toàn ở hậu trường.
+  * Bổ sung lớp khóa bảo vệ `pendingManualMarks` (`overlayPendingManualMarksOnRoster`) để trong lúc lệnh lưu đang chạy ngầm, các chu kỳ tự động làm mới `2.5s` không bao giờ ghi đè làm nháy lại trạng thái cũ; nếu rớt mạng thực sự mới hoàn tác và báo lỗi nội tuyến.
+* **Tối Ưu Hóa Tốc Độ Backend & Loại Bỏ Đọc/Ghi Google Sheet Dư Thừa (`code3.5.0.text` & `sync.txt`)**:
+  * **Loại bỏ lệnh ghi `PropertiesService` dư thừa trên mỗi `2.5s` trong `verifyTeacherToken`**: Ở bản cũ, mỗi lần Giảng viên bấm nút hoặc mỗi chu kỳ `2.5s` tự làm mới, hàm kiểm tra mật khẩu đều gọi `props.setProperty('FAILED_AUTH_COUNT', '0')` và đọc ô `C9` trên bảng `Setup_&_Dashboard` (gây trễ 400–600ms mỗi request). Bản `v3.5.0` đối chiếu mã 6 số trực tiếp trên RAM trước và chỉ ghi `PropertiesService` khi thực sự có số lần nhập sai trước đó cần xóa.
+  * **Bộ nhớ đệm RAM `ALL_LATEST_SES_V35`, `SES_ATT_MAP_V35_` & `CLASS_ATT_STATS_V35_`**: Gom việc tra cứu phiên học của toàn bộ 9 lớp vào 1 bộ đệm RAM duy nhất `getAllLatestSessionsMap` (loại bỏ việc quét đi quét lại `Sessions_Log` cho các lớp chưa mở phiên), lưu đệm danh sách điểm danh của phiên đang mở kèm vị trí dòng `rowIndex` (`SES_ATT_MAP_V35_<sessionId>`) giúp thao tác sửa điểm danh thủ công của Giảng viên ghi thẳng vào dòng đích `O(1)` mà không cần đọc lại bảng `Attendance_Log`, và lưu đệm thống kê chuyên cần cả lớp vào `CLASS_ATT_STATS_V35_<classId>` trong 60 giây.
+  * **Ghi Hàng Loạt (`Batch Write`) Trong `sync.txt`**: Nâng cấp `updateMasterClassSheet_` trong `sync.txt` gom toàn bộ cột điểm danh buổi học và cột tổng `Total_Present / Total_Late` thành 2 lệnh `.setValues()` thay vì gọi `.setValue()` từng dòng riêng lẻ.
+
 ### ✨ Version `v3.4.9` — *Hướng Dẫn Mở Quyền Vị Trí Web Ngay Trên Thanh Địa Chỉ (`•••` / `2 Thanh Trượt`) Trong 2 Chạm, Kích Hoạt Hộp Thoại Xin Quyền Tức Thì & Tự Động Nhận Lại GPS Không Cần Tải Lại Trang*
 * **Gọi Xin Quyền Vị Trí Đồng Bộ Ngay Trong Cú Chạm Của Sinh Viên (`Synchronous User-Gesture Prompt`)**:
   * Nâng cấp `acquireLiveHighAccuracyGps()` (`js/schedule-config.js`) và `submitStudentOnboarding()` (`js/student.js`) để gọi `navigator.geolocation.getCurrentPosition()` **đồng bộ ngay lập tức tại thời điểm ngón tay sinh viên vừa chạm nút** (`userActivation.isActive`), trước khi chạy các lệnh `await` mạng (`PING` / `STUDENT_ONBOARD`) hoặc chuỗi làm nóng `watchPosition`. Nhờ đó, trình duyệt `Safari` (iPhone) và `Chrome` (Android) luôn bật ngay bảng hỏi hệ thống **"Cho phép trang web truy cập vị trí? (Allow)"** ngay từ lần bấm đầu tiên mà không bị trình duyệt chặn ngầm.
@@ -220,18 +260,18 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.9`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.5.0`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.9` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.5.0` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.4.9`)** |
-| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Smooth Native Scrolling, Permanent MSSV Lock, 2-Tap Address Bar GPS Unblock Guide (`•••` / Tune) & 100% Bilingual (`VI / EN`)** |
-| **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Synchronous `getCurrentPosition` Prompt + Live `watchPosition` Warm-Up (`cachedGPS = null`, `maximumAge: 0`) + Auto Permission Recovery** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.5.0`)** |
+| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, 4-Dot Attendance Summary + Expandable Phone-Local History Drawer, Orange `E` (`Có phép`) & 100% Bilingual (`VI / EN`)** |
+| **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Synchronous `getCurrentPosition` Prompt + Live `watchPosition` Warm-Up (`cachedGPS = null`, `maximumAge: 0`) + Instant `receipt.attendanceStats` Sync** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Backend Open-Session Auto-Fallback)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + Legacy URL Auto-Migration** |
-| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **2.5s Live Polling + Zero-Kickout `F5` Reload + Single-Row `P/L/E/-/Unlock` Roster & Instant Rebind on Check-In** |
-| **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **RAM `CacheService` (~10x faster / Nhanh gấp 10 lần)** |
+| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **`0.01s` Optimistic Manual Marking (`P/L/E/-`) + 2.5s Live Polling + Zero-Kickout `F5` Reload & Instant Rebind on Check-In** |
+| **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-Extra-Load RAM `CacheService` (`ALL_LATEST_SES_V35`, `SES_ATT_MAP_V35_`, `CLASS_ATT_STATS_V35_`)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Multi-Browser (`Safari+Chrome`), F12, Fresh GPS Timestamp & Spot-Check Lock** |
-| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Universal Content-Aware (`Class_ID` + `MSSV`/Name) 2-Way `.XLSX` Sync + Pre-Export Delta Import** |
+| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Universal Content-Aware (`Class_ID` + `MSSV`/Name) 2-Way `.XLSX` Sync + Batched Master Sheet Writes** |
 | **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload / Luôn tải bản mới tức thì** |

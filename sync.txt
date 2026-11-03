@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * QR ATTENDANCE — UNIVERSAL ROSTER & SHEET SYNC (GOOGLE SHEETS & .XLSX) (v3.4.9)
+ * QR ATTENDANCE — UNIVERSAL ROSTER & SHEET SYNC (GOOGLE SHEETS & .XLSX) (v3.5.0)
  * ============================================================================
  * Designed for University Lecturers, Teaching Assistants (TAs), and Teachers:
  *   - Auto-displays the "📋 Roster & Sheet Sync" menu immediately when the
@@ -2844,11 +2844,14 @@ function updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap) {
     headers[sessionColIdx] = sessionGroup.primaryLabel;
   }
 
+  const numStudents = values.length - 1;
+  const sessionColOut = [];
+  const totalsOut = [];
+
   for (let r = 1; r < values.length; r++) {
     const sid = normalizeStudentId_(values[r][1], values[r][2]);
-    if (!sid) continue;
-    const st = statusMap[sid.toUpperCase()] || '-';
-    classSheet.getRange(r + 1, sessionColIdx + 1).setValue(st);
+    const st = sid ? (statusMap[sid.toUpperCase()] || '-') : String(values[r][sessionColIdx] || '-');
+    sessionColOut.push([st]);
 
     let totalP = 0;
     let totalL = 0;
@@ -2857,9 +2860,16 @@ function updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap) {
       if (cellVal === 'P') totalP++;
       if (cellVal === 'L') totalL++;
     }
-    classSheet.getRange(r + 1, 4).setValue(totalP);
-    classSheet.getRange(r + 1, 5).setValue(totalL);
+    totalsOut.push([totalP, totalL]);
   }
+
+  if (numStudents > 0) {
+    classSheet.getRange(2, sessionColIdx + 1, numStudents, 1).setValues(sessionColOut);
+    classSheet.getRange(2, 4, numStudents, 2).setValues(totalsOut);
+  }
+  try {
+    CacheService.getScriptCache().remove('CLASS_ATT_STATS_V35_' + classId);
+  } catch (e) {}
   SpreadsheetApp.flush();
 }
 
