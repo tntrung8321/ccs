@@ -132,7 +132,7 @@
             <svg class="icon"><use href="#ic-user"></use></svg>
             <span data-i18n="stu_course_title">Thông tin Sinh viên</span>
           </div>
-          <button class="btn btn-outline btn-sm" onclick="toggleAddCourseBox()" data-i18n="stu_add_course_btn">Đổi / Liên kết MSSV</button>
+          <button class="btn btn-outline btn-sm" onclick="toggleAddCourseBox()" data-i18n="stu_add_course_btn">Đổi MSSV</button>
         </div>
 
         <div id="student-has-courses" class="hidden">
@@ -151,7 +151,7 @@
 
         <div id="student-no-courses" class="hidden">
           <p class="subtext" data-i18n="stu_no_course_desc" style="margin-bottom:6px;">
-            Nhập MSSV để liên kết lớp học (chỉ cần thực hiện 1 lần đầu kỳ).
+            Nhập MSSV để liên kết lớp (1 lần đầu kỳ).
           </p>
         </div>
 
@@ -160,7 +160,7 @@
           <label for="inp-student-id" data-i18n="stu_id_label">Mã số sinh viên (MSSV):</label>
           <input type="text" id="inp-student-id" placeholder="Nhập MSSV..." autocomplete="off" />
 
-          <button class="btn btn-primary" onclick="submitStudentOnboarding()" data-i18n="stu_register_btn">Lưu & Liên kết Thiết bị</button>
+          <button class="btn btn-primary" onclick="submitStudentOnboarding()" data-i18n="stu_register_btn">Lưu & Liên kết</button>
 
           <!-- INLINE CONTEXTUAL FEEDBACK FOR ONBOARDING -->
           <div id="onboard-inline-status" class="inline-feedback hidden"></div>
@@ -206,11 +206,11 @@
           <div class="gps-panel-top">
             <div class="gps-status-group">
               <span id="gps-dot" class="status-dot dot-idle"></span>
-              <span id="gps-readout" data-i18n="stu_gps_readout_idle">Chưa kiểm tra GPS (Bấm nút bên cạnh để kiểm tra thiết bị)</span>
+              <span id="gps-readout" data-i18n="stu_gps_readout_idle">Chưa kiểm tra GPS</span>
             </div>
             <button type="button" id="btn-check-gps" class="btn btn-outline btn-sm" onclick="handleStudentPreCheckGps()">
               <svg class="icon icon-sm"><use href="#ic-crosshair"></use></svg>
-              <span data-i18n="stu_btn_check_gps">Kiểm tra & Kích hoạt GPS</span>
+              <span data-i18n="stu_btn_check_gps">Kiểm tra GPS</span>
             </button>
           </div>
           <div id="gps-inline-status" class="inline-feedback hidden"></div>
@@ -246,16 +246,16 @@
           </div>
         </div>
         <p class="subtext" data-i18n="tea_login_desc">
-          Nhập Mã phiên 6 số hiển thị trong Google Sheet (tự động đổi mới theo phiên) hoặc Master Key.
+          Nhập Mã 6 số trên Google Sheet hoặc Master Key.
         </p>
 
-        <label for="inp-tea-token" data-i18n="tea_token_label">Mật khẩu phiên (trên Sheet) hoặc Master Key:</label>
-        <input type="password" id="inp-tea-token" placeholder="Nhập mã bảo mật từ Google Sheet..." autocomplete="off" />
+        <label for="inp-tea-token" data-i18n="tea_token_label">Mã phiên (6 số) hoặc Master Key:</label>
+        <input type="password" id="inp-tea-token" placeholder="Nhập mã 6 số hoặc Master Key..." autocomplete="off" />
 
         <label for="sel-tea-persistence" data-i18n="tea_session_type_label">Chế độ lưu đăng nhập:</label>
         <select id="sel-tea-persistence">
-          <option value="LOCAL" selected data-i18n="tea_persist_phone">Thiết bị cá nhân của Giảng viên (Giữ đăng nhập)</option>
-          <option value="SESSION" data-i18n="tea_persist_pc">Máy tính phòng học (Tự đăng xuất khi đóng tab / 60p)</option>
+          <option value="LOCAL" selected data-i18n="tea_persist_phone">Thiết bị cá nhân (Giữ đăng nhập)</option>
+          <option value="SESSION" data-i18n="tea_persist_pc">Máy phòng học (Tự thoát sau 60p)</option>
         </select>
 
         <button class="btn btn-primary" onclick="loginTeacher()" data-i18n="tea_login_btn">Đăng nhập Giảng viên</button>
@@ -286,51 +286,31 @@
           <div class="card-header">
             <div class="card-title">
               <svg class="icon"><use href="#ic-crosshair"></use></svg>
-              <span data-i18n="tea_panel1_title">1. Điều khiển Phiên & Định vị Lớp học</span>
+              <span data-i18n="tea_panel1_title">1. Điều khiển Phiên</span>
             </div>
-            <div style="display:flex; gap:6px;">
-              <button class="btn btn-outline btn-sm" onclick="toggleProjectorFullscreen()">
-                <svg class="icon icon-sm"><use href="#ic-maximize"></use></svg>
-                <span data-i18n="tea_fullscreen_btn">Toàn màn hình</span>
-              </button>
-              <button class="btn btn-outline btn-sm" onclick="refreshTeacherState()" title="Làm mới dữ liệu">
-                <svg class="icon icon-sm"><use href="#ic-refresh"></use></svg>
-                <span>Làm mới</span>
-              </button>
-            </div>
+            <span id="tea-session-badge" class="badge-err">PHIÊN ĐANG ĐÓNG</span>
           </div>
 
           <!-- REAL-TIME CLASS SELECTION & OVERVIEW BOX -->
           <div class="teacher-class-overview">
-            <label for="sel-tea-class" data-i18n="tea_select_class">Lớp học phần đang điều khiển:</label>
-            <select id="sel-tea-class" onchange="onTeacherClassChange()" style="margin-bottom:6px;"></select>
-            <div class="teacher-class-meta">
-              <span>Lớp đang chọn: <strong id="tea-selected-class-display">Chưa chọn lớp</strong></span>
-            </div>
+            <select id="sel-tea-class" onchange="onTeacherClassChange()" style="margin-bottom:0;"></select>
             <div id="tea-schedule-hint" class="schedule-hint-bar"></div>
           </div>
 
           <div class="projector-grid">
             <!-- Primary Column (First on Mobile): Timer, Live Counter & ISOLATED SESSION CONTROL BLOCK -->
             <div id="teacher-session-main-col">
-              <div style="text-align:center; margin-bottom:4px;">
-                <span id="tea-session-badge" class="badge-err">PHIÊN ĐANG ĐÓNG</span>
-              </div>
               <div class="timer-big" id="tea-countdown">00:00</div>
 
               <div class="counter-badge">
                 <span id="tea-live-count">0 / 0 Có mặt</span>
                 <div style="font-size:0.78rem; font-weight:500; color:var(--muted); margin-top:2px;" id="tea-live-breakdown">
-                  Có mặt (P): 0 | Đi trễ (L): 0 | Vắng (-): 0
+                  P: 0 | L: 0 | Vắng: 0 | Phép: 0
                 </div>
               </div>
 
               <!-- REQUIREMENT 5: ISOLATED OPEN/CLOSE SESSION BLOCK WITH 2-STEP INLINE CONFIRM -->
               <div id="teacher-session-control-box" class="session-control-isolated no-print">
-                <div class="session-control-header">
-                  <span>Điều khiển Mở / Đóng Phiên Điểm Danh</span>
-                </div>
-
                 <!-- Step 1 Trigger Button -->
                 <button id="btn-tea-open-trigger" class="btn btn-accent" onclick="promptOpenSessionConfirm()">
                   <svg class="icon"><use href="#ic-check"></use></svg>
@@ -352,30 +332,23 @@
                   </div>
                 </div>
 
-                <div class="btn-row" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border-subtle);">
+                <div class="btn-row" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border-subtle);">
                   <button class="btn btn-outline btn-sm" onclick="teacherControlSession('EXTEND_2M')" data-i18n="tea_extend_btn">+2 Phút</button>
-                  <button class="btn btn-outline btn-sm" onclick="teacherControlSession('REOPEN_5M')" data-i18n="tea_reopen_btn">Mở lại 5 phút</button>
-                  <button class="btn btn-danger btn-sm" onclick="teacherControlSession('CLOSE_NOW')" data-i18n="tea_close_btn">Đóng phiên ngay</button>
-                </div>
-
-                <!-- COMPACT GPS MODE BAR & ADVANCED OVERRIDE -->
-                <div style="margin-top:10px; padding-top:8px; border-top:1px dashed var(--border-subtle); display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-                  <div id="tea-gps-anchor-hint" style="font-size:0.75rem; color:var(--muted); line-height:1.35; flex:1; min-width:200px;">
-                    Mặc định: Đánh giá khoảng cách theo vị trí Giảng viên (Chỉ khi máy không có GPS mới lấy trung bình 3 SV đầu tiên)
-                  </div>
-                  <button type="button" id="btn-toggle-adv-gps" class="btn btn-outline btn-sm no-print" onclick="toggleTeacherAdvGpsBox()" style="width:auto; padding:4px 9px; font-size:0.73rem;">
+                  <button class="btn btn-outline btn-sm" onclick="teacherControlSession('REOPEN_5M')" data-i18n="tea_reopen_btn">Mở lại 5p</button>
+                  <button class="btn btn-danger btn-sm" onclick="teacherControlSession('CLOSE_NOW')" data-i18n="tea_close_btn">Đóng phiên</button>
+                  <button type="button" id="btn-toggle-adv-gps" class="btn btn-outline btn-sm no-print" onclick="toggleTeacherAdvGpsBox()">
                     <svg class="icon icon-sm"><use href="#ic-shield"></use></svg>
-                    <span>Chế độ GPS nâng cao</span>
+                    <span>GPS nâng cao</span>
                   </button>
                 </div>
 
                 <div id="box-adv-gps-mode" class="hidden no-print" style="margin-top:8px; padding:8px 10px; background:var(--surface); border:1px solid var(--border); border-radius:6px; text-align:left; width:100%;">
                   <label class="checkbox-row" for="chk-use-student-avg3" style="margin:0; font-size:0.78rem; font-weight:600; color:var(--text);">
                     <input type="checkbox" id="chk-use-student-avg3" onchange="onAdvStudentGpsToggle()" />
-                    <span>Sử dụng GPS Sinh viên (Lấy trung bình 3 bạn đầu tiên làm tâm phòng)</span>
+                    <span>Lấy tâm phòng theo TB 3 SV đầu tiên</span>
                   </label>
-                  <div style="font-size:0.72rem; color:var(--muted); margin-top:4px; line-height:1.3;">
-                    Bật tùy chọn này khi dùng máy tính bàn đổi phòng hoặc muốn lấy tâm theo trung bình 3 sinh viên đầu tiên.
+                  <div id="tea-gps-anchor-hint" style="font-size:0.72rem; color:var(--muted); margin-top:4px; line-height:1.3;">
+                    Mặc định: Theo vị trí Giảng viên (Tự lấy TB 3 SV đầu nếu máy không có GPS).
                   </div>
                 </div>
 
@@ -390,16 +363,16 @@
           <div class="card-header">
             <div class="card-title">
               <svg class="icon"><use href="#ic-user"></use></svg>
-              <span data-i18n="tea_panel2_title">2. Danh sách Lớp & Kiểm tra Ngẫu nhiên</span>
+              <span data-i18n="tea_panel2_title">2. Danh sách Lớp</span>
             </div>
             <div style="display:flex; gap:6px; flex-wrap:wrap;">
               <button class="btn btn-primary btn-sm" onclick="triggerRandomSpotCheck()">
                 <svg class="icon icon-sm"><use href="#ic-shuffle"></use></svg>
-                <span data-i18n="tea_spot_check_btn">Gọi ngẫu nhiên 1 SV</span>
+                <span data-i18n="tea_spot_check_btn">Gọi ngẫu nhiên</span>
               </button>
               <button class="btn btn-outline btn-sm" id="btn-toggle-names" onclick="toggleRosterVisibility()">
                 <svg class="icon icon-sm"><use href="#ic-eye"></use></svg>
-                <span data-i18n="tea_show_hide_names">Ẩn/Hiện danh sách</span>
+                <span data-i18n="tea_show_hide_names">Ẩn/Hiện tên</span>
               </button>
             </div>
           </div>
@@ -413,7 +386,7 @@
               <button type="button" id="tab-filter-absent" class="filter-tab" data-roster-filter="ABSENT" onclick="setRosterFilter('ABSENT')">Vắng (0)</button>
               <button type="button" id="tab-filter-suspect" class="filter-tab" data-roster-filter="SUSPECT" onclick="setRosterFilter('SUSPECT')">Nghi vấn (0)</button>
             </div>
-            <input type="text" id="inp-roster-search" placeholder="Gõ tên hoặc 3-4 số cuối MSSV (Enter = Có mặt ngay)..." oninput="renderTeacherRoster()" onkeydown="handleRosterSearchKeydown(event)" style="margin-bottom:0;" />
+            <input type="text" id="inp-roster-search" placeholder="Tìm tên hoặc MSSV (Enter = Có mặt)..." oninput="renderTeacherRoster()" onkeydown="handleRosterSearchKeydown(event)" style="margin-bottom:0;" />
           </div>
 
           <div id="tea-roster-container" class="roster-list"></div>
@@ -430,10 +403,10 @@
 
           <div class="btn-row">
             <button id="btn-reg-gate-toggle" class="btn btn-outline btn-sm" onclick="teacherToggleRegGate()">
-              Đăng ký Thiết bị Mới: ĐANG MỞ
+              ĐK thiết bị: MỞ
             </button>
             <button class="btn btn-outline btn-sm" onclick="teacherRebuildSheet()" data-i18n="tea_rebuild_sheet_btn">
-              Đồng bộ vào Google Sheet
+              Đồng bộ Sheet
             </button>
             <button class="btn btn-danger btn-sm" onclick="logoutTeacher()" data-i18n="tea_logout_btn">
               Đăng xuất

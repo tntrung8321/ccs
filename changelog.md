@@ -2,6 +2,11 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### ✨ Version `v3.4.4` — *Compact UI Copy, Fast 2.5s Live Roster Polling & Zero-Kickout Session Reload*
+* **Compact Lecturer & Student UI**: Removed redundant `"Toàn màn hình"` (`#btn-projector-fs`) and `"Làm mới"` (`#btn-refresh-tea`) buttons, eliminated duplicate class/session headers, shortened all GPS and inline status readouts across Student and Lecturer modes, and tucked the 3-student centroid override inside the collapsible `"GPS nâng cao"` toggle.
+* **Fast 2.5s Live Roster Polling & Instant Visibility Refresh**: Reduced the active Lecturer polling interval from `4.5s` to `2.5s` with an in-flight request lock (`isRefreshingTeaState`), added instant sync when returning to the browser tab (`visibilitychange` / `focus`), and enabled cached class/roster reads in `handleTeacherGetState(ss, body)` (`getClassesMap(ss, false)` and `getClassRosterMap(ss, selectedId, false)`) to cut Google Sheets read overhead on every 2.5s poll.
+* **Zero-Kickout Page Refresh (`F5`) & Seamless Session-Close Token Rotation**: Persisted active Lecturer mode, selected class, and state cache across browser reloads (`F5`), and added a 2-hour `PREV_TEMP_PC_CODE` grace window in `refreshTempPcCode` / `verifyTeacherToken` plus automatic `rotatedTempCode` token sync when closing a session (`CLOSE_NOW`) so active lecturer tabs are never logged out by 6-digit code rotation.
+
 ### 🔧 Version `v3.4.3` — *Precision Anti-Cheat Soft-Flagging & Auto-Updated `B6` Version Badge*
 * **Eliminated Co-Timing (`<= 2s`) False Positives on the `"Nghi vấn"` Tab**: Removed the raw `<= 2 seconds` simultaneous check-in rule from `detectCoCheckInSuspects` (`js/teacher.js`) and `handleStudentCheckIn` (`code3.3.0.text`) so students tapping check-in at the same moment in class are never falsely flagged. The `"Nghi vấn"` (`SUSPECT`) filter now flags **only verified technical anomalies**: identical hardware fingerprints across two browsers on the same phone (`Safari + Chrome`, `sameHardwareFp && diffSec <= 20 && pairDist <= 5`), exact 6-decimal coordinate duplication (`sameExactCoords`), or DevTools / Mock GPS spoofing (`F12_GEO_OVERRIDE`, `MOCK_ACCURACY_PATTERN`, `STALE_GPS_TIMESTAMP`).
 * **Automatic `Setup_&_Dashboard` Cell `B6` Version Refresh**: Added `syncDashboardVersionBadge_(ss)` to `onOpen` and `handleTeacherAuth` so cell `B6` automatically updates to `✅ Verified & Ready (v3.4.3)` whenever the Sheet is opened or the Lecturer logs in.
@@ -72,6 +77,11 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### ✨ Version `v3.4.4` — *Tinh Gọn Câu Chữ Giao Diện, Cập Nhật Sĩ Số Nhanh `2.5s` & Tải Lại Trang (`F5`) Không Văng Phiên*
+* **Tinh gọn Giao diện Giảng viên & Sinh viên**: Gỡ bỏ nút `"Toàn màn hình"` (`#btn-projector-fs`) và `"Làm mới"` (`#btn-refresh-tea`) dư thừa, loại bỏ tiêu đề lớp/phiên bị lặp, rút gọn toàn bộ câu thông báo GPS/trạng thái ở cả 2 chế độ Sinh viên & Giảng viên, và ẩn gọn tùy chọn lấy trung bình 3 sinh viên đầu tiên vào trong nút `"GPS nâng cao"`.
+* **Cập nhật Danh sách Điểm danh Nhanh `2.5s` & Đồng bộ Tức thì Khi Chuyển Tab**: Giảm chu kỳ tự động làm mới danh sách của Giảng viên từ `4.5s` xuống `2.5s` kèm khóa chống chồng chéo request (`isRefreshingTeaState`), tự động cập nhật ngay lập tức khi quay lại tab trình duyệt (`visibilitychange` / `focus`), đồng thời kích hoạt đọc bộ nhớ đệm `CacheService` trong `handleTeacherGetState` (`getClassesMap(ss, false)` và `getClassRosterMap(ss, selectedId, false)`) giúp phản hồi cực nhanh trên mỗi chu kỳ `2.5s`.
+* **Tải lại Trang (`F5`) Không Văng Đăng nhập & Xoay Mã 6 Số Liền mạch Khi Đóng Phiên**: Lưu bền vững chế độ Giảng viên đang mở, lớp đang chọn và bộ nhớ đệm trạng thái khi bấm tải lại trang (`F5`), đồng thời bổ sung cơ chế bảo lưu mã 6 số cũ trong 2 giờ (`PREV_TEMP_PC_CODE` trong `refreshTempPcCode` / `verifyTeacherToken`) kết hợp đồng bộ tự động `rotatedTempCode` khi đóng phiên (`CLOSE_NOW`) để Giảng viên không bao giờ bị văng ra màn hình đăng nhập.
+
 ### 🔧 Version `v3.4.3` — *Chuẩn Hóa Cảnh Báo Nghi Vấn Kỹ Thuật (Không Báo Nhầm Khi Cả Lớp Bấm Cùng Lúc) & Tự Động Cập Nhật Ô `B6`*
 * **Loại bỏ Báo nhầm `"Bấm cùng lúc <= 2 giây"` trong Tab `"Nghi vấn"`**: Gỡ bỏ điều kiện trùng thời gian bấm $\le 2$ giây đơn thuần trong `detectCoCheckInSuspects` (`js/teacher.js`) và `handleStudentCheckIn` (`code3.3.0.text`) để khi cả lớp 50–60 sinh viên cùng bấm điểm danh một lúc không bị báo vàng nhầm. Tab **`Nghi vấn`** giờ chỉ báo khi có **bằng chứng kỹ thuật rõ ràng**: dùng 1 máy mở 2 trình duyệt (`Safari + Chrome` trùng cấu hình phần cứng `deviceFp` trong 20s và $\le 5\text{m}$), trùng tọa độ GPS tuyệt đối đến 6 chữ số thập phân (`sameExactCoords`), hoặc can thiệp định vị (`F12_GEO_OVERRIDE`, `Mock GPS`).
 * **Tự động Cập nhật Phiên bản tại Ô `B6` (`Setup_&_Dashboard`)**: Bổ sung `syncDashboardVersionBadge_(ss)` vào `onOpen` và `handleTeacherAuth` để ô `B6` tự động cập nhật lên `✅ Verified & Ready (v3.4.3)` ngay khi mở Google Sheet hoặc khi Giảng viên đăng nhập.
@@ -140,17 +150,17 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.3`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.4.4`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.3` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.4.4` |
 | :--- | :--- | :--- |
 | **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)** |
-| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Zero-Scroll (`100dvh`) Student View, Decluttered 1-Col Lecturer UI & Inline Alerts** |
+| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, Zero-Scroll (`100dvh`) Student View, Compact 1-Col Lecturer UI & Short Inline Alerts** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Pre-Check `#gps-panel` + 1-Tap Live GPS (`cachedGPS = null`) + `isSubmitting` Lock** |
-| **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS`) + Advanced / No-GPS 3-Student Centroid (`STUDENT_AVG_3`)** |
+| **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS`) + Collapsible `GPS nâng cao` 3-Student Centroid (`STUDENT_AVG_3`)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Smart `17:15–17:30` Priority)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + Legacy URL Auto-Migration** |
-| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **2-Step Confirm + Hidden-Roster Search Auto-Rehide & 1-Tap Device Unlock** |
+| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **2.5s Live Polling + Zero-Kickout `F5` Reload + Hidden-Roster Search Auto-Rehide & 1-Tap Unlock** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **RAM `CacheService` (~10x faster / Nhanh gấp 10 lần)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Multi-Browser (`Safari+Chrome`), F12, Fresh GPS Timestamp & Spot-Check Lock** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Universal Content-Aware (`Class_ID` + `MSSV`/Name) 2-Way `.XLSX` Sync + Pre-Export Delta Import** |

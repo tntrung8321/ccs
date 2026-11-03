@@ -1,7 +1,8 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js)
+ * LECTURER CONTROLLER (js/teacher.js — v3.4.4)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
+ *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
  *  - Isolated Session Control Block with Two-Step Inline Confirmation
  *  - Live Roster Quick Filters (All / Present / Absent / Suspect) & Projector Privacy Mode
@@ -11,10 +12,17 @@
 let teacherState = null;
 let teacherPollTimer = null;
 let teacherCountdownTimer = null;
+let isPollingTeacher = false;
 let showRosterNames = true;
 let activeRosterFilter = 'ALL'; // 'ALL' | 'PRESENT' | 'ABSENT' | 'SUSPECT'
 let teacherHasManuallySelectedClass = false;
 let selectedTeacherClassId = '';
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && currentMode === 'TEACHER' && getTeacherAuth()) {
+    refreshTeacherState(true);
+  }
+});
 
 function toggleTeacherApiBox() {
   document.getElementById('box-tea-api-advanced').classList.toggle('hidden');
@@ -24,7 +32,38 @@ function resetToDefaultLecturerApi() {
   document.getElementById('inp-tea-api').value = DEFAULT_LECTURER_API;
   safeRemoveLocal('cc_teacher_auth');
   safeRemoveSession('cc_teacher_auth');
+  safeRemoveSession('cc_tea_state_cache');
   showStatus('Đã đặt lại URL mặc định.', 'success');
+}
+
+async function restoreTeacherSessionOnLoad(auth) {
+  if (!auth) return;
+  const apiInput = document.getElementById('inp-tea-api');
+  const tokenInput = document.getElementById('inp-tea-token');
+  const persistSelect = document.getElementById('sel-tea-persistence');
+  if (apiInput) apiInput.value = normalizeApiUrl(auth.apiUrl);
+  if (tokenInput) tokenInput.value = auth.token || '';
+  if (persistSelect) persistSelect.value = auth.persistence || 'LOCAL';
+
+  document.getElementById('card-teacher-login').classList.add('hidden');
+  document.getElementById('box-teacher-dashboard').classList.remove('hidden');
+  hideStatus();
+
+  selectedTeacherClassId = safeGetSession('cc_tea_selected_class', safeGetLocal('cc_tea_selected_class', ''));
+  teacherHasManuallySelectedClass = Boolean(selectedTeacherClassId);
+
+  const cachedRaw = safeGetSession('cc_tea_state_cache', null);
+  if (cachedRaw) {
+    try {
+      const cachedState = JSON.parse(cachedRaw);
+      if (cachedState && cachedState.ok) {
+        await applyTeacherState(cachedState, false);
+      }
+    } catch (e) {}
+  }
+
+  startTeacherPolling();
+  await refreshTeacherState(true);
 }
 
 async function loginTeacher() {
@@ -53,6 +92,8 @@ async function loginTeacher() {
   saveTeacherAuth(apiUrl, token, persistence);
   teacherHasManuallySelectedClass = false;
   selectedTeacherClassId = '';
+  safeSetSession('cc_tea_selected_class', '');
+  safeSetLocal('cc_tea_selected_class', '');
 
   document.getElementById('card-teacher-login').classList.add('hidden');
   document.getElementById('box-teacher-dashboard').classList.remove('hidden');
@@ -64,6 +105,10 @@ async function loginTeacher() {
 function logoutTeacher() {
   safeRemoveLocal('cc_teacher_auth');
   safeRemoveSession('cc_teacher_auth');
+  safeRemoveSession('cc_tea_state_cache');
+  safeRemoveSession('cc_tea_selected_class');
+  safeRemoveLocal('cc_tea_selected_class');
+  safeSetLocal('cc_active_mode', 'STUDENT');
   document.getElementById('inp-tea-token').value = '';
   teacherHasManuallySelectedClass = false;
   selectedTeacherClassId = '';
@@ -73,28 +118,45 @@ function logoutTeacher() {
   document.getElementById('card-teacher-login').classList.remove('hidden');
 }
 
-async function refreshTeacherState() {
+async function refreshTeacherState(force = false) {
   const auth = getTeacherAuth();
   if (!auth || document.hidden) return;
+  if (isPollingTeacher && !force) return;
+
   const selEl = document.getElementById('sel-tea-class');
-  const selClass = selEl ? selEl.value : selectedTeacherClassId;
+  const selClass = (selEl && selEl.value) ? selEl.value : selectedTeacherClassId;
 
-  const res = await callBackend(auth.apiUrl, {
-    action: 'TEACHER_GET_STATE',
-    teacherToken: auth.token,
-    classId: selClass
-  }, 1);
+  try {
+    isPollingTeacher = true;
+    const res = await callBackend(auth.apiUrl, {
+      action: 'TEACHER_GET_STATE',
+      teacherToken: auth.token,
+      classId: selClass
+    }, 1);
 
-  if (res && res.ok) {
-    await applyTeacherState(res, false);
-  } else if (res && res.code === 'ERR_UNAUTHORIZED') {
-    logoutTeacher();
-    showStatus('Mã phiên trên Sheet đã thay đổi hoặc hết hạn. Vui lòng đăng nhập lại bằng mã mới trên Sheet.', 'warn');
+    if (res && res.ok) {
+      await applyTeacherState(res, false);
+    } else if (res && res.code === 'ERR_UNAUTHORIZED') {
+      logoutTeacher();
+      showStatus('Mã phiên trên Sheet đã thay đổi hoặc hết hạn. Vui lòng đăng nhập lại bằng mã mới trên Sheet.', 'warn');
+    }
+  } finally {
+    isPollingTeacher = false;
   }
 }
 
 async function applyTeacherState(state, isInitialLoad = false) {
+  if (!state) return;
   ingestServerScheduleData(state);
+
+  if (state.rotatedTempCode) {
+    const auth = getTeacherAuth();
+    if (auth && auth.token !== state.rotatedTempCode && /^\d{6}$/.test(auth.token)) {
+      saveTeacherAuth(auth.apiUrl, state.rotatedTempCode, auth.persistence);
+      const tokenInput = document.getElementById('inp-tea-token');
+      if (tokenInput) tokenInput.value = state.rotatedTempCode;
+    }
+  }
 
   // Filter out removed test sample class ENG101_G1 while keeping 100% of real classes
   const cleanClasses = (state.classes || []).filter(
@@ -102,6 +164,7 @@ async function applyTeacherState(state, isInitialLoad = false) {
   );
   state.classes = cleanClasses;
   teacherState = state;
+  safeSetSession('cc_tea_state_cache', JSON.stringify(state));
 
   cleanClasses.forEach(c => {
     if (c.classId && c.activeQrSecret) {
@@ -115,6 +178,8 @@ async function applyTeacherState(state, isInitialLoad = false) {
   if (isInitialLoad && !teacherHasManuallySelectedClass) {
     // Auto-select the class matching the current period/calendar, or "" if outside teaching hours
     selectedTeacherClassId = scheduleMatch.matchedClassId || '';
+    safeSetSession('cc_tea_selected_class', selectedTeacherClassId);
+    safeSetLocal('cc_tea_selected_class', selectedTeacherClassId);
     if (selectedTeacherClassId && selectedTeacherClassId !== state.selectedClassId) {
       const auth = getTeacherAuth();
       if (auth) {
@@ -134,6 +199,8 @@ async function applyTeacherState(state, isInitialLoad = false) {
     // Keep lecturer's chosen class
   } else if (!teacherHasManuallySelectedClass) {
     selectedTeacherClassId = scheduleMatch.matchedClassId || '';
+    safeSetSession('cc_tea_selected_class', selectedTeacherClassId);
+    safeSetLocal('cc_tea_selected_class', selectedTeacherClassId);
   }
 
   const sel = document.getElementById('sel-tea-class');
@@ -159,9 +226,9 @@ async function applyTeacherState(state, isInitialLoad = false) {
 
   if (activeCfg) {
     document.getElementById('btn-reg-gate-toggle').textContent =
-      `Đăng ký Thiết bị Mới: ${activeCfg.regOpen ? 'ĐANG MỞ' : 'ĐANG KHÓA'}`;
+      `ĐK thiết bị: ${activeCfg.regOpen ? 'MỞ' : 'KHÓA'}`;
   } else {
-    document.getElementById('btn-reg-gate-toggle').textContent = 'Đăng ký Thiết bị Mới: Chưa chọn lớp';
+    document.getElementById('btn-reg-gate-toggle').textContent = 'ĐK thiết bị: --';
   }
 
   const roster = activeCfg ? (state.roster || []) : [];
@@ -171,7 +238,7 @@ async function applyTeacherState(state, isInitialLoad = false) {
   const aCount = roster.filter(r => !r.status || r.status === '-').length;
 
   document.getElementById('tea-live-count').textContent = `${pCount + lCount} / ${roster.length} Có mặt`;
-  document.getElementById('tea-live-breakdown').textContent = `Có mặt (P): ${pCount} | Đi trễ (L): ${lCount} | Vắng (-): ${aCount} | Phép (E): ${eCount}`;
+  document.getElementById('tea-live-breakdown').textContent = `P: ${pCount} | L: ${lCount} | Vắng: ${aCount} | Phép: ${eCount}`;
 
   setupTeacherCountdown(ses, Boolean(activeCfg));
   renderTeacherRoster();
@@ -200,13 +267,13 @@ function updateTeacherClassOverviewUI(activeCfg, ses, scheduleMatch) {
   if (hintBar) {
     if (scheduleMatch && !scheduleMatch.isOffHours && scheduleMatch.matchedClassId) {
       hintBar.className = 'schedule-hint-bar matched';
-      hintBar.textContent = `Tự động nhận diện theo giờ thực: ${scheduleMatch.label}`;
+      hintBar.textContent = `Theo lịch: ${scheduleMatch.label}`;
     } else if (!activeCfg) {
       hintBar.className = 'schedule-hint-bar off-hours';
-      hintBar.textContent = 'Hiện đang ngoài khung giờ dạy trên Lịch / Số tiết — Vui lòng chọn lớp thủ công nếu muốn mở điểm danh bù.';
+      hintBar.textContent = 'Ngoài giờ dạy — Chọn lớp thủ công nếu mở bù.';
     } else {
       hintBar.className = 'schedule-hint-bar';
-      hintBar.textContent = `Lớp đang chọn thủ công: ${activeCfg.classId}`;
+      hintBar.textContent = `Đang chọn: ${activeCfg.classId}`;
     }
   }
 }
@@ -258,6 +325,8 @@ async function onTeacherClassChange() {
   const sel = document.getElementById('sel-tea-class');
   selectedTeacherClassId = sel ? sel.value : '';
   teacherHasManuallySelectedClass = true;
+  safeSetSession('cc_tea_selected_class', selectedTeacherClassId);
+  safeSetLocal('cc_tea_selected_class', selectedTeacherClassId);
   cancelOpenSessionConfirm();
 
   if (!selectedTeacherClassId) {
@@ -266,7 +335,7 @@ async function onTeacherClassChange() {
     }
     return;
   }
-  await refreshTeacherState();
+  await refreshTeacherState(true);
 }
 
 function setupTeacherCountdown(ses, hasSelectedClass = true) {
@@ -300,12 +369,12 @@ function setupTeacherCountdown(ses, hasSelectedClass = true) {
     if (now <= ses.presentUntilMs) {
       const remSec = Math.max(0, Math.floor((ses.presentUntilMs - now) / 1000));
       badge.className = 'badge-ok';
-      badge.textContent = 'ĐANG MỞ — GHI NHẬN CÓ MẶT (P)';
+      badge.textContent = 'ĐANG MỞ — CÓ MẶT (P)';
       timerEl.textContent = formatMmSs(remSec);
     } else {
       const remSec = Math.max(0, Math.floor((ses.closesAtMs - now) / 1000));
       badge.className = 'badge-warn';
-      badge.textContent = 'ĐANG MỞ — GHI NHẬN ĐI TRỄ (L)';
+      badge.textContent = 'ĐANG MỞ — ĐI TRỄ (L)';
       timerEl.textContent = formatMmSs(remSec);
     }
   };
@@ -323,9 +392,9 @@ function onAdvStudentGpsToggle() {
   const hint = document.getElementById('tea-gps-anchor-hint');
   if (!hint) return;
   if (chk && chk.checked) {
-    hint.textContent = 'Chế độ nâng cao ĐANG BẬT: Lấy trung bình GPS 3 sinh viên đầu tiên làm tâm phòng học.';
+    hint.textContent = 'Đang bật: Lấy tâm theo TB 3 SV đầu tiên.';
   } else {
-    hint.textContent = 'Mặc định: Đánh giá khoảng cách theo vị trí Giảng viên (Chỉ khi máy không có GPS mới lấy trung bình 3 SV đầu tiên)';
+    hint.textContent = 'Mặc định: Theo vị trí GV (Tự lấy TB 3 SV đầu nếu máy không có GPS).';
   }
 }
 
@@ -371,8 +440,8 @@ async function teacherStartSession() {
   const anchorHintEl = document.getElementById('tea-gps-anchor-hint');
   if (anchorHintEl) {
     anchorHintEl.textContent = hasTeacherGps
-      ? `Tâm phòng học buổi này: Đã khóa theo vị trí thiết bị Giảng viên (±${acc}m)`
-      : 'Tâm phòng học buổi này: Lấy trung bình GPS 3 sinh viên đầu tiên trong lớp (STUDENT_AVG_3)';
+      ? `Mặc định: Theo vị trí GV (±${acc}m).`
+      : 'Đang bật: Lấy tâm theo TB 3 SV đầu tiên.';
   }
 
   await executeStartSessionRequest(auth, classId, hasTeacherGps, lat, lng, acc, anchorMode);
@@ -395,11 +464,13 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
   if (res && res.ok) {
     selectedTeacherClassId = classId;
     teacherHasManuallySelectedClass = true;
+    safeSetSession('cc_tea_selected_class', selectedTeacherClassId);
+    safeSetLocal('cc_tea_selected_class', selectedTeacherClassId);
     await applyTeacherState(res, false);
     showStatus(
       useGps
-        ? `Đã mở phiên lớp ${classId} (Đánh giá theo vị trí Giảng viên ±${gpsAccuracy}m).`
-        : `Đã mở phiên lớp ${classId} (Chế độ lấy trung bình GPS 3 sinh viên đầu tiên làm tâm phòng).`,
+        ? `Đã mở phiên lớp ${classId} (Tâm GV ±${gpsAccuracy}m).`
+        : `Đã mở phiên lớp ${classId} (Tâm TB 3 SV đầu tiên).`,
       'success',
       'tea-session-inline-status'
     );
@@ -422,7 +493,17 @@ async function teacherControlSession(subAction, extra = {}) {
     classId: classId,
     subAction: subAction
   }, extra));
-  if (res && res.ok) await applyTeacherState(res, false);
+  if (res && res.ok) {
+    if (res.rotatedTempCode) {
+      const curAuth = getTeacherAuth();
+      if (curAuth && curAuth.token !== res.rotatedTempCode && /^\d{6}$/.test(curAuth.token)) {
+        saveTeacherAuth(curAuth.apiUrl, res.rotatedTempCode, curAuth.persistence);
+        const tokenInput = document.getElementById('inp-tea-token');
+        if (tokenInput) tokenInput.value = res.rotatedTempCode;
+      }
+    }
+    await applyTeacherState(res, false);
+  }
 }
 
 function detectCoCheckInSuspects(roster) {
@@ -483,13 +564,13 @@ function renderTeacherRoster() {
 
   if (!showRosterNames && !query) {
     if (suspectBanner) suspectBanner.classList.add('hidden');
-    container.innerHTML = '<div style="padding:16px; text-align:center; color:var(--muted);">Đã ẩn danh sách sinh viên trên màn hình chiếu (Gõ tên hoặc 3-4 số cuối MSSV vào ô tìm kiếm phía trên để điểm danh nhanh).</div>';
+    container.innerHTML = '<div style="padding:16px; text-align:center; color:var(--muted);">Đã ẩn danh sách (Gõ tên/MSSV ở ô tìm kiếm để điểm danh nhanh).</div>';
     return;
   }
 
   if (suspectIds.length > 0) {
     suspectBanner.classList.remove('hidden');
-    suspectBanner.textContent = `[CẢNH BÁO KIỂM TRA] Phát hiện ${suspectIds.length} trường hợp nghi vấn kỹ thuật (trùng cấu hình máy Safari+Chrome, trùng tọa độ tuyệt đối hoặc can thiệp định vị).`;
+    suspectBanner.textContent = `[NGHI VẤN] Có ${suspectIds.length} trường hợp trùng thiết bị/tọa độ hoặc can thiệp GPS.`;
   } else {
     suspectBanner.classList.add('hidden');
   }
@@ -668,7 +749,7 @@ function toggleProjectorFullscreen() {
 
 function startTeacherPolling() {
   stopTeacherPolling();
-  teacherPollTimer = setInterval(refreshTeacherState, 4500);
+  teacherPollTimer = setInterval(() => refreshTeacherState(false), 2500);
 }
 
 function stopTeacherPolling() {

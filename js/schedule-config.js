@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.4.4)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -452,7 +452,7 @@ function resolveActiveClassBySchedule(availableClasses, now = new Date()) {
     matchedClassId: '',
     matchedClass: null,
     source: 'OFF_HOURS',
-    label: currentLang === 'en' ? 'Off-schedule hours — Please select a class manually' : 'Ngoài khung giờ học — Vui lòng chọn lớp thủ công',
+    label: currentLang === 'en' ? 'Off-schedule — Select class manually' : 'Ngoài giờ lịch — Chọn lớp thủ công',
     isOffHours: true
   };
 }
@@ -466,34 +466,34 @@ const I18N = {
   vi: {
     cam_modal_title: "Quét mã QR",
     stu_course_title: "Thông tin Sinh viên",
-    stu_add_course_btn: "Đổi / Liên kết MSSV",
+    stu_add_course_btn: "Đổi MSSV",
     stu_select_lecturer: "Giảng viên:",
     stu_select_class: "Lớp học phần:",
     stu_unselected_class_opt: "-- Chưa chọn lớp - Ngoài khung giờ --",
-    stu_no_course_desc: "Nhập MSSV để liên kết lớp học (chỉ cần thực hiện 1 lần đầu kỳ).",
+    stu_no_course_desc: "Nhập MSSV để liên kết lớp (1 lần đầu kỳ).",
     stu_scan_onboard_qr: "Quét QR Khóa học",
     stu_toggle_api_link: "Cài đặt kết nối nâng cao",
     stu_api_url_label: "URL Web App:",
     stu_id_label: "Mã số sinh viên (MSSV):",
-    stu_register_btn: "Lưu & Liên kết Thiết bị",
+    stu_register_btn: "Lưu & Liên kết",
     stu_checkin_title: "Điểm danh Lớp học",
-    stu_gps_readout_idle: "Chưa kiểm tra GPS (Bấm nút bên cạnh để kiểm tra thiết bị trước giờ học)",
-    stu_btn_check_gps: "Kiểm tra & Kích hoạt GPS",
+    stu_gps_readout_idle: "Chưa kiểm tra GPS",
+    stu_btn_check_gps: "Kiểm tra GPS",
     btn_cancel_scan: "Đóng",
     stu_one_tap_checkin_btn: "ĐIỂM DANH NGAY",
     stu_submitting_btn: "Đang gửi dữ liệu...",
     stu_scan_checkin_btn: "Quét mã QR phòng học",
     stu_submit_manual_qr: "Gửi mã",
     tea_login_title: "Đăng nhập Giảng viên",
-    tea_login_desc: "Nhập Mã phiên 6 số hiển thị trong Google Sheet (tự động đổi mới theo phiên) hoặc Master Key.",
+    tea_login_desc: "Nhập Mã 6 số trên Google Sheet hoặc Master Key.",
     tea_scan_pair_qr: "Quét QR Ghép nối",
     tea_api_url_label: "URL Web App (ô B4):",
-    tea_token_label: "Mật khẩu phiên (trên Sheet) hoặc Master Key:",
+    tea_token_label: "Mã phiên (6 số) hoặc Master Key:",
     tea_session_type_label: "Chế độ lưu đăng nhập:",
-    tea_persist_phone: "Thiết bị cá nhân của Giảng viên (Giữ đăng nhập)",
-    tea_persist_pc: "Máy tính phòng học (Tự đăng xuất khi đóng tab / 60p)",
+    tea_persist_phone: "Thiết bị cá nhân (Giữ đăng nhập)",
+    tea_persist_pc: "Máy phòng học (Tự thoát sau 60p)",
     tea_login_btn: "Đăng nhập Giảng viên",
-    tea_panel1_title: "1. Trạm Định vị & Thông tin Lớp học",
+    tea_panel1_title: "1. Điều khiển Phiên",
     tea_fullscreen_btn: "Toàn màn hình",
     tea_select_class: "Lớp học phần đang điều khiển:",
     tea_unselected_class_opt: "-- Chưa chọn lớp - Ngoài khung giờ --",
@@ -503,14 +503,14 @@ const I18N = {
     tea_extend_btn: "+2 Phút",
     tea_reopen_btn: "Mở lại 5 phút",
     tea_close_btn: "Đóng phiên ngay",
-    tea_panel2_title: "2. Danh sách Lớp & Kiểm tra Ngẫu nhiên",
-    tea_spot_check_btn: "Gọi ngẫu nhiên 1 SV",
+    tea_panel2_title: "2. Danh sách Lớp",
+    tea_spot_check_btn: "Gọi ngẫu nhiên",
     tea_privacy_btn: "Che MSSV",
-    tea_show_hide_names: "Ẩn/Hiện danh sách",
+    tea_show_hide_names: "Ẩn/Hiện tên",
     tea_panel4_title: "3. Quản trị & Đồng bộ",
     tea_print_qr_btn: "In bảng QR",
     tea_replace_qr_btn: "Đổi khóa QR",
-    tea_rebuild_sheet_btn: "Đồng bộ vào Google Sheet",
+    tea_rebuild_sheet_btn: "Đồng bộ Sheet",
     tea_logout_btn: "Đăng xuất",
     ONBOARD_CONFIRMED: "[HOÀN TẤT] Đã liên kết sinh viên: {name} ({id}).",
     CONFIRMED_PRESENT: "[THÀNH CÔNG] Ghi nhận CÓ MẶT lúc {time} (Khoảng cách: {dist}m).",
@@ -531,34 +531,34 @@ const I18N = {
   en: {
     cam_modal_title: "Scan QR Code",
     stu_course_title: "Student Profile",
-    stu_add_course_btn: "Change / Link ID",
+    stu_add_course_btn: "Change ID",
     stu_select_lecturer: "Lecturer:",
     stu_select_class: "Course Section:",
     stu_unselected_class_opt: "-- No class selected - Off-schedule hours --",
-    stu_no_course_desc: "Enter your Student ID once to link your enrolled classes.",
+    stu_no_course_desc: "Enter Student ID once to link classes.",
     stu_scan_onboard_qr: "Scan Course QR",
     stu_toggle_api_link: "Advanced Connection Settings",
     stu_api_url_label: "Web App URL:",
     stu_id_label: "Student ID (MSSV):",
-    stu_register_btn: "Verify & Bind Device",
+    stu_register_btn: "Link Device",
     stu_checkin_title: "Class Attendance",
-    stu_gps_readout_idle: "GPS not checked yet (Click button to verify GPS before class)",
-    stu_btn_check_gps: "Test & Activate GPS",
+    stu_gps_readout_idle: "GPS not checked",
+    stu_btn_check_gps: "Check GPS",
     btn_cancel_scan: "Close",
     stu_one_tap_checkin_btn: "CHECK IN NOW",
     stu_submitting_btn: "Sending data...",
     stu_scan_checkin_btn: "Scan Classroom QR",
     stu_submit_manual_qr: "Submit",
     tea_login_title: "Lecturer Sign In",
-    tea_login_desc: "Enter the rotating 6-digit session code from your Google Sheet or your Master Key.",
+    tea_login_desc: "Enter 6-digit Sheet code or Master Key.",
     tea_scan_pair_qr: "Scan Pairing QR",
     tea_api_url_label: "Web App URL (Cell B4):",
-    tea_token_label: "Rotating Sheet Code or Master Key:",
+    tea_token_label: "6-Digit Code or Master Key:",
     tea_session_type_label: "Session Persistence:",
-    tea_persist_phone: "Personal Lecturer Device (Keep Signed In)",
-    tea_persist_pc: "Classroom Shared PC (Auto-Logout on close / 60m)",
+    tea_persist_phone: "Personal Device (Keep Signed In)",
+    tea_persist_pc: "Shared PC (Auto-Logout 60m)",
     tea_login_btn: "Sign In",
-    tea_panel1_title: "1. GPS Station & Class Overview",
+    tea_panel1_title: "1. Session Control",
     tea_fullscreen_btn: "Fullscreen",
     tea_select_class: "Selected Class Section:",
     tea_unselected_class_opt: "-- No class selected - Off-schedule hours --",
@@ -568,14 +568,14 @@ const I18N = {
     tea_extend_btn: "+2 Mins",
     tea_reopen_btn: "Reopen 5m",
     tea_close_btn: "Close Session Now",
-    tea_panel2_title: "2. Live Roster & Random Spot-Check",
-    tea_spot_check_btn: "Random Spot-Check",
+    tea_panel2_title: "2. Class Roster",
+    tea_spot_check_btn: "Random Check",
     tea_privacy_btn: "Mask IDs",
-    tea_show_hide_names: "Show/Hide Roster",
+    tea_show_hide_names: "Show/Hide",
     tea_panel4_title: "3. Administration & Sync",
     tea_print_qr_btn: "Print QR",
     tea_replace_qr_btn: "Rotate Secret",
-    tea_rebuild_sheet_btn: "Sync to Google Sheet",
+    tea_rebuild_sheet_btn: "Sync Sheet",
     tea_logout_btn: "Sign Out",
     ONBOARD_CONFIRMED: "[LINKED] Student verified: {name} ({id}).",
     CONFIRMED_PRESENT: "[CONFIRMED] Recorded PRESENT at {time} (Distance: {dist}m).",
@@ -982,6 +982,7 @@ function syncStudentViewportScrollLock() {
 
 function switchMode(mode) {
   currentMode = mode;
+  safeSetLocal('cc_active_mode', mode);
   stopCameraScanner();
   hideStatus();
   checkIosStandaloneNotice();
@@ -998,10 +999,8 @@ function switchMode(mode) {
     teaView.classList.remove('hidden');
 
     const auth = getTeacherAuth();
-    if (auth) {
-      document.getElementById('inp-tea-api').value = normalizeApiUrl(auth.apiUrl);
-      document.getElementById('inp-tea-token').value = auth.token;
-      loginTeacher();
+    if (auth && typeof restoreTeacherSessionOnLoad === 'function') {
+      restoreTeacherSessionOnLoad(auth);
     }
   } else {
     if (typeof stopTeacherPolling === 'function') stopTeacherPolling();
