@@ -1,9 +1,10 @@
 /**
  * ============================================================================
- * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.5.0)
+ * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.5.1)
  * ============================================================================
  * Architecture: Lecturer-Owned Google Sheet + Bound Google Apps Script
- * Key Upgrades & Verified Fixes in v3.5.0:
+ * Key Upgrades & Verified Fixes in v3.5.1:
+ *  - Unified GitHub Pages URL (https://tntrung8321.github.io/ccs/) + Auto-Migration in Cell B5
  *  - Compatible 100% with modular index.html UI & external Sync.gs menu/functions
  *  - Zero-Read RAM Cache Layer for Sessions_Log & Attendance_Log (instant 0.01s manual mark & 2.5s polling)
  *  - Zero-Request Piggybacked Student Attendance Summary (Present / Late / Excused / Absent counts per class)
@@ -21,7 +22,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.5.0';
+const SYSTEM_VERSION = '3.5.1';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -69,6 +70,10 @@ function syncDashboardVersionBadge_(ss) {
   if (!ss) return;
   const sheet = ss.getSheetByName(TAB_DASHBOARD);
   if (!sheet) return;
+  const currentB5 = String(sheet.getRange('B5').getValue() || '').trim();
+  if (/tntrung8321\.github\.io\/ClassCheck-GPS\/?$/i.test(currentB5)) {
+    sheet.getRange('B5').setValue('https://tntrung8321.github.io/ccs/');
+  }
   const apiUrl = String(sheet.getRange('B4').getValue() || '').trim();
   if (apiUrl && apiUrl.startsWith('https://script.google.com/')) {
     const expectedText = '✅ Verified & Ready (v' + SYSTEM_VERSION + ')';
@@ -161,7 +166,7 @@ function ensureDashboardTab(ss, installId, teacherKey) {
       ['Lecturer Name / Tên Giảng viên:', 'Tran Nguyen Trung', 'Edit your display name in B2'],
       ['Installation ID (Auto-Generated):', installId, 'Unique ID for this Google Sheet'],
       ['Deployed Apps Script Web App URL:', '', 'REQUIRED: Paste your https://script.google.com/.../exec URL here'],
-      ['Frontend Web App URL (GitHub Pages):', 'https://tntrung8321.github.io/ClassCheck-GPS/', 'Paste your GitHub Pages URL here'],
+      ['Frontend Web App URL (GitHub Pages):', 'https://tntrung8321.github.io/ccs/', 'Paste your GitHub Pages URL here'],
       ['System Status / Trạng thái:', '⚠️ Waiting for Web App URL in B4', 'Run Initialize menu after updating B4/B5'],
       ['', '', ''],
       ['📱 1. STUDENT COURSE ONBOARDING QR', '🔐 2. LECTURER PHONE PAIRING QR (PRIVATE)', '💻 3. TEMP CLASSROOM PC CODE (2-HR)'],
@@ -188,7 +193,12 @@ function updateDashboardQRs(ss) {
   const lecturerName = String(sheet.getRange('B2').getValue()).trim();
   const installId    = String(sheet.getRange('B3').getValue()).trim();
   const apiUrl       = String(sheet.getRange('B4').getValue()).trim();
-  const frontendUrl  = String(sheet.getRange('B5').getValue()).trim().replace(/\/$/, '');
+  let rawFrontendUrl = String(sheet.getRange('B5').getValue()).trim();
+  if (/tntrung8321\.github\.io\/ClassCheck-GPS\/?$/i.test(rawFrontendUrl)) {
+    rawFrontendUrl = 'https://tntrung8321.github.io/ccs/';
+    sheet.getRange('B5').setValue(rawFrontendUrl);
+  }
+  const frontendUrl  = rawFrontendUrl.replace(/\/$/, '');
   const teacherKey   = props.getProperty('TEACHER_MASTER_KEY');
 
   if (!apiUrl || !apiUrl.startsWith('https://script.google.com/')) {

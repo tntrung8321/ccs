@@ -1,6 +1,14 @@
-# 📦 ClassCheck-GPS — Release Notes & Changelog (EN / VI)
+# 📦 CCS — ClassCheck System — Release Notes & Changelog (EN / VI)
 
 ## 🇬🇧 ENGLISH VERSION
+
+### 🔧 Version `v3.5.1` — *Unified GitHub Repository & GitHub Pages URL (`tntrung8321/ccs` & `https://tntrung8321.github.io/ccs/`) + Seamless Legacy Redirect*
+* **Unified GitHub Repository & GitHub Pages Endpoint (`tntrung8321/ccs`)**:
+  * Renamed the official GitHub repository from `tntrung8321/ClassCheck-GPS` to **`tntrung8321/ccs`** (`https://github.com/tntrung8321/ccs`) and unified the GitHub Pages web application URL to **`https://tntrung8321.github.io/ccs/`**.
+  * Because browser `localStorage` is scoped to the origin (`https://tntrung8321.github.io`), 100% of existing Student ID bindings, local attendance history, and Lecturer pairing profiles remain intact across the path transition.
+* **Automatic Google Sheet Cell `B5` URL Migration (`code3.5.1.text`) & Legacy Redirect (`tntrung8321/ClassCheck-GPS`)**:
+  * Updated `ensureDashboardTab()`, `syncDashboardVersionBadge_()`, and `updateDashboardQRs()` in `code3.5.1.text` so new and existing Google Sheets automatically set/migrate Cell `B5` (`Frontend Web App URL`) from `https://tntrung8321.github.io/ClassCheck-GPS/` to `https://tntrung8321.github.io/ccs/`.
+  * Deployed a dedicated automatic redirect repository at `https://tntrung8321.github.io/ClassCheck-GPS/` (`index.html` + `404.html`) that immediately forwards visitors to `https://tntrung8321.github.io/ccs/` while preserving all URL query parameters (`?onboard=...`, `?pair=...`, `?s=...`) and hash fragments so existing QR codes and bookmarks never hit a 404 error.
 
 ### ✨ Version `v3.5.0` — *Utilitarian (`taste`) Student Attendance Summary (`P / L / E / A`), Phone-Local Expandable Attendance History Drawer, `0.01s` Optimistic Manual Marking & Zero-Extra-Cloud-Load RAM Caching*
 * **Utilitarian Academic (`taste`) Student Attendance Summary & Expandable Phone-Local History Drawer (`#stu-attendance-summary` + `#stu-att-history-drawer`)**:
@@ -132,6 +140,14 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.5.1` — *Đồng Bộ Tên Kho Lưu Trữ GitHub & Đường Dẫn Web Chính Thức (`tntrung8321/ccs` & `https://tntrung8321.github.io/ccs/`) Kèm Chuyển Hướng Tự Động Từ Link Cũ*
+* **Đồng Bộ Tên Repository GitHub & Đường Dẫn GitHub Pages (`tntrung8321/ccs`)**:
+  * Đổi tên kho mã nguồn GitHub chính thức từ `tntrung8321/ClassCheck-GPS` sang **`tntrung8321/ccs`** (`https://github.com/tntrung8321/ccs`) và đồng bộ địa chỉ web điểm danh GitHub Pages thành **`https://tntrung8321.github.io/ccs/`** ngắn gọn, đồng nhất với tên dự án **CCS — ClassCheck System**.
+  * Do bộ nhớ `localStorage` của trình duyệt gắn theo tên miền gốc (`https://tntrung8321.github.io`), **100% dữ liệu khóa thiết bị MSSV, lịch sử điểm danh trên điện thoại sinh viên và cấu hình của Giảng viên được giữ nguyên hoàn toàn** khi chuyển sang đường dẫn `/ccs/`.
+* **Tự Động Cập Nhật Ô `B5` Trên Google Sheet (`code3.5.1.text`) & Tự Động Chuyển Hướng Link Cũ (`ClassCheck-GPS` $\rightarrow$ `ccs`)**:
+  * Nâng cấp `ensureDashboardTab()`, `syncDashboardVersionBadge_()` và `updateDashboardQRs()` trong `code3.5.1.text` để tự động cập nhật đường dẫn mặc định tại ô `B5` (`Frontend Web App URL`) từ `https://tntrung8321.github.io/ClassCheck-GPS/` sang `https://tntrung8321.github.io/ccs/`.
+  * Thiết lập kho chuyển hướng chuyên dụng tại địa chỉ cũ `https://tntrung8321.github.io/ClassCheck-GPS/` (`index.html` & `404.html`) tự động chuyển hướng tức thì (`window.location.replace`) sang `https://tntrung8321.github.io/ccs/` và giữ nguyên toàn bộ tham số truy vấn (`?onboard=...`, `?pair=...`), đảm bảo mọi mã QR hoặc dấu trang cũ của sinh viên đều hoạt động trơn tru không bao giờ báo lỗi 404.
+
 ### ✨ Version `v3.5.0` — *Thanh Chuyên Cần Chuẩn `taste` Tối Giản (`Có mặt / Đi trễ / Có phép / Vắng`), Ngăn Kéo Xem Lịch Sử Điểm Danh Lưu Trực Tiếp Trên Điện Thoại, Điểm Danh Thủ Công Phản Hồi `0.01s` & Tối Ưu `CacheService` Không Tăng Tải Cloud*
 * **Thanh Thống Kê Chuyên Cần Chuẩn `taste` Tối Giản & Ngăn Kéo Lịch Sử Điểm Danh Lưu Trên Điện Thoại (`#stu-attendance-summary` + `#stu-att-history-drawer`)**:
   * **Thiết kế `taste` Học thuật Tối giản + Chấm tròn màu `7px` (`.att-dot`)**: Loại bỏ các ô nền đủ màu sặc sỡ để đồng bộ hoàn toàn với khung `#gps-panel` (`background: var(--surface)` `#f8fafc`, `border: 1px solid var(--border)` `#cbd5e1`, `border-radius: 8px`). Hiển thị `Chuyên cần: ● Có mặt: X  ● Đi trễ: Y  ● Có phép: Z  ● Vắng: W` với chữ Slate trung tính, số `tabular-nums` sắc nét và 4 chấm tròn phân biệt trạng thái (đồng bộ cả trên danh sách lớp của Giảng viên):
@@ -260,11 +276,11 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.5.0`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.5.1`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.5.0` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.5.1` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.5.0`)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.5.1`) on `tntrung8321.github.io/ccs/`** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, 4-Dot Attendance Summary + Expandable Phone-Local History Drawer, Orange `E` (`Có phép`) & 100% Bilingual (`VI / EN`)** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Synchronous `getCurrentPosition` Prompt + Live `watchPosition` Warm-Up (`cachedGPS = null`, `maximumAge: 0`) + Instant `receipt.attendanceStats` Sync** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |

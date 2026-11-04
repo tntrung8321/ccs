@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.5.0)
+ * STUDENT CONTROLLER (js/student.js — v3.5.1)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Compact Single-Line Attendance Summary Bar (Present / Late / Excused / Absent) with Zero Extra Requests
  *  - Permanent Student ID Lock after first onboarding (hides input & button)
