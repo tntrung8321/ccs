@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.5.1)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.6.0)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -519,6 +519,7 @@ const I18N = {
     tea_close_btn: "Đóng phiên",
     tea_panel2_title: "2. Danh sách Sinh viên",
     tea_spot_check_btn: "Gọi ngẫu nhiên",
+    tea_group_maker_btn: "Chia nhóm",
     tea_show_hide_names: "Ẩn/Hiện tên",
     tea_search_placeholder: "Tìm họ tên hoặc mã số sinh viên (Nhấn Enter để đánh dấu Có mặt)...",
     tea_panel4_title: "3. Quản trị và Đồng bộ dữ liệu",
@@ -599,6 +600,7 @@ const I18N = {
     tea_close_btn: "Close Session",
     tea_panel2_title: "2. Student Roster",
     tea_spot_check_btn: "Random Check",
+    tea_group_maker_btn: "Split Groups",
     tea_show_hide_names: "Show/Hide Names",
     tea_search_placeholder: "Search full name or Student ID (Press Enter to mark Present)...",
     tea_panel4_title: "3. Administration and Data Sync",
@@ -1005,21 +1007,63 @@ function handleScannedQrText(text, purpose) {
   }
 }
 
-function openAppModal(title, bodyText, confirmLabel, onConfirm) {
+function openAppModal(title, bodyText, confirmLabel, onConfirm, options = {}) {
+  const cardEl = document.getElementById('app-modal-card');
+  if (cardEl) {
+    cardEl.classList.toggle('modal-wide', Boolean(options && options.wide));
+  }
   document.getElementById('app-modal-title').textContent = stripRemainingEmojis(title);
-  document.getElementById('app-modal-body').textContent = stripRemainingEmojis(bodyText);
+  const bodyEl = document.getElementById('app-modal-body');
+  if (options && options.htmlBody) {
+    bodyEl.innerHTML = options.htmlBody;
+  } else {
+    bodyEl.textContent = stripRemainingEmojis(bodyText);
+  }
+
+  const extraBtn = document.getElementById('app-modal-extra');
+  if (extraBtn) {
+    if (options && options.extraLabel && typeof options.onExtra === 'function') {
+      extraBtn.textContent = stripRemainingEmojis(options.extraLabel);
+      extraBtn.className = options.extraClass || 'btn btn-primary';
+      extraBtn.onclick = async () => {
+        if (!options.keepOpenOnExtra) closeAppModal();
+        await options.onExtra();
+      };
+      extraBtn.classList.remove('hidden');
+    } else {
+      extraBtn.classList.add('hidden');
+      extraBtn.onclick = null;
+    }
+  }
+
   const confirmBtn = document.getElementById('app-modal-confirm');
-  const defaultConfirm = currentLang === 'en' ? 'Confirm' : 'Đồng ý';
-  confirmBtn.textContent = stripRemainingEmojis(confirmLabel || defaultConfirm);
-  confirmBtn.onclick = async () => {
-    closeAppModal();
-    if (typeof onConfirm === 'function') await onConfirm();
-  };
+  if (options && options.hideConfirm) {
+    confirmBtn.classList.add('hidden');
+    confirmBtn.onclick = null;
+  } else {
+    confirmBtn.classList.remove('hidden');
+    const defaultConfirm = currentLang === 'en' ? 'Confirm' : 'Đồng ý';
+    confirmBtn.textContent = stripRemainingEmojis(confirmLabel || defaultConfirm);
+    confirmBtn.className = (options && options.confirmClass) ? options.confirmClass : 'btn btn-primary';
+    confirmBtn.onclick = async () => {
+      if (!(options && options.keepOpenOnConfirm)) closeAppModal();
+      if (typeof onConfirm === 'function') await onConfirm();
+    };
+  }
   document.getElementById('app-modal').classList.remove('hidden');
 }
 
 function closeAppModal() {
   document.getElementById('app-modal').classList.add('hidden');
+  const cardEl = document.getElementById('app-modal-card');
+  if (cardEl) cardEl.classList.remove('modal-wide');
+  const extraBtn = document.getElementById('app-modal-extra');
+  if (extraBtn) extraBtn.classList.add('hidden');
+  const confirmBtn = document.getElementById('app-modal-confirm');
+  if (confirmBtn) {
+    confirmBtn.classList.remove('hidden');
+    confirmBtn.className = 'btn btn-primary';
+  }
 }
 
 window.cachedGPS = null;

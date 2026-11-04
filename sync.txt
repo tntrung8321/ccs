@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * QR ATTENDANCE — UNIVERSAL ROSTER & SHEET SYNC (GOOGLE SHEETS & .XLSX) (v3.5.1)
+ * QR ATTENDANCE — UNIVERSAL ROSTER & SHEET SYNC (GOOGLE SHEETS & .XLSX) (v3.6.0)
  * ============================================================================
  * Designed for University Lecturers, Teaching Assistants (TAs), and Teachers:
  *   - Auto-displays the "📋 Roster & Sheet Sync" menu immediately when the
@@ -21,7 +21,7 @@
  *        • Newly created classes show exact student count, Drive folder path, and
  *          a clickable "↗ Open File" link ready for the teacher to tick and sync.
  *   2. 🔄 2. Sync Today's Attendance (To Drive)
- *      - Merges all QR sessions opened on the same day for each class (P > L > -).
+ *      - Merges all QR sessions opened on the same day for each class (P > E > L > -).
  *      - Syncs directly to Google Sheets or converts/updates .XLSX in-place.
  *      - Protects already-synced past dates; prompts Yes/No to rescue unsynced past dates.
  *   3. ↩️ 3. Undo Last Action (Sync or Delete)
@@ -29,7 +29,7 @@
  *   4. 🗑️ 4. Delete Completed Classes
  *      - Checkbox dialog -> Yes/No confirmation -> Full backup snapshot -> Cleans up tabs & logs.
  *   5. ⚙️ 5. Attendance Mark Settings
- *      - Switch easily between Highlight Style (Blank / Yellow / x), P/L/A, or Custom marks.
+ *      - Switch easily between Highlight Style (Blank / Yellow / Orange / x), P/L/E/A, or Custom marks.
  * ============================================================================
  */
 
@@ -49,11 +49,13 @@ const SYNC_MENU_TITLE = '📋 Roster & Sheet Sync';
  * Menu -> 📋 Roster & Sheet Sync -> ⚙️ 5. Attendance Mark Settings
  */
 const DEFAULT_ATTENDANCE_STYLE = {
-  mode: 'CENTER',          // 'CENTER' (Blank / Yellow / x), 'PLA' (P / L / A), or 'CUSTOM'
+  mode: 'CENTER',          // 'CENTER' (Blank / Yellow / Orange / x), 'PLA' (P / L / E / A), or 'CUSTOM'
   presentText: '',         // Value written when Present (P)
   presentBg: '',           // Background color when Present ('' = clear background)
   lateText: '',            // Value written when Late (L)
   lateBg: '#ffff00',       // Background color when Late ('#ffff00' = yellow)
+  excusedText: '',         // Value written when Excused (E)
+  excusedBg: '#ff9900',    // Background color when Excused ('#ff9900' = orange)
   absentText: 'x',         // Value written when Absent (-)
   absentBg: ''             // Background color when Absent ('' = clear background)
 };
@@ -782,7 +784,8 @@ function syncTodayAttendance() {
         ? ' [Merged ' + sessionGroup.sessionIds.length + ' sessions]'
         : '';
       const formatTag = targetInfo.isGoogleSheet ? '[Google Sheet]' : '[.XLSX]';
-      const detailStr = 'Present: ' + result.presentCount + ' | Late: ' + result.lateCount + ' | Absent: ' + result.absentCount;
+      const detailStr = 'Present: ' + result.presentCount + ' | Late: ' + result.lateCount +
+        (result.excusedCount ? ' | Excused: ' + result.excusedCount : '') + ' | Absent: ' + result.absentCount;
 
       summaryLines.push(
         '✅ ' + classId + ' ' + formatTag + ' (Date ' + sessionGroup.day + '/' + sessionGroup.month + ')' + multiNote + ' — ' + detailStr
@@ -1319,7 +1322,7 @@ function appendRowsToSheet_(sheet, rows) {
 
 
 // ============================================================================
-// 7. BUTTON 5: ATTENDANCE MARK SETTINGS DIALOG (HIGHLIGHT vs P/L/A vs CUSTOM)
+// 7. BUTTON 5: ATTENDANCE MARK SETTINGS DIALOG (HIGHLIGHT vs P/L/E/A vs CUSTOM)
 // ============================================================================
 function getAttendanceStyle_() {
   try {
@@ -1332,6 +1335,8 @@ function getAttendanceStyle_() {
         presentBg: parsed.presentBg !== undefined ? String(parsed.presentBg) : DEFAULT_ATTENDANCE_STYLE.presentBg,
         lateText: parsed.lateText !== undefined ? String(parsed.lateText) : DEFAULT_ATTENDANCE_STYLE.lateText,
         lateBg: parsed.lateBg !== undefined ? String(parsed.lateBg) : DEFAULT_ATTENDANCE_STYLE.lateBg,
+        excusedText: parsed.excusedText !== undefined ? String(parsed.excusedText) : DEFAULT_ATTENDANCE_STYLE.excusedText,
+        excusedBg: parsed.excusedBg !== undefined ? String(parsed.excusedBg) : DEFAULT_ATTENDANCE_STYLE.excusedBg,
         absentText: parsed.absentText !== undefined ? String(parsed.absentText) : DEFAULT_ATTENDANCE_STYLE.absentText,
         absentBg: parsed.absentBg !== undefined ? String(parsed.absentBg) : DEFAULT_ATTENDANCE_STYLE.absentBg
       };
@@ -1353,8 +1358,8 @@ function openAttendanceStyleDialog() {
       '[[div style="margin-bottom:12px;"]]' +
         '[[label style="display:block; font-weight:600; font-size:12px; color:#374151; margin-bottom:6px;"]]Preset Style:[[/label]]' +
         '[[select id="modeSelect" onchange="applyPreset()" style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;"]]' +
-          '[[option value="CENTER" ' + (cur.mode === 'CENTER' ? 'selected' : '') + ']]🎨 Highlight Style (Present = Blank, Late = Yellow, Absent = x)[[/option]]' +
-          '[[option value="PLA" ' + (cur.mode === 'PLA' ? 'selected' : '') + ']]🔤 Standard P / L / A (Present = P, Late = L + Yellow, Absent = A)[[/option]]' +
+          '[[option value="CENTER" ' + (cur.mode === 'CENTER' ? 'selected' : '') + ']]🎨 Highlight Style (Present = Blank, Late = Yellow, Excused = Orange, Absent = x)[[/option]]' +
+          '[[option value="PLA" ' + (cur.mode === 'PLA' ? 'selected' : '') + ']]🔤 Standard P / L / E / A (Present = P, Late = L + Yellow, Excused = E + Orange, Absent = A)[[/option]]' +
           '[[option value="CUSTOM" ' + (cur.mode === 'CUSTOM' ? 'selected' : '') + ']]✏️ Custom Marks & Colors[[/option]]' +
         '[[/select]]' +
       '[[/div]]' +
@@ -1378,6 +1383,11 @@ function openAttendanceStyleDialog() {
             '[[td style="padding:7px 8px; border:1px solid #e5e7eb;"]][[input id="lBg" type="text" placeholder="#ffff00" value="' + escapeHtml_(cur.lateBg) + '" oninput="markCustom()" style="width:90%; padding:5px; border:1px solid #d1d5db; border-radius:4px;"]][[/td]]' +
           '[[/tr]]' +
           '[[tr]]' +
+            '[[td style="padding:7px 8px; border:1px solid #e5e7eb; font-weight:600; color:#c2410c;"]]🟧 Excused (E)[[/td]]' +
+            '[[td style="padding:7px 8px; border:1px solid #e5e7eb;"]][[input id="eText" type="text" value="' + escapeHtml_(cur.excusedText) + '" oninput="markCustom()" style="width:90%; padding:5px; border:1px solid #d1d5db; border-radius:4px;"]][[/td]]' +
+            '[[td style="padding:7px 8px; border:1px solid #e5e7eb;"]][[input id="eBg" type="text" placeholder="#ff9900" value="' + escapeHtml_(cur.excusedBg) + '" oninput="markCustom()" style="width:90%; padding:5px; border:1px solid #d1d5db; border-radius:4px;"]][[/td]]' +
+          '[[/tr]]' +
+          '[[tr]]' +
             '[[td style="padding:7px 8px; border:1px solid #e5e7eb; font-weight:600; color:#991b1b;"]]❌ Absent (-)[[/td]]' +
             '[[td style="padding:7px 8px; border:1px solid #e5e7eb;"]][[input id="aText" type="text" value="' + escapeHtml_(cur.absentText) + '" oninput="markCustom()" style="width:90%; padding:5px; border:1px solid #d1d5db; border-radius:4px;"]][[/td]]' +
             '[[td style="padding:7px 8px; border:1px solid #e5e7eb;"]][[input id="aBg" type="text" placeholder="empty = clear bg" value="' + escapeHtml_(cur.absentBg) + '" oninput="markCustom()" style="width:90%; padding:5px; border:1px solid #d1d5db; border-radius:4px;"]][[/td]]' +
@@ -1397,6 +1407,8 @@ function openAttendanceStyleDialog() {
             'document.getElementById("pBg").value = "";' +
             'document.getElementById("lText").value = "";' +
             'document.getElementById("lBg").value = "#ffff00";' +
+            'document.getElementById("eText").value = "";' +
+            'document.getElementById("eBg").value = "#ff9900";' +
             'document.getElementById("aText").value = "x";' +
             'document.getElementById("aBg").value = "";' +
           '} else if (m === "PLA") {' +
@@ -1404,6 +1416,8 @@ function openAttendanceStyleDialog() {
             'document.getElementById("pBg").value = "";' +
             'document.getElementById("lText").value = "L";' +
             'document.getElementById("lBg").value = "#ffff00";' +
+            'document.getElementById("eText").value = "E";' +
+            'document.getElementById("eBg").value = "#ff9900";' +
             'document.getElementById("aText").value = "A";' +
             'document.getElementById("aBg").value = "";' +
           '}' +
@@ -1418,6 +1432,8 @@ function openAttendanceStyleDialog() {
             'presentBg: document.getElementById("pBg").value.trim(),' +
             'lateText: document.getElementById("lText").value,' +
             'lateBg: document.getElementById("lBg").value.trim(),' +
+            'excusedText: document.getElementById("eText").value,' +
+            'excusedBg: document.getElementById("eBg").value.trim(),' +
             'absentText: document.getElementById("aText").value,' +
             'absentBg: document.getElementById("aBg").value.trim()' +
           '};' +
@@ -1436,7 +1452,7 @@ function openAttendanceStyleDialog() {
       '[[/script]]' +
     '[[/div]]';
 
-  const html = renderDialogHtml_(dialogTpl, 480, 370);
+  const html = renderDialogHtml_(dialogTpl, 490, 415);
   SpreadsheetApp.getUi().showModalDialog(html, '⚙️ 5. Attendance Mark Settings');
 }
 
@@ -1447,6 +1463,8 @@ function saveAttendanceStyleSettings(styleCfg) {
     presentBg: String(styleCfg.presentBg || ''),
     lateText: String(styleCfg.lateText !== undefined ? styleCfg.lateText : ''),
     lateBg: String(styleCfg.lateBg || ''),
+    excusedText: String(styleCfg.excusedText !== undefined ? styleCfg.excusedText : ''),
+    excusedBg: String(styleCfg.excusedBg !== undefined ? styleCfg.excusedBg : '#ff9900'),
     absentText: String(styleCfg.absentText !== undefined ? styleCfg.absentText : 'x'),
     absentBg: String(styleCfg.absentBg || '')
   };
@@ -1457,12 +1475,13 @@ function saveAttendanceStyleSettings(styleCfg) {
     'SYNC_MENU',
     'UPDATE_MARK_STYLE',
     clean.mode,
-    'P="' + clean.presentText + '" (' + (clean.presentBg || 'none') + '), L="' + clean.lateText + '" (' + (clean.lateBg || 'none') + '), A="' + clean.absentText + '" (' + (clean.absentBg || 'none') + ')'
+    'P="' + clean.presentText + '" (' + (clean.presentBg || 'none') + '), L="' + clean.lateText + '" (' + (clean.lateBg || 'none') + '), E="' + clean.excusedText + '" (' + (clean.excusedBg || 'none') + '), A="' + clean.absentText + '" (' + (clean.absentBg || 'none') + ')'
   );
   showAlert_(
     '✅ ATTENDANCE MARK SETTINGS SAVED\n\n' +
     '• Present (P): "' + clean.presentText + '" (Bg: ' + (clean.presentBg || 'Clear') + ')\n' +
     '• Late (L): "' + clean.lateText + '" (Bg: ' + (clean.lateBg || 'Clear') + ')\n' +
+    '• Excused (E): "' + clean.excusedText + '" (Bg: ' + (clean.excusedBg || 'Clear') + ')\n' +
     '• Absent (-): "' + clean.absentText + '" (Bg: ' + (clean.absentBg || 'Clear') + ')'
   );
 }
@@ -1545,7 +1564,8 @@ function autoSyncTodayAttendanceAfterClass() {
         'ATTENDANCE_SYNC_SUCCESS',
         classId + ' (' + sessionGroup.day + '/' + sessionGroup.month + ')',
         (targetInfo.isGoogleSheet ? '[Google Sheet] ' : '[.XLSX] ') +
-        'Present: ' + result.presentCount + ', Late: ' + result.lateCount + ', Absent: ' + result.absentCount
+        'Present: ' + result.presentCount + ', Late: ' + result.lateCount +
+        (result.excusedCount ? ', Excused: ' + result.excusedCount : '') + ', Absent: ' + result.absentCount
       );
     } catch (err) {
       appendAuditLog_(
@@ -2357,7 +2377,95 @@ function withTargetSpreadsheet_(targetInfo, classId, className, isWrite, callbac
 }
 
 /**
+ * Smart Color-Family Classifier for Google Sheets & Excel default palettes:
+ * Recognizes all shades of:
+ *   - 'ORANGE' (Excused E): #ff9900, #f6b26b, #f9cb9c, #fce5cd, #e69138, #b45f06, #ff6d01, #ffa500, #ffc000, #ed7d31, etc. (Hue 17°..46°)
+ *   - 'YELLOW' (Late L):    #ffff00, #fff2cc, #ffe599, #ffd966, #f1c232, #bf9000, #ffeb3b, etc. (Hue 47°..69°)
+ *   - 'RED'    (Exam Ban):  #ff0000, #e06666, #ea9999, #f4cccc, #cc0000, #990000, #d93025, #ea4335, etc. (Hue <= 16° or >= 342°)
+ *   - 'EMPTY':  white / transparent / neutral gray
+ */
+function classifySheetCellColor_(hexColor) {
+  if (!hexColor) return 'EMPTY';
+  let h = String(hexColor).trim().toLowerCase();
+  if (!h || h === 'none' || h === 'transparent' || h === '#ffffff' || h === '#00000000' || h === '00000000' || h === 'ffffffff') {
+    return 'EMPTY';
+  }
+  if (h.charAt(0) === '#') h = h.slice(1);
+  if (h.length === 8) h = h.slice(2); // Strip ARGB alpha prefix if present
+  if (h.length === 3) {
+    h = h.charAt(0) + h.charAt(0) + h.charAt(1) + h.charAt(1) + h.charAt(2) + h.charAt(2);
+  }
+  if (h.length !== 6) return 'EMPTY';
+
+  // Fast exact palette lookup for Google Sheets & Excel standard swatches
+  const orangeSwatches = {
+    'ff9900': 1, 'f6b26b': 1, 'f9cb9c': 1, 'fce5cd': 1, 'e69138': 1, 'b45f06': 1,
+    'ff6d01': 1, 'ffa500': 1, 'ffc000': 1, 'ed7d31': 1, 'f4b084': 1, 'f8cbad': 1,
+    'fbe5d6': 1, 'fb8c00': 1, 'f57c00': 1, 'ffab40': 1, 'ffd180': 1, 'ff9800': 1,
+    'ffb74d': 1, 'ffe0b2': 1, 'fff3e0': 1, 'f97316': 1, 'fdba74': 1, 'fed7aa': 1
+  };
+  if (orangeSwatches[h]) return 'ORANGE';
+
+  const yellowSwatches = {
+    'ffff00': 1, 'fff2cc': 1, 'ffe599': 1, 'ffd966': 1, 'f1c232': 1, 'bf9000': 1,
+    'ffeb3b': 1, 'fff59d': 1, 'ffee58': 1, 'fdd835': 1, 'fbc02d': 1, 'fef08a': 1,
+    'fde047': 1, 'eab308': 1, 'fef9c3': 1
+  };
+  if (yellowSwatches[h]) return 'YELLOW';
+
+  const redSwatches = {
+    'ff0000': 1, 'e06666': 1, 'ea9999': 1, 'f4cccc': 1, 'cc0000': 1, '990000': 1,
+    'd93025': 1, 'ea4335': 1, 'ef4444': 1, 'dc2626': 1, 'b91c1c': 1, 'f87171': 1,
+    'fca5a5': 1, 'fee2e2': 1, 'fecaca': 1, 'c00000': 1, 'ff5252': 1
+  };
+  if (redSwatches[h]) return 'RED';
+
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return 'EMPTY';
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  const sat = max === 0 ? 0 : d / max;
+  const val = max;
+
+  if (sat < 0.14 || val < 0.25) return 'EMPTY';
+
+  let hue = 0;
+  if (d !== 0) {
+    if (max === r) {
+      hue = ((g - b) / d) % 6;
+    } else if (max === g) {
+      hue = (b - r) / d + 2;
+    } else {
+      hue = (r - g) / d + 4;
+    }
+    hue = Math.round(hue * 60);
+    if (hue < 0) hue += 360;
+  }
+
+  if (hue <= 16 || hue >= 342) return 'RED';
+  if (hue >= 17 && hue <= 46) return 'ORANGE';
+  if (hue >= 47 && hue <= 69) return 'YELLOW';
+  return 'OTHER';
+}
+
+function saveManualExamBanForClass_(classId, bannedStudentMap) {
+  if (!classId) return;
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const allBans = JSON.parse(props.getProperty('QR_MANUAL_EXAM_BAN_MAP') || '{}');
+    allBans[classId] = bannedStudentMap || {};
+    props.setProperty('QR_MANUAL_EXAM_BAN_MAP', JSON.stringify(allBans));
+  } catch (e) {}
+}
+
+/**
  * Extract student roster (No., Student_ID, Full_Name) from either a Google Sheet or .XLSX file.
+ * Also scans student identity cells (STT, MSSV, Họ tên) for manual Red Exam-Ban highlights (#ff0000, #e06666...)
+ * and full-sheet attendance cells (x, Yellow, Orange) so pre-existing sheet data is synced to Master Sheet.
  */
 function extractRosterFromTargetFile_(targetInfo, classId, className) {
   return withTargetSpreadsheet_(targetInfo, classId, className, false, function(ss, sheet) {
@@ -2395,8 +2503,17 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
 
     const numRows = lastRow - layout.dataStartRow + 1;
     const maxColNeeded = Math.max(layout.idCol, layout.nameCol + (layout.isTwoColName ? 1 : 0));
-    const rows = sheet.getRange(layout.dataStartRow, 1, numRows, maxColNeeded).getValues();
+    const infoRange = sheet.getRange(layout.dataStartRow, 1, numRows, maxColNeeded);
+    const rows = infoRange.getValues();
+    let infoBgs = null;
+    let infoFontColors = null;
+    try {
+      infoBgs = infoRange.getBackgrounds();
+      infoFontColors = infoRange.getFontColors();
+    } catch (e) {}
+
     const roster = [];
+    const manualBans = {};
 
     for (let i = 0; i < rows.length; i++) {
       const rawId = rows[i][layout.idCol - 1];
@@ -2409,9 +2526,27 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
       const sid = normalizeStudentId_(rawId, fullName);
       if (!sid || !fullName) continue;
 
+      // Check if STT, MSSV, or Full Name cell is highlighted in Red (Manual Exam Ban on Sheet)
+      if (infoBgs || infoFontColors) {
+        let isRedRow = false;
+        for (let c = 0; c < maxColNeeded; c++) {
+          const bgType = infoBgs && infoBgs[i] ? classifySheetCellColor_(infoBgs[i][c]) : 'EMPTY';
+          const fcType = infoFontColors && infoFontColors[i] ? classifySheetCellColor_(infoFontColors[i][c]) : 'EMPTY';
+          if (bgType === 'RED' || fcType === 'RED') {
+            isRedRow = true;
+            break;
+          }
+        }
+        if (isRedRow) {
+          manualBans[sid.toUpperCase()] = true;
+        }
+      }
+
       const stt = roster.length + 1;
       roster.push([stt, sid, fullName, 0, 0]);
     }
+
+    saveManualExamBanForClass_(classId, manualBans);
 
     return {
       roster: roster,
@@ -2523,6 +2658,7 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
       sheetName: sheet.getName(),
       presentCount: 0,
       lateCount: 0,
+      excusedCount: 0,
       absentCount: 0,
       previousCells: []
     };
@@ -2545,7 +2681,15 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
     const numRows = lastRow - layout.dataStartRow + 1;
     const targetColRange = sheet.getRange(layout.dataStartRow, targetCol, numRows, 1);
     const maxColNeeded = Math.max(layout.idCol, layout.nameCol + (layout.isTwoColName ? 1 : 0));
-    const idAndNameRows = sheet.getRange(layout.dataStartRow, 1, numRows, maxColNeeded).getValues();
+    const infoRange = sheet.getRange(layout.dataStartRow, 1, numRows, maxColNeeded);
+    const idAndNameRows = infoRange.getValues();
+    let infoBgs = null;
+    let infoFontColors = null;
+    try {
+      infoBgs = infoRange.getBackgrounds();
+      infoFontColors = infoRange.getFontColors();
+    } catch (e) {}
+
     const oldColValues = targetColRange.getDisplayValues();
     const oldColBgs = targetColRange.getBackgrounds();
 
@@ -2558,6 +2702,7 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
 
     const outColValues = [];
     const outColBgs = [];
+    const manualBans = {};
 
     for (let idx = 0; idx < numRows; idx++) {
       const rowNumber = layout.dataStartRow + idx;
@@ -2573,14 +2718,32 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
         continue;
       }
 
+      const sidKey = sid.toUpperCase();
+      if (infoBgs || infoFontColors) {
+        for (let c = 0; c < maxColNeeded; c++) {
+          const bgType = infoBgs && infoBgs[idx] ? classifySheetCellColor_(infoBgs[idx][c]) : 'EMPTY';
+          const fcType = infoFontColors && infoFontColors[idx] ? classifySheetCellColor_(infoFontColors[idx][c]) : 'EMPTY';
+          if (bgType === 'RED' || fcType === 'RED') {
+            manualBans[sidKey] = true;
+            break;
+          }
+        }
+      }
+
       const oldBg = oldColBgs[idx][0];
+      const oldBgColorClass = classifySheetCellColor_(oldBg);
       stats.previousCells.push({
         row: rowNumber,
         val: oldColValues[idx][0],
         bg: (oldBg && oldBg !== '#ffffff' && oldBg !== '#FFFFFF') ? oldBg : null
       });
 
-      const status = normStatusMap[sid.toUpperCase()] || '-';
+      let status = normStatusMap[sidKey] || '-';
+      // If teacher already highlighted this cell Orange on the sheet for Excused (E), preserve E
+      if (status === '-' && oldBgColorClass === 'ORANGE') {
+        status = 'E';
+        statusMap[sidKey] = 'E';
+      }
 
       if (status === 'P') {
         outColValues.push([markStyle.presentText]);
@@ -2590,12 +2753,18 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
         outColValues.push([markStyle.lateText]);
         outColBgs.push([markStyle.lateBg ? markStyle.lateBg : null]);
         stats.lateCount++;
+      } else if (status === 'E') {
+        outColValues.push([markStyle.excusedText !== undefined ? markStyle.excusedText : '']);
+        outColBgs.push([markStyle.excusedBg ? markStyle.excusedBg : (oldBgColorClass === 'ORANGE' ? oldBg : '#ff9900')]);
+        stats.excusedCount++;
       } else {
         outColValues.push([markStyle.absentText]);
         outColBgs.push([markStyle.absentBg ? markStyle.absentBg : null]);
         stats.absentCount++;
       }
     }
+
+    saveManualExamBanForClass_(classId, manualBans);
 
     targetColRange.setValues(outColValues);
     targetColRange.setBackgrounds(outColBgs);
@@ -2614,6 +2783,21 @@ function getGroupedSessionsByClassDate_(masterSs) {
   if (!sessSheet) throw new Error('Sheet \'Sessions_Log\' not found.');
   const data = sessSheet.getDataRange().getValues();
   const displayData = sessSheet.getDataRange().getDisplayValues();
+
+  // Pre-scan Attendance_Log to filter out accidental/test sessions where 0 students had P/L/E/TEACHER_MANUAL
+  const attSheet = masterSs.getSheetByName('Attendance_Log');
+  const activeSessionIds = {};
+  if (attSheet && attSheet.getLastRow() > 1) {
+    const attRows = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 10).getValues();
+    for (let a = 0; a < attRows.length; a++) {
+      const sId = String(attRows[a][2] || '').trim();
+      const st = String(attRows[a][5] || '').trim().toUpperCase();
+      const src = String(attRows[a][9] || '').trim();
+      if (sId && (st === 'P' || st === 'L' || st === 'E' || src === 'TEACHER_MANUAL')) {
+        activeSessionIds[sId] = true;
+      }
+    }
+  }
 
   const groupsMap = {};
   const groupOrder = [];
@@ -2645,14 +2829,17 @@ function getGroupedSessionsByClassDate_(masterSs) {
     }
     if (!day || !month) continue;
 
-    const dateKey = year + '-' + month + '-' + day;
-    const groupKey = classId + '__' + dateKey;
-
     let closesAtMs = 0;
     if (closesAtRaw instanceof Date && !isNaN(closesAtRaw.getTime())) {
       closesAtMs = closesAtRaw.getTime();
     }
-    const isClosed = closedManuallyStr.length > 0;
+    const isClosed = closedManuallyStr.length > 0 || (closesAtMs > 0 && Date.now() > closesAtMs);
+
+    // Skip closed ghost/test sessions that have 0 real attendance marks (P/L/E/TEACHER_MANUAL)
+    if (isClosed && !activeSessionIds[sessionId]) continue;
+
+    const dateKey = year + '-' + month + '-' + day;
+    const groupKey = classId + '__' + dateKey;
 
     if (!groupsMap[groupKey]) {
       groupsMap[groupKey] = {
@@ -2676,7 +2863,7 @@ function getGroupedSessionsByClassDate_(masterSs) {
     if (sessionLabel && grp.sessionLabels.indexOf(sessionLabel) === -1) {
       grp.sessionLabels.push(sessionLabel);
     }
-    grp.primaryLabel = sessionLabel || grp.primaryLabel;
+    grp.primaryLabel = grp.sessionLabels[0] || sessionLabel || grp.primaryLabel;
     if (openedAtMs > grp.openedAtMs) grp.openedAtMs = openedAtMs;
     if (!isClosed) grp.allClosed = false;
     if (closesAtMs > grp.maxClosesAtMs) grp.maxClosesAtMs = closesAtMs;
@@ -2745,13 +2932,19 @@ function getClassEndTimeOnCalendarMs_(masterSs, classId, now, openedAtMs) {
 function getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup) {
   const statusMap = {};
 
-  function mergeStatus_(sid, newSt) {
+  function mergeStatus_(sid, newSt, isTeacherManual) {
     if (!sid) return;
     const key = sid.toUpperCase();
+    if (isTeacherManual) {
+      statusMap[key] = newSt;
+      return;
+    }
     const cur = statusMap[key] || '-';
     if (newSt === 'P') {
       statusMap[key] = 'P';
-    } else if (newSt === 'L' && cur !== 'P') {
+    } else if (newSt === 'E' && cur !== 'P') {
+      statusMap[key] = 'E';
+    } else if (newSt === 'L' && cur !== 'P' && cur !== 'E') {
       statusMap[key] = 'L';
     } else if (!statusMap[key]) {
       statusMap[key] = '-';
@@ -2782,8 +2975,8 @@ function getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup) {
         statusMap[key] = '-';
         for (let k = 0; k < matchedCols.length; k++) {
           const st = String(values[r][matchedCols[k]] || '').trim().toUpperCase();
-          if (st === 'P' || st === 'L') {
-            mergeStatus_(key, st);
+          if (st === 'P' || st === 'E' || st === 'L') {
+            mergeStatus_(key, st, false);
           }
         }
       }
@@ -2804,13 +2997,10 @@ function getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup) {
       if (sessionIdSet[rowSessId] && rowClassId === classId) {
         const sid = normalizeStudentId_(attData[i][4]);
         const st = String(attData[i][5] || '').trim().toUpperCase();
-        if (sid && (st === 'P' || st === 'L' || st === '-')) {
-          const key = sid.toUpperCase();
-          if (st === '-') {
-            statusMap[key] = '-';
-          } else {
-            mergeStatus_(key, st);
-          }
+        const src = String(attData[i][9] || '').trim();
+        if (sid && (st === 'P' || st === 'E' || st === 'L' || st === '-')) {
+          const isManual = (src === 'TEACHER_MANUAL');
+          mergeStatus_(sid.toUpperCase(), st, isManual);
         }
       }
     }
@@ -2820,6 +3010,15 @@ function getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup) {
 }
 
 function updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap) {
+  if (typeof rebuildSingleClassGrid === 'function') {
+    try {
+      rebuildSingleClassGrid(masterSs, classId);
+      CacheService.getScriptCache().remove('CLASS_ATT_STATS_V35_' + classId);
+      SpreadsheetApp.flush();
+      return;
+    } catch (e) {}
+  }
+
   const classSheet = masterSs.getSheetByName(classId);
   if (!classSheet) return;
   const values = classSheet.getDataRange().getValues();
@@ -2836,6 +3035,7 @@ function updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap) {
         break;
       }
     }
+    if (sessionColIdx !== -1) break;
   }
 
   if (sessionColIdx === -1) {

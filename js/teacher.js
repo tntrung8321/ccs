@@ -1,10 +1,11 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.5.1)
+ * LECTURER CONTROLLER (js/teacher.js — v3.6.0)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
- *  - Instant 0.01s Optimistic UI for Manual Attendance Marks (P / L / E / -)
+ *  - Instant 0.01s Optimistic UI for Manual Attendance Marks (P / L / E / -) & Past-Session Excuse Approval
+ *  - Shuffle-Bag Random Student Caller (Projector ID Privacy) & Instant Classroom Group Maker
  *  - Isolated Session Control Block with Two-Step Inline Confirmation
  *  - Live Roster Quick Filters (All / Present / Absent / Suspect) & Projector Privacy Mode
  * ============================================================================
@@ -19,6 +20,9 @@ let activeRosterFilter = 'ALL'; // 'ALL' | 'PRESENT' | 'ABSENT' | 'SUSPECT'
 let teacherHasManuallySelectedClass = false;
 let selectedTeacherClassId = '';
 let pendingManualMarks = {}; // Optimistic UI locks keyed by studentId so rapid clicks never wait or flicker
+let randomCallerVisitedByClass = {}; // Per-class shuffle bag Set of studentIds already called
+let currentDraftGroups = [];
+let currentDraftGroupSize = 4;
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && currentMode === 'TEACHER' && getTeacherAuth()) {
@@ -690,11 +694,16 @@ function renderTeacherRoster() {
     const suspectNote = suspectMap[st.studentId];
     const isDuplicateName = (nameCounts[String(st.fullName || '').trim().toLowerCase()] || 0) > 1;
     const maskedTail = isDuplicateName && st.studentId ? ` (***${String(st.studentId).slice(-3)})` : '';
+    const eCount = st.attendanceStats && Number(st.attendanceStats.E || 0) > 0 ? Number(st.attendanceStats.E) : 0;
+    const pastBadgeLabel = isEn
+      ? (eCount > 0 ? `History / Excused (${eCount}E)` : 'History / Excuse')
+      : (eCount > 0 ? `Lịch sử / Phép (${eCount}E)` : 'Lịch sử / Phép');
     return `
       <div class="roster-item ${suspectNote ? 'suspect-row' : ''}">
         <div class="roster-student-info">
-          <strong title="MSSV: ${escapeHtml(st.studentId)}">${escapeHtml(st.fullName)}${escapeHtml(maskedTail)}</strong>
+          <strong class="stu-name-clickable" onclick="openStudentPastAttendanceModal('${escapeHtml(st.studentId)}')" title="${isEn ? 'Click to view past sessions & approve Excused (E)' : 'Bấm để xem lịch sử các buổi trước và duyệt Vắng có phép (E)'} — MSSV: ${escapeHtml(st.studentId)}">${escapeHtml(st.fullName)}${escapeHtml(maskedTail)}</strong>
           <span class="status-pill st-${st.status}">${escapeHtml(st.status)}</span>
+          <span class="stu-past-excuse-badge" onclick="openStudentPastAttendanceModal('${escapeHtml(st.studentId)}')" title="${isEn ? 'Approve Excused (E) for past sessions' : 'Duyệt phép (E) cho các buổi học trước'}">${escapeHtml(pastBadgeLabel)}</span>
           ${st.time ? `<span style="font-size:0.75rem; color:var(--muted); font-family:var(--font-mono);">${escapeHtml(st.time)}</span>` : ''}
           ${st.distance !== '' && st.distance !== undefined ? `<span style="font-size:0.74rem; color:#0f766e; font-weight:600; font-family:var(--font-mono);">(${escapeHtml(st.distance)}m)</span>` : ''}
           ${suspectNote ? `<span class="suspect-tag">[${isEn ? 'SUSPECT' : 'NGHI VẤN'}] ${escapeHtml(suspectNote)}</span>` : ''}
@@ -736,6 +745,15 @@ async function handleRosterSearchKeydown(event) {
   }
 }
 
+function formatProjectorDisplayName(studentObj, fullRoster) {
+  if (!studentObj) return '';
+  const list = Array.isArray(fullRoster) ? fullRoster : [];
+  const targetNameKey = String(studentObj.fullName || '').trim().toLowerCase();
+  const dupCount = list.filter(s => String(s.fullName || '').trim().toLowerCase() === targetNameKey).length;
+  const suffix = (dupCount > 1 && studentObj.studentId) ? ` (***${String(studentObj.studentId).slice(-3)})` : '';
+  return `${studentObj.fullName}${suffix}`;
+}
+
 function triggerRandomSpotCheck() {
   const list = (teacherState && teacherState.roster) || [];
   const checkedIn = list.filter(s => s.status === 'P' || s.status === 'L');
@@ -748,23 +766,338 @@ function triggerRandomSpotCheck() {
     return;
   }
 
-  const pick = checkedIn[Math.floor(Math.random() * checkedIn.length)];
+  const classKey = selectedTeacherClassId || 'DEFAULT';
+  if (!randomCallerVisitedByClass[classKey]) {
+    randomCallerVisitedByClass[classKey] = new Set();
+  }
+  const visitedSet = randomCallerVisitedByClass[classKey];
+
+  let remainingPool = checkedIn.filter(s => !visitedSet.has(s.studentId));
+  if (remainingPool.length === 0) {
+    visitedSet.clear();
+    remainingPool = checkedIn.slice();
+  }
+
+  const pick = remainingPool[Math.floor(Math.random() * remainingPool.length)];
+  visitedSet.add(pick.studentId);
+
+  const displayName = formatProjectorDisplayName(pick, list);
+  const calledCount = visitedSet.size;
+  const totalPresent = checkedIn.length;
+
+  const htmlBody = `
+    <div style="text-align:center; padding:10px 4px;">
+      <div style="font-size:0.76rem; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px;">
+        ${isEn ? `Called ${calledCount} / ${totalPresent} present students` : `Lượt gọi ${calledCount} / ${totalPresent} sinh viên có mặt`}
+      </div>
+      <div style="font-size:1.35rem; font-weight:800; color:var(--primary); line-height:1.3; margin-bottom:6px;">
+        ${escapeHtml(displayName)}
+      </div>
+      <div style="font-size:0.8rem; color:var(--text-secondary); font-family:var(--font-mono);">
+        ${isEn ? `Status: ${pick.status} • Checked in at: ${pick.time || 'N/A'}` : `Trạng thái: ${pick.status} • Điểm danh lúc: ${pick.time || 'N/A'}`}
+      </div>
+    </div>
+  `;
+
   openAppModal(
-    isEn ? 'Random Attendance Spot-Check' : 'Kiểm tra Ngẫu nhiên Sĩ số',
-    isEn
-      ? `Full Name: ${pick.fullName}\nStudent ID: ${pick.studentId} (Checked in at: ${pick.time || 'N/A'})`
-      : `Họ và tên: ${pick.fullName}\nMã số sinh viên: ${pick.studentId} (Điểm danh lúc: ${pick.time || 'N/A'})`,
+    isEn ? 'Random Student Call' : 'Gọi Sinh viên Ngẫu nhiên',
+    '',
     isEn ? 'Revoke & Lock (-)' : 'Hủy & Khóa (-)',
     async () => {
       await teacherManualMark(pick.studentId, '-');
       showStatus(
         isEn
-          ? `Revoked attendance and locked re-submission in this session for ${pick.fullName} (${pick.studentId}).`
-          : `Đã hủy điểm danh và khóa nộp lại trong phiên này đối với ${pick.fullName} (${pick.studentId}).`,
+          ? `Revoked attendance and locked re-submission in this session for ${displayName}.`
+          : `Đã hủy điểm danh và khóa nộp lại trong phiên này đối với ${displayName}.`,
         'warn'
       );
+    },
+    {
+      htmlBody: htmlBody,
+      confirmClass: 'btn btn-danger',
+      extraLabel: isEn ? 'Call Next' : 'Gọi tiếp',
+      extraClass: 'btn btn-primary',
+      keepOpenOnExtra: true,
+      onExtra: () => {
+        triggerRandomSpotCheck();
+      }
     }
   );
+}
+
+function openStudentPastAttendanceModal(studentId) {
+  const list = (teacherState && teacherState.roster) || [];
+  const st = list.find(r => r && r.studentId === studentId);
+  const isEn = currentLang === 'en';
+  if (!st) return;
+
+  const stats = st.attendanceStats || { P: 0, L: 0, E: 0, A: 0, history: [] };
+  const history = Array.isArray(stats.history) ? stats.history.slice().reverse() : [];
+
+  const rowsHtml = history.length > 0
+    ? history.map(h => {
+        const curSt = h.status === 'OPEN' ? '-' : (h.status || '-');
+        const safeDayKey = escapeHtml(h.dayKey || '');
+        const safeSesId = escapeHtml(h.sessionId || '');
+        const safeSid = escapeHtml(st.studentId);
+        return `
+          <div class="past-ses-row" id="past-row-${safeDayKey}">
+            <div>
+              <strong>${escapeHtml(h.date || h.dayKey)}</strong>
+              <span style="font-size:0.74rem; color:var(--muted); margin-left:6px;">(${escapeHtml(h.label || '')})</span>
+              <span id="past-pill-${safeDayKey}" class="status-pill st-${curSt}" style="margin-left:6px;">${escapeHtml(curSt)}</span>
+            </div>
+            <div style="display:flex; gap:4px;">
+              <button type="button" class="btn btn-outline btn-sm ${curSt === 'P' ? 'btn-mark-active-P' : ''}" onclick="teacherMarkPastSession('${safeSid}','${safeDayKey}','${safeSesId}','P')">P</button>
+              <button type="button" class="btn btn-outline btn-sm ${curSt === 'L' ? 'btn-mark-active-L' : ''}" onclick="teacherMarkPastSession('${safeSid}','${safeDayKey}','${safeSesId}','L')">L</button>
+              <button type="button" class="btn btn-outline btn-sm ${curSt === 'E' ? 'btn-mark-active-E' : ''}" onclick="teacherMarkPastSession('${safeSid}','${safeDayKey}','${safeSesId}','E')">E</button>
+              <button type="button" class="btn btn-outline btn-sm ${curSt === '-' ? 'btn-mark-active--' : ''}" onclick="teacherMarkPastSession('${safeSid}','${safeDayKey}','${safeSesId}','-')">-</button>
+            </div>
+          </div>
+        `;
+      }).join('')
+    : `<div style="padding:12px 0; color:var(--muted); font-size:0.82rem;">${isEn ? 'No attendance sessions recorded for this class yet.' : 'Lớp học phần này chưa có lịch sử buổi điểm danh nào.'}</div>`;
+
+  const htmlBody = `
+    <div style="font-size:0.82rem; color:var(--text-secondary); margin-bottom:8px;">
+      <div><strong>${escapeHtml(st.fullName)}</strong> — MSSV: <span style="font-family:var(--font-mono);">${escapeHtml(st.studentId)}</span></div>
+      <div style="margin-top:4px; font-size:0.77rem; color:var(--muted);">
+        ${isEn
+          ? 'Select any past date below to approve an Excused absence (E) after verifying student documentation:'
+          : 'Chọn buổi học bên dưới để duyệt Vắng có phép (E) hoặc điều chỉnh chuyên cần khi sinh viên bổ sung minh chứng:'}
+      </div>
+    </div>
+    <div class="past-ses-list">${rowsHtml}</div>
+  `;
+
+  openAppModal(
+    isEn ? 'Attendance History & Excuse Approval (E)' : 'Lịch sử Điểm danh & Duyệt phép (E)',
+    '',
+    '',
+    null,
+    {
+      wide: true,
+      htmlBody: htmlBody,
+      hideConfirm: true
+    }
+  );
+}
+
+async function teacherMarkPastSession(studentId, dayKey, sessionId, newStatus) {
+  const auth = getTeacherAuth();
+  const classId = document.getElementById('sel-tea-class').value || selectedTeacherClassId;
+  const isEn = currentLang === 'en';
+  if (!auth || !classId || !studentId) return;
+
+  // Instant 0.01s visual update inside the modal & local teacherState
+  const pillEl = document.getElementById(`past-pill-${dayKey}`);
+  if (pillEl) {
+    pillEl.className = `status-pill st-${newStatus}`;
+    pillEl.textContent = newStatus;
+  }
+  const rowEl = document.getElementById(`past-row-${dayKey}`);
+  if (rowEl) {
+    rowEl.querySelectorAll('button').forEach(btn => {
+      const bTxt = btn.textContent.trim();
+      btn.classList.remove('btn-mark-active-P', 'btn-mark-active-L', 'btn-mark-active-E', 'btn-mark-active--');
+      if (bTxt === newStatus) btn.classList.add(`btn-mark-active-${newStatus}`);
+    });
+  }
+
+  if (teacherState && Array.isArray(teacherState.roster)) {
+    const st = teacherState.roster.find(r => r && r.studentId === studentId);
+    if (st && st.attendanceStats && Array.isArray(st.attendanceStats.history)) {
+      const hItem = st.attendanceStats.history.find(h => h && h.dayKey === dayKey);
+      if (hItem) hItem.status = newStatus;
+    }
+  }
+
+  if (typeof recordLocalStudentSessionMark === 'function') {
+    recordLocalStudentSessionMark(studentId, classId, dayKey, newStatus === '-' ? 'A' : newStatus, '');
+  }
+
+  const res = await callBackend(auth.apiUrl, {
+    action: 'TEACHER_MANUAL_MARK',
+    teacherToken: auth.token,
+    classId: classId,
+    studentId: studentId,
+    status: newStatus,
+    targetDayKey: dayKey,
+    targetSessionId: sessionId
+  });
+
+  if (res && res.ok) {
+    await applyTeacherState(res, false);
+    showStatus(
+      isEn
+        ? `Updated session ${dayKey} -> ${newStatus} for ${studentId}.`
+        : `Đã cập nhật buổi ${dayKey} -> ${newStatus} cho MSSV ${studentId}.`,
+      'success',
+      'tea-session-inline-status'
+    );
+  }
+}
+
+function buildShuffledGroups(pool, groupSize) {
+  const arr = pool.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  const size = Math.max(2, Number(groupSize || 4));
+  const groups = [];
+  for (let i = 0; i < arr.length; i += size) {
+    groups.push({
+      groupNumber: groups.length + 1,
+      members: arr.slice(i, i + size)
+    });
+  }
+  // If the last group has only 1 student and there are other groups, merge that student into the previous group
+  if (groups.length > 1 && groups[groups.length - 1].members.length === 1) {
+    const lone = groups.pop().members[0];
+    groups[groups.length - 1].members.push(lone);
+  }
+  return groups;
+}
+
+function renderGroupMakerModalContent(groupSize, reshuffle = false) {
+  const isEn = currentLang === 'en';
+  const list = (teacherState && teacherState.roster) || [];
+  const presentStudents = list.filter(s => s.status === 'P' || s.status === 'L');
+  const pool = presentStudents.length > 0 ? presentStudents : list;
+  const usingFullRoster = presentStudents.length === 0;
+
+  if (groupSize) currentDraftGroupSize = Number(groupSize);
+  if (reshuffle || currentDraftGroups.length === 0) {
+    currentDraftGroups = buildShuffledGroups(pool, currentDraftGroupSize);
+  }
+
+  const sizeOptionsHtml = [2, 3, 4, 5].map(sz => `
+    <button type="button" class="btn ${currentDraftGroupSize === sz ? 'btn-primary' : 'btn-outline'} btn-sm" onclick="changeGroupMakerSize(${sz})">
+      ${sz} ${isEn ? 'per group' : 'SV/nhóm'}
+    </button>
+  `).join('');
+
+  const groupsGridHtml = currentDraftGroups.map(g => {
+    const membersHtml = g.members.map((m, idx) =>
+      `<div class="group-box-member">${idx + 1}. ${escapeHtml(formatProjectorDisplayName(m, list))}</div>`
+    ).join('');
+    return `
+      <div class="group-box">
+        <div class="group-box-title">${isEn ? `Group #${g.groupNumber}` : `Nhóm ${g.groupNumber}`} (${g.members.length})</div>
+        ${membersHtml}
+      </div>
+    `;
+  }).join('');
+
+  const poolNote = usingFullRoster
+    ? (isEn
+        ? `No active check-ins yet — splitting all ${pool.length} students on roster`
+        : `Chưa có SV điểm danh phiên này — Đang chia theo danh sách lớp (${pool.length} SV)`)
+    : (isEn
+        ? `Splitting ${pool.length} present students into ${currentDraftGroups.length} groups`
+        : `Đang chia ${pool.length} sinh viên có mặt thành ${currentDraftGroups.length} nhóm`);
+
+  return `
+    <div class="group-maker-toolbar">
+      <div style="font-size:0.78rem; font-weight:600; color:var(--text-secondary);">${escapeHtml(poolNote)}</div>
+      <div style="display:flex; gap:4px; flex-wrap:wrap;">${sizeOptionsHtml}</div>
+    </div>
+    <div class="group-maker-grid">${groupsGridHtml}</div>
+  `;
+}
+
+function changeGroupMakerSize(newSize) {
+  currentDraftGroupSize = Number(newSize || 4);
+  const bodyEl = document.getElementById('app-modal-body');
+  if (bodyEl) {
+    bodyEl.innerHTML = renderGroupMakerModalContent(currentDraftGroupSize, true);
+  }
+}
+
+function openGroupMakerModal() {
+  const isEn = currentLang === 'en';
+  const list = (teacherState && teacherState.roster) || [];
+  if (!selectedTeacherClassId || list.length === 0) {
+    showStatus(
+      isEn ? 'Please select a class with students first.' : 'Vui lòng chọn lớp học phần có danh sách sinh viên trước.',
+      'warn'
+    );
+    return;
+  }
+
+  const existingPublished = teacherState && teacherState.activeGroupSplit && Array.isArray(teacherState.activeGroupSplit.groups)
+    ? teacherState.activeGroupSplit
+    : null;
+  if (existingPublished && existingPublished.groups.length > 0 && currentDraftGroups.length === 0) {
+    currentDraftGroups = existingPublished.groups;
+    currentDraftGroupSize = Number(existingPublished.groupSize || 4);
+  } else {
+    currentDraftGroups = [];
+  }
+
+  const htmlBody = renderGroupMakerModalContent(currentDraftGroupSize, currentDraftGroups.length === 0);
+
+  openAppModal(
+    isEn ? 'Classroom Group Maker' : 'Chia nhóm Thảo luận trên lớp',
+    '',
+    isEn ? 'Send Groups to Student Phones' : 'Gửi nhóm về ĐT Sinh viên',
+    async () => {
+      await publishClassroomGroupsToStudents(false);
+    },
+    {
+      wide: true,
+      htmlBody: htmlBody,
+      extraLabel: isEn ? 'Reshuffle' : 'Trộn lại',
+      extraClass: 'btn btn-outline',
+      keepOpenOnExtra: true,
+      onExtra: () => {
+        const bodyEl = document.getElementById('app-modal-body');
+        if (bodyEl) {
+          bodyEl.innerHTML = renderGroupMakerModalContent(currentDraftGroupSize, true);
+        }
+      }
+    }
+  );
+}
+
+async function publishClassroomGroupsToStudents(clearGroups = false) {
+  const auth = getTeacherAuth();
+  const classId = document.getElementById('sel-tea-class').value || selectedTeacherClassId;
+  const isEn = currentLang === 'en';
+  if (!auth || !classId) return;
+
+  const res = await callBackend(auth.apiUrl, {
+    action: 'TEACHER_PUBLISH_GROUPS',
+    teacherToken: auth.token,
+    classId: classId,
+    clear: Boolean(clearGroups),
+    groupSize: currentDraftGroupSize,
+    groups: clearGroups ? [] : currentDraftGroups.map(g => ({
+      groupNumber: g.groupNumber,
+      members: (g.members || []).map(m => ({
+        studentId: m.studentId,
+        fullName: m.fullName
+      }))
+    }))
+  });
+
+  if (res && res.ok) {
+    if (teacherState) {
+      teacherState.activeGroupSplit = res.activeGroupSplit || null;
+    }
+    showStatus(
+      clearGroups
+        ? (isEn ? 'Cleared classroom groups.' : 'Đã xóa danh sách chia nhóm.')
+        : (isEn
+            ? `Published ${currentDraftGroups.length} groups to students' phones.`
+            : `Đã gửi danh sách ${currentDraftGroups.length} nhóm về màn hình điện thoại của sinh viên.`),
+      'success',
+      'tea-session-inline-status'
+    );
+  }
 }
 
 function overlayPendingManualMarksOnRoster(rosterList) {

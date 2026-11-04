@@ -2,6 +2,31 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### ✨ Version `v3.6.0` — *Official Attendance Score & Exam Ban (`CẤM THI`) on Student UI, Same-Day Session Merging & Ghost Filtering, Customizable `Excused (E)` + Smart Color-Family Detection (`sync.txt`), Past-Session Excuse Approval, Shuffle-Bag Random Caller & Instant Classroom Group Maker*
+* **Official Attendance Score (`10.0` Base), Near-Limit Warning & `CẤM THI` Banner on Student UI (`code3.6.0.text`, `js/student.js`, `css/styles.css`)**:
+  * Implemented the official attendance scoring and exam eligibility rules (displayed exclusively on the **Student UI** to keep the Lecturer UI clean):
+    * **Base Score**: `10.0` points.
+    * **Unexcused Absence (`-` / `x` / `A`)**: `-1.0` point/session, counts as `1.0x` absence.
+    * **Late (`L` / Yellow cell)**: `-0.5` point/session, counts as `0x` absence.
+    * **Excused Absence (`E` / Orange cell)**: `-0.5` point/session, counts as `0.5x` equivalent absence (`2` excused absences = `1.0x`).
+    * **Formulas**: $\text{EquivAbsences} = A + (E \times 0.5)$ and $\text{AttendanceScore} = 10.0 - (A \times 1.0) - (L \times 0.5) - (E \times 0.5)$.
+  * **3-Tier Student UI Visual Classification**:
+    * **Immediate Exam Ban (`examStatus = 'BAN'` — Solid Red `#dc2626` + `CẤM THI` Badge)**: Triggered when $\text{EquivAbsences} > 6.0$ (from `6.5x` upward) **OR** $\text{AttendanceScore} < 0.0$ (from `-0.5` downward) **OR** when the student's information cells (`STT`, `MSSV`, `Họ tên`) are manually highlighted/colored Red on the official Google Sheet. *(Students with $\le 6.0\text{x}$ and $\ge 0.0\text{pt}$ remain eligible).*
+    * **Near-Limit Warning (`examStatus = 'WARN'` — Light Red `#fef2f2` + Warning Banner)**: Triggered when not banned and ($5.5 \le \text{EquivAbsences} \le 6.0$ **OR** $0.0 \le \text{AttendanceScore} \le 1.0$).
+* **Same-Day Session Merging & Ghost/Test Session Filtering (`code3.6.0.text` & `sync.txt`)**:
+  * **1 Calendar Day = 1 Teaching Session = 1 Sheet Column**: Opening multiple QR sessions on the same day for the same class now merges into a single teaching day (`buildGroupedClassDayRecords_`), automatically clearing duplicate same-day columns in `rebuildSingleClassGrid` and deduplicating history by `dayKey` (`yyyy-MM-dd`) on both the backend and student devices.
+  * **Ghost Session Filtering**: Closed test/accidental sessions where `0` students checked in (`P = 0, L = 0, E = 0, TEACHER_MANUAL = 0`) are automatically ignored so students are never penalized for empty test sessions.
+  * **Chronological Manual Override & `AUTO_SWEEP` Protection**: `TEACHER_MANUAL` overrides always take chronological precedence, while `AUTO_SWEEP` `-` marks from a second session opened on the same day never overwrite a valid `P / E / L` recorded in the first session.
+* **Customizable `Excused (E)` Marks & Smart Color-Family Detection (`sync.txt` & `code3.6.0.text`)**:
+  * Added **`Excused (E)`** (`excusedText`, `excusedBg`) to **`⚙️ 5. Attendance Mark Settings` (`openAttendanceStyleDialog`)** in `sync.txt` across all presets (`CENTER`: blank text + orange `#ff9900` background; `PLA`: `'E'` + `#ff9900` background; `CUSTOM`: user-defined text and hex color).
+  * Added `classifySheetCellColor_` (RGB + HSV hue-range classifier + Google Sheets/Excel palette lookup) to automatically recognize **any shade of Orange** (hue $17^\circ\text{–}46^\circ$, `#ff9900`, `#f6b26b`, `#f9cb9c`, `#fce5cd`, `#e69138`, `#ffa500`, `#ffc000`, etc.) as `Excused (E)`, **any shade of Yellow** (hue $47^\circ\text{–}69^\circ$, `#ffff00`, `#fff2cc`, `#ffe599`, `#ffd966`, `#f1c232`, etc.) as `Late (L)`, and **any shade of Red** (hue $\le 16^\circ$ or $\ge 342^\circ$, `#ff0000`, `#e06666`, `#ea9999`, `#f4cccc`, `#cc0000`, etc.) on `STT / MSSV / Họ tên` as manual Exam Ban (`QR_MANUAL_EXAM_BAN_MAP`).
+* **Lecturer Past-Session Excuse (`E`) Approval (`js/teacher.js` & `code3.6.0.text`)**:
+  * Clicking a student's name or the `"Lịch sử / Phép"` badge on the Lecturer roster opens the **Attendance History & Excuse Approval (`E`)** modal (`openStudentPastAttendanceModal`), listing all past class dates (`dd/MM/yyyy`) so the Lecturer can switch any past absence (`-`) to `E` (or `P / L`) when a student submits supporting documentation in a later class.
+* **Shuffle-Bag Random Student Caller & Instant Classroom Group Maker (`js/teacher.js`, `js/student.js`, `index.html`)**:
+  * **Upgraded Random Caller (`Gọi ngẫu nhiên`)**: Uses a per-session `Shuffle Bag` so already-called students are not repeated until every present student has been called, hides full Student IDs on the projector modal (showing `(***123)` only if two students share the exact same full name), and adds a **`"Gọi tiếp"`** (`Call Next`) button directly inside the modal alongside **`"Hủy & Khóa (-)"`**.
+  * **Instant Classroom Group Maker (`Chia nhóm`)**: Splits present students (`P` + `L`, or full roster if no session is open) into groups of `2, 3, 4, 5` in `0ms` with instant reshuffling, and broadcasts the groups (`TEACHER_PUBLISH_GROUPS` via `CacheService`) to students' phones (`#stu-group-card`) so students immediately see their Group # and teammates.
+* **Exported Complete System Rules (`RULES.md`)**: Documented all time windows, GPS radius/allowance rules, 1-1 device lock & anti-cheat rules, attendance score/exam-ban formulas, and customization settings in [`RULES.md`](file:///d:/CCS%20-%20ClassCheck%20System/RULES.md).
+
 ### 🔧 Version `v3.5.1` — *Unified GitHub Repository & GitHub Pages URL (`tntrung8321/ccs` & `https://tntrung8321.github.io/ccs/`) + Seamless Legacy Redirect*
 * **Unified GitHub Repository & GitHub Pages Endpoint (`tntrung8321/ccs`)**:
   * Renamed the official GitHub repository from `tntrung8321/ClassCheck-GPS` to **`tntrung8321/ccs`** (`https://github.com/tntrung8321/ccs`) and unified the GitHub Pages web application URL to **`https://tntrung8321.github.io/ccs/`**.
@@ -140,6 +165,31 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### ✨ Version `v3.6.0` — *Tính Điểm Chuyên Cần Chuẩn & Cảnh Báo `CẤM THI` Trên Giao Diện Sinh Viên, Gộp Phiên Trùng Ngày & Lọc Phiên Nháp, Tùy Biến `Có Phép (E)` + Nhận Diện Mọi Sắc Cam/Vàng/Đỏ (`sync.txt`), Duyệt Phép Buổi Cũ, Gọi Ngẫu Nhiên Không Lặp & Chia Nhóm Thảo Luận Tức Thì*
+* **Tính Điểm Chuyên Cần Chính Thức (Thang `10.0`), Cảnh Báo Sát Nút & Hiển Thị `CẤM THI` Trên Giao Diện Sinh Viên (`code3.6.0.text`, `js/student.js`, `css/styles.css`)**:
+  * Áp dụng chính thức bộ quy tắc tính điểm chuyên cần và xét cấm thi (chỉ tô màu và hiển thị trên **Giao diện Sinh viên**, giữ nguyên sự gọn gàng cho giao diện Giảng viên):
+    * **Điểm gốc ban đầu**: `10.0 điểm`.
+    * **Vắng không phép (`-` / dấu `x` / `A`)**: Trừ `1.0 điểm/buổi`, tính `1.0 dấu x`.
+    * **Đi học trễ (`L` / Ô màu vàng)**: Trừ `0.5 điểm/buổi`, không tính vào số dấu `x` vắng (`0x`).
+    * **Vắng có phép (`E` / Ô màu cam)**: Trừ `0.5 điểm/buổi` và tính `0.5 dấu x quy đổi` (`2` buổi vắng có phép = `1` dấu `x`).
+    * **Công thức**: $\text{Tổng\_x\_quy\_đổi} = \text{Số\_dấu\_x} + (\text{Số\_ô\_cam} \times 0.5)$ và $\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\text{Số\_ô\_vàng} \times 0.5) - (\text{Số\_ô\_cam} \times 0.5)$.
+  * **3 Mức Hiển Thị Trực Quan Trên Điện Thoại Sinh Viên**:
+    * **Cấm thi ngay (`examStatus = 'BAN'` — Giao diện Đỏ đậm `#dc2626` + Nhãn `CẤM THI`)**: Khi $\text{Tổng\_x\_quy\_đổi} > 6.0$ (từ `6.5x` trở lên) **HOẶC** $\text{Điểm\_còn\_lại} < 0.0$ (từ `-0.5đ` trở xuống) **HOẶC** khi thông tin sinh viên (`STT`, `MSSV`, `Họ tên`) được Giảng viên tô nền đỏ/chữ đỏ thủ công trên Sheet. *(Lưu ý: Nếu $\le 6.0\text{x}$ và $\ge 0.0\text{đ}$ thì vẫn được thi).*
+    * **Cảnh báo sát nút (`examStatus = 'WARN'` — Giao diện Đỏ nhạt `#fef2f2` + Dòng cảnh báo)**: Khi chưa bị cấm thi nhưng $\text{Tổng\_x\_quy\_đổi}$ từ `5.5` đến `6.0` **HOẶC** $\text{Điểm\_còn\_lại}$ từ `0.0` đến `1.0` điểm.
+* **Gộp Các Phiên Điểm Danh Trùng Ngày & Tự Động Lọc Phiên Mở Nháp (`code3.6.0.text` & `sync.txt`)**:
+  * **1 Ngày = 1 Buổi học = 1 Cột trên Sheet**: Khi Giảng viên mở 2+ phiên trong cùng 1 ngày cho cùng 1 lớp, hệ thống tự động gộp lại thành **1 buổi học duy nhất** (`buildGroupedClassDayRecords_`), tự động xóa các cột trùng dư thừa trên tab lớp của Master Sheet (`rebuildSingleClassGrid`) và gộp lịch sử theo ngày (`dayKey` `yyyy-MM-dd`) trên cả Sheet và điện thoại sinh viên.
+  * **Lọc bỏ phiên mở thử (`0` sinh viên điểm danh)**: Các phiên đã đóng mà cả lớp có `0` lượt điểm danh (`P = 0, L = 0, E = 0, TEACHER_MANUAL = 0`) được tự động bỏ qua, không bao giờ tính vắng oan cho sinh viên.
+  * **Bảo vệ trạng thái `P / E / L` khi mở phiên 2 trong ngày**: Thao tác chỉnh tay của Giảng viên (`TEACHER_MANUAL`) luôn có hiệu lực cao nhất theo thứ tự thời gian, trong khi lệnh tự động quét vắng (`AUTO_SWEEP` `-`) của phiên mở lần 2 trong ngày không bao giờ đè mất chữ `P / E / L` mà sinh viên đã điểm danh ở phiên 1.
+* **Tùy Biến Ký Hiệu `Vắng Có Phép (E)` & Nhận Diện Thông Minh Mọi Sắc Thái Màu Cam / Vàng / Đỏ (`sync.txt` & `code3.6.0.text`)**:
+  * Bổ sung dòng cấu hình **`Excused (E)`** (`excusedText`, `excusedBg`) vào bảng **`⚙️ 5. Attendance Mark Settings` (`openAttendanceStyleDialog`)** trong `sync.txt` để mọi giảng viên đều có thể tự customize theo quy ước riêng (Preset `CENTER`: chữ trống + nền cam `#ff9900`; Preset `PLA`: chữ `'E'` + nền cam `#ff9900`; hoặc `CUSTOM` tự chọn).
+  * Bổ sung bộ phân tích dải màu `classifySheetCellColor_` nhận diện thông minh **tất cả các sắc thái màu Cam** (`#ff9900`, `#f6b26b`, `#f9cb9c`, `#fce5cd`, `#e69138`, `#ffa500`, `#ffc000`... hoặc dải Hue $17^\circ\text{–}46^\circ$) là `Vắng có phép (E)`, **mọi sắc thái màu Vàng** (`#ffff00`, `#fff2cc`, `#ffe599`, `#ffd966`, `#f1c232`... hoặc dải Hue $47^\circ\text{–}69^\circ$) là `Đi trễ (L)`, và **mọi sắc thái màu Đỏ** (`#ff0000`, `#e06666`, `#ea9999`, `#f4cccc`, `#cc0000`... hoặc dải Hue $\le 16^\circ$ / $\ge 342^\circ$ trên ô `STT / MSSV / Họ tên`) là `Cấm thi thủ công` (`QR_MANUAL_EXAM_BAN_MAP`).
+* **Duyệt Vắng Có Phép (`E`) Cho Các Buổi Học Trước Ngay Trên Giao Diện Giảng Viên (`js/teacher.js` & `code3.6.0.text`)**:
+  * Giảng viên chỉ cần bấm vào tên sinh viên hoặc nhãn `"Lịch sử / Phép"` trên danh sách lớp để mở bảng **Lịch sử Điểm danh & Duyệt phép (`E`)** (`openStudentPastAttendanceModal`), xem lại toàn bộ các ngày học trước (`dd/MM/yyyy`) và bấm chuyển buổi vắng `-` sang `E` (hoặc `P / L`) ngay khi sinh viên nộp bổ sung minh chứng vào buổi học sau.
+* **Nâng Cấp Gọi Tên Ngẫu Nhiên (`Shuffle Bag`) & Chia Nhóm Thảo Luận Tức Thì (`js/teacher.js`, `js/student.js`, `index.html`)**:
+  * **Gọi ngẫu nhiên không lặp & Bảo mật MSSV trên máy chiếu**: Tự động lưu danh sách sinh viên đã được gọi trong buổi (`Shuffle Bag`) để không gọi trùng lại cho đến khi gọi hết lớp; ẩn hoàn toàn MSSV trên bảng chiếu (chỉ kèm `(***123)` nếu trong lớp có 2 bạn trùng khít họ tên); bổ sung nút **`"Gọi tiếp"`** ngay bên trong hộp thoại cạnh nút **`"Hủy & Khóa (-)"`** (tuyệt đối không dùng icon AI/emoji).
+  * **Chia nhóm thảo luận tức thì (`Chia nhóm`)**: Tự động lọc danh sách sinh viên đang có mặt (`P` + `L`, hoặc toàn bộ lớp nếu chưa mở phiên) để chia thành các nhóm `2, 3, 4, 5` người trong `0ms`, hỗ trợ bấm **`"Trộn lại"`** và nút **`"Gửi nhóm về ĐT Sinh viên"`** (`TEACHER_PUBLISH_GROUPS` lưu trên `CacheService`) để mỗi sinh viên nhìn thấy ngay số Nhóm và tên các thành viên cùng nhóm trên điện thoại (`#stu-group-card`).
+* **Xuất File Quy Tắc Hệ Thống Độc Lập (`RULES.md`)**: Tổng hợp đầy đủ toàn bộ quy tắc thời gian, bán kính GPS, chống gian lận, công thức tính điểm chuyên cần & xét cấm thi ra file [`RULES.md`](file:///d:/CCS%20-%20ClassCheck%20System/RULES.md) để dễ dàng kiểm chứng.
+
 ### 🔧 Version `v3.5.1` — *Đồng Bộ Tên Kho Lưu Trữ GitHub & Đường Dẫn Web Chính Thức (`tntrung8321/ccs` & `https://tntrung8321.github.io/ccs/`) Kèm Chuyển Hướng Tự Động Từ Link Cũ*
 * **Đồng Bộ Tên Repository GitHub & Đường Dẫn GitHub Pages (`tntrung8321/ccs`)**:
   * Đổi tên kho mã nguồn GitHub chính thức từ `tntrung8321/ClassCheck-GPS` sang **`tntrung8321/ccs`** (`https://github.com/tntrung8321/ccs`) và đồng bộ địa chỉ web điểm danh GitHub Pages thành **`https://tntrung8321.github.io/ccs/`** ngắn gọn, đồng nhất với tên dự án **CCS — ClassCheck System**.
@@ -276,18 +326,18 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.5.1`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.6.0`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.5.1` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.6.0` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.5.1`) on `tntrung8321.github.io/ccs/`** |
-| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI, 4-Dot Attendance Summary + Expandable Phone-Local History Drawer, Orange `E` (`Có phép`) & 100% Bilingual (`VI / EN`)** |
-| **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Synchronous `getCurrentPosition` Prompt + Live `watchPosition` Warm-Up (`cachedGPS = null`, `maximumAge: 0`) + Instant `receipt.attendanceStats` Sync** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.6.0`) on `tntrung8321.github.io/ccs/`** |
+| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI (Zero AI Icons), Official Attendance Score (`10.0` Base), Light-Red Warning & Solid-Red `CẤM THI` on Student UI** |
+| **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Synchronous `getCurrentPosition` Prompt + Live `watchPosition` Warm-Up (`cachedGPS = null`, `maximumAge: 0`) + Same-Day Session Merging** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Backend Open-Session Auto-Fallback)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + Legacy URL Auto-Migration** |
-| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **`0.01s` Optimistic Manual Marking (`P/L/E/-`) + 2.5s Live Polling + Zero-Kickout `F5` Reload & Instant Rebind on Check-In** |
-| **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-Extra-Load RAM `CacheService` (`ALL_LATEST_SES_V35`, `SES_ATT_MAP_V35_`, `CLASS_ATT_STATS_V35_`)** |
+| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **`0.01s` Optimistic Manual Marking (`P/L/E/-`) + Past-Session Excuse (`E`) Approval + Shuffle-Bag Random Caller & Instant Group Maker** |
+| **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-Extra-Load RAM `CacheService` (`ALL_LATEST_SES_V35`, `SES_ATT_MAP_V35_`, `CLASS_ATT_STATS_V35_`, `GROUP_SPLIT_`)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Multi-Browser (`Safari+Chrome`), F12, Fresh GPS Timestamp & Spot-Check Lock** |
-| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Universal Content-Aware (`Class_ID` + `MSSV`/Name) 2-Way `.XLSX` Sync + Batched Master Sheet Writes** |
+| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Customizable `P/L/E/-` Marks + Smart Color-Family Detection (All Shades of Orange/Yellow/Red) + Ghost Session Filtering** |
 | **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload / Luôn tải bản mới tức thì** |

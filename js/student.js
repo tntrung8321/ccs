@@ -1,8 +1,9 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.5.1)
+ * STUDENT CONTROLLER (js/student.js — v3.6.0)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
- *  - Compact Single-Line Attendance Summary Bar (Present / Late / Excused / Absent) with Zero Extra Requests
+ *  - Official Attendance Score (Base 10.0), Same-Day Session Merging, Near-Limit Warning & Exam Ban (CẤM THI)
+ *  - Live Classroom Group Assignment Card (#stu-group-card)
  *  - Permanent Student ID Lock after first onboarding (hides input & button)
  *  - Pre-Check & Activate GPS Panel (#gps-panel) with Live High-Accuracy Warm-Up (No GPS Caching)
  *  - Instant 2-Step Address Bar Permission Guide (#gps-permission-guide-box) & Live Permission Recovery
@@ -75,6 +76,7 @@ async function syncStudentLiveScheduleFromServer() {
             className: sc.className || ec.className,
             scheduleInfo: sc.scheduleInfo || ec.scheduleInfo,
             sessionOpenNow: Boolean(sc.sessionOpenNow),
+            activeGroupSplit: sc.activeGroupSplit !== undefined ? sc.activeGroupSplit : (ec.activeGroupSplit || null),
             attendanceStats: st
           }) : Object.assign({}, ec, { attendanceStats: st });
         });
@@ -349,58 +351,119 @@ function getLocalStudentAttendanceHistory(studentId, classId) {
   return list;
 }
 
+function computeAttendanceScoreAndExamStatus(countP, countL, countE, countA, manualExamBan = false) {
+  const p = Number(countP || 0);
+  const l = Number(countL || 0);
+  const e = Number(countE || 0);
+  const a = Number(countA || 0);
+  const equivAbsences = Math.round((a + (e * 0.5)) * 10) / 10;
+  const attendanceScore = Math.round((10.0 - (a * 1.0) - (l * 0.5) - (e * 0.5)) * 10) / 10;
+  const isBanned = Boolean(manualExamBan) || (equivAbsences > 6.0) || (attendanceScore < 0.0);
+  const isWarn = !isBanned && ((equivAbsences >= 5.5 && equivAbsences <= 6.0) || (attendanceScore >= 0.0 && attendanceScore <= 1.0));
+  return {
+    P: p,
+    L: l,
+    E: e,
+    A: a,
+    total: p + l + e + a,
+    equivAbsences,
+    attendanceScore,
+    manualExamBan: Boolean(manualExamBan),
+    examStatus: isBanned ? 'BAN' : (isWarn ? 'WARN' : 'OK')
+  };
+}
+
 function getMergedStudentClassStats(studentId, classId, serverStats) {
   const sid = String(studentId || '').trim().toUpperCase();
   const cid = String(classId || '').trim();
   const srv = (serverStats && typeof serverStats === 'object')
     ? serverStats
-    : { P: 0, L: 0, E: 0, A: 0, total: 0 };
+    : { P: 0, L: 0, E: 0, A: 0, total: 0, manualExamBan: false, history: [] };
 
   if (!sid || !cid) {
-    return {
-      P: Number(srv.P || 0),
-      L: Number(srv.L || 0),
-      E: Number(srv.E || 0),
-      A: Number(srv.A || 0),
-      total: Number(srv.total || 0),
-      history: []
-    };
+    const base = computeAttendanceScoreAndExamStatus(srv.P, srv.L, srv.E, srv.A, srv.manualExamBan);
+    base.history = [];
+    return base;
   }
 
-  const history = getLocalStudentAttendanceHistory(sid, cid);
-  let localP = 0, localL = 0, localE = 0, localA = 0;
-  history.forEach(item => {
+  // Merge sheet history (already deduplicated by dayKey on backend) + local device history by calendar dayKey
+  const dayMap = {};
+  if (Array.isArray(srv.history)) {
+    srv.history.forEach(item => {
+      if (!item) return;
+      const dKey = normalizeSessionDayKey(item.dayKey || item.date || '');
+      if (!dKey) return;
+      const rawSt = String(item.status || '-').trim().toUpperCase();
+      if (rawSt === 'OPEN') return;
+      const normSt = (rawSt === '-' || rawSt === 'X') ? 'A' : rawSt;
+      dayMap[dKey] = {
+        dayKey: dKey,
+        status: normSt,
+        date: item.date || formatDisplayDateFromKey(dKey),
+        time: item.time || '',
+        ts: 0,
+        fromServer: true
+      };
+    });
+  }
+
+  const localHistory = getLocalStudentAttendanceHistory(sid, cid);
+  localHistory.forEach(item => {
+    if (!item || !item.dayKey) return;
+    const dKey = normalizeSessionDayKey(item.dayKey);
+    const localSt = item.status === '-' ? 'A' : item.status;
+    const existing = dayMap[dKey];
+    if (!existing) {
+      dayMap[dKey] = {
+        dayKey: dKey,
+        status: localSt,
+        date: item.date || formatDisplayDateFromKey(dKey),
+        time: item.time || '',
+        ts: Number(item.ts || 0),
+        fromServer: false
+      };
+    } else {
+      // Server 'E' or 'P' approved on sheet takes priority; local check-in upgrades 'A' if checked in today
+      let mergedSt = existing.status;
+      if (localSt === 'P' || existing.status === 'P') mergedSt = 'P';
+      else if (localSt === 'E' || existing.status === 'E') mergedSt = 'E';
+      else if (localSt === 'L' || existing.status === 'L') mergedSt = 'L';
+      dayMap[dKey] = {
+        dayKey: dKey,
+        status: mergedSt,
+        date: existing.date || item.date || formatDisplayDateFromKey(dKey),
+        time: item.time || existing.time || '',
+        ts: Math.max(Number(item.ts || 0), Number(existing.ts || 0)),
+        fromServer: true
+      };
+    }
+  });
+
+  const mergedHistory = Object.values(dayMap).sort((a, b) => {
+    if (b.dayKey !== a.dayKey) return b.dayKey.localeCompare(a.dayKey);
+    return b.ts - a.ts;
+  });
+
+  let histP = 0, histL = 0, histE = 0, histA = 0;
+  mergedHistory.forEach(item => {
     const v = item.status;
-    if (v === 'P') localP++;
-    else if (v === 'L') localL++;
-    else if (v === 'E') localE++;
-    else if (v === 'A') localA++;
+    if (v === 'P') histP++;
+    else if (v === 'L') histL++;
+    else if (v === 'E') histE++;
+    else if (v === 'A') histA++;
   });
 
   const srvTotal = Number(srv.P || 0) + Number(srv.L || 0) + Number(srv.E || 0) + Number(srv.A || 0);
-  const localTotal = localP + localL + localE + localA;
+  const histTotal = histP + histL + histE + histA;
 
-  if (srvTotal > localTotal) {
-    return {
-      P: Math.max(Number(srv.P || 0), localP),
-      L: Math.max(Number(srv.L || 0), localL),
-      E: Math.max(Number(srv.E || 0), localE),
-      A: Math.max(Number(srv.A || 0), localA),
-      total: Math.max(srvTotal, localTotal),
-      history: history
-    };
-  }
-  if (localTotal > 0) {
-    return { P: localP, L: localL, E: localE, A: localA, total: localTotal, history: history };
-  }
-  return {
-    P: Number(srv.P || 0),
-    L: Number(srv.L || 0),
-    E: Number(srv.E || 0),
-    A: Number(srv.A || 0),
-    total: srvTotal,
-    history: history
-  };
+  const finalP = srvTotal > histTotal ? Math.max(Number(srv.P || 0), histP) : (histTotal > 0 ? histP : Number(srv.P || 0));
+  const finalL = srvTotal > histTotal ? Math.max(Number(srv.L || 0), histL) : (histTotal > 0 ? histL : Number(srv.L || 0));
+  const finalE = srvTotal > histTotal ? Math.max(Number(srv.E || 0), histE) : (histTotal > 0 ? histE : Number(srv.E || 0));
+  const finalA = srvTotal > histTotal ? Math.max(Number(srv.A || 0), histA) : (histTotal > 0 ? histA : Number(srv.A || 0));
+
+  const computed = computeAttendanceScoreAndExamStatus(finalP, finalL, finalE, finalA, srv.manualExamBan);
+  computed.history = mergedHistory;
+  return computed;
 }
 
 function updateStoredStudentClassStats(instId, classId, statsObj) {
@@ -420,6 +483,42 @@ function toggleStudentAttendanceHistory() {
   renderStudentAttendanceSummary('', selClassEl ? selClassEl.value : '');
 }
 
+function renderStudentGroupCard(studentId, classObj) {
+  const card = document.getElementById('stu-group-card');
+  if (!card) return;
+  const sid = String(studentId || '').trim().toUpperCase();
+  const split = classObj && classObj.activeGroupSplit ? classObj.activeGroupSplit : null;
+  if (!sid || !split || !Array.isArray(split.groups) || split.groups.length === 0) {
+    card.classList.add('hidden');
+    card.innerHTML = '';
+    return;
+  }
+
+  const myGroup = split.groups.find(g =>
+    g && Array.isArray(g.members) && g.members.some(m => String(m.studentId || '').trim().toUpperCase() === sid)
+  );
+  if (!myGroup) {
+    card.classList.add('hidden');
+    card.innerHTML = '';
+    return;
+  }
+
+  const isEn = currentLang === 'en';
+  const memberNames = (myGroup.members || []).map(m => {
+    const isMe = String(m.studentId || '').trim().toUpperCase() === sid;
+    return isMe ? `<strong>${escapeHtml(m.fullName)} (${isEn ? 'You' : 'Bạn'})</strong>` : escapeHtml(m.fullName);
+  }).join(' • ');
+
+  card.innerHTML = `
+    <div class="stu-group-header">
+      <span>${isEn ? `Assigned Discussion Group: Group #${myGroup.groupNumber}` : `Nhóm thảo luận trên lớp: Nhóm ${myGroup.groupNumber}`}</span>
+      <span>${(myGroup.members || []).length} ${isEn ? 'members' : 'thành viên'}</span>
+    </div>
+    <div class="stu-group-members">${memberNames}</div>
+  `;
+  card.classList.remove('hidden');
+}
+
 function renderStudentAttendanceSummary(instId, classId) {
   const bar = document.getElementById('stu-attendance-summary');
   if (!bar) return;
@@ -437,6 +536,7 @@ function renderStudentAttendanceSummary(instId, classId) {
   let targetStudentId = p ? p.studentId : '';
   let targetClassId = classId || '';
   let serverStats = null;
+  let activeClassObj = null;
 
   if (p && Array.isArray(p.enrolledClasses) && p.enrolledClasses.length > 0) {
     if (!targetClassId) {
@@ -444,6 +544,7 @@ function renderStudentAttendanceSummary(instId, classId) {
     }
     const cls = p.enrolledClasses.find(c => c && c.classId === targetClassId) || p.enrolledClasses[0];
     if (cls) {
+      activeClassObj = cls;
       targetClassId = cls.classId;
       serverStats = cls.attendanceStats || null;
     }
@@ -468,28 +569,76 @@ function renderStudentAttendanceSummary(instId, classId) {
     } catch (e) {}
   }
 
+  renderStudentGroupCard(targetStudentId, activeClassObj);
+
   const st = getMergedStudentClassStats(targetStudentId, targetClassId, serverStats);
   const countP = Number(st.P || 0);
   const countL = Number(st.L || 0);
   const countE = Number(st.E || 0);
   const countA = Number(st.A || 0);
+  const scoreVal = typeof st.attendanceScore === 'number' ? st.attendanceScore : 10.0;
+  const equivVal = typeof st.equivAbsences === 'number' ? st.equivAbsences : 0;
+  const examStatus = st.examStatus || 'OK';
   const isEn = currentLang === 'en';
   const historyList = Array.isArray(st.history) ? st.history : [];
+
+  bar.classList.remove('att-warn-light', 'att-ban-solid');
+  if (examStatus === 'BAN') {
+    bar.classList.add('att-ban-solid');
+  } else if (examStatus === 'WARN') {
+    bar.classList.add('att-warn-light');
+  }
+
+  let warningBannerHtml = '';
+  if (examStatus === 'BAN') {
+    const banReason = st.manualExamBan
+      ? (isEn
+          ? `Marked ineligible for exam on official class sheet (Score: ${scoreVal}/10 • Equiv. absences: ${equivVal}x)`
+          : `Đã xử lý cấm thi trên danh sách lớp (Điểm CC: ${scoreVal}đ • Vắng quy đổi: ${equivVal} buổi)`)
+      : (isEn
+          ? `Score: ${scoreVal}/10 • Equivalent absences: ${equivVal}/6.0 sessions (Exceeds permitted limit)`
+          : `Điểm chuyên cần: ${scoreVal}đ • Vắng quy đổi: ${equivVal}/6 buổi (Vượt mức quy định)`);
+    warningBannerHtml = `
+      <div id="stu-att-warning-banner" class="stu-att-warning-banner">
+        <span class="exam-ban-badge">${isEn ? 'EXAM BANNED (CẤM THI)' : 'CẤM THI'}</span>
+        <span>${escapeHtml(banReason)}</span>
+      </div>
+    `;
+  } else if (examStatus === 'WARN') {
+    const warnText = isEn
+      ? `Score: ${scoreVal}/10 • Equiv. absences: ${equivVal}/6.0 sessions — Near exam ban threshold!`
+      : `Điểm chuyên cần: ${scoreVal}đ • Vắng quy đổi: ${equivVal}/6 buổi — Cảnh báo sát mức cấm thi!`;
+    warningBannerHtml = `
+      <div id="stu-att-warning-banner" class="stu-att-warning-banner">
+        <span class="exam-warn-badge">${isEn ? 'WARNING' : 'CẢNH BÁO'}</span>
+        <span>${escapeHtml(warnText)}</span>
+      </div>
+    `;
+  } else {
+    warningBannerHtml = `<div id="stu-att-warning-banner" class="stu-att-warning-banner hidden"></div>`;
+  }
 
   function formatStatusRowBadge(statusChar) {
     if (statusChar === 'P') {
       return `<span class="att-dot dot-p"></span><span>${isEn ? 'Present' : 'Có mặt'}</span>`;
     }
     if (statusChar === 'L') {
-      return `<span class="att-dot dot-l"></span><span>${isEn ? 'Late' : 'Đi trễ'}</span>`;
+      return `<span class="att-dot dot-l"></span><span>${isEn ? 'Late (-0.5pt)' : 'Đi trễ (-0.5đ)'}</span>`;
     }
     if (statusChar === 'E') {
-      return `<span class="att-dot dot-e"></span><span>${isEn ? 'Excused' : 'Có phép'}</span>`;
+      return `<span class="att-dot dot-e"></span><span>${isEn ? 'Excused (-0.5pt, 0.5x)' : 'Có phép (-0.5đ, 0.5x)'}</span>`;
     }
-    return `<span class="att-dot dot-a"></span><span>${isEn ? 'Absent' : 'Vắng'}</span>`;
+    return `<span class="att-dot dot-a"></span><span>${isEn ? 'Absent (-1.0pt, 1x)' : 'Vắng (-1.0đ, 1x)'}</span>`;
   }
 
-  const historyHtml = historyList.length > 0
+  const scoreMetaRowHtml = `
+    <div class="att-history-row" style="font-weight:700;">
+      <span class="att-history-time">${isEn ? 'Attendance Score' : 'Điểm chuyên cần'}: ${scoreVal} / 10</span>
+      <span class="att-history-status">${isEn ? 'Equiv. Absences' : 'Vắng quy đổi'}: ${equivVal} / 6.0</span>
+    </div>
+  `;
+
+  const historyRowsHtml = historyList.length > 0
     ? historyList.map(item => {
         const timePart = item.time ? ` • ${escapeHtml(item.time)}` : '';
         return `
@@ -499,7 +648,9 @@ function renderStudentAttendanceSummary(instId, classId) {
           </div>
         `;
       }).join('')
-    : `<div class="att-history-empty">${isEn ? 'No attendance history recorded on this device yet.' : 'Chưa có lịch sử điểm danh trên thiết bị này.'}</div>`;
+    : `<div class="att-history-empty">${isEn ? 'No attendance sessions recorded yet.' : 'Chưa có dữ liệu buổi điểm danh nào.'}</div>`;
+
+  const historyHtml = scoreMetaRowHtml + historyRowsHtml;
 
   bar.classList.toggle('expanded', stuAttHistoryExpanded);
   bar.innerHTML = `
@@ -512,15 +663,11 @@ function renderStudentAttendanceSummary(instId, classId) {
       </div>
       <svg class="att-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
     </div>
+    ${warningBannerHtml}
     <div id="stu-att-history-drawer" class="stu-att-history-drawer ${stuAttHistoryExpanded ? '' : 'hidden'}">
       ${historyHtml}
     </div>
   `;
-  const drawerEl = document.getElementById('stu-att-history-drawer');
-  if (drawerEl && drawerEl !== bar) {
-    drawerEl.innerHTML = historyHtml;
-    drawerEl.classList.toggle('hidden', !stuAttHistoryExpanded);
-  }
   bar.classList.remove('hidden');
 }
 

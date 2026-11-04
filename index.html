@@ -15,7 +15,7 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.5.1" />
+  <link rel="stylesheet" href="css/styles.css?v=3.6.0" />
 </head>
 <body>
 
@@ -41,6 +41,12 @@
     <symbol id="ic-user" viewBox="0 0 24 24">
       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
       <circle cx="12" cy="7" r="4"></circle>
+    </symbol>
+    <symbol id="ic-users" viewBox="0 0 24 24">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+      <circle cx="9" cy="7" r="4"></circle>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+      <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
     </symbol>
     <symbol id="ic-refresh" viewBox="0 0 24 24">
       <polyline points="23 4 23 10 17 10"></polyline>
@@ -207,8 +213,8 @@
           <span id="shield-id-status"></span>
         </div>
 
-        <!-- UTILITARIAN ACADEMIC STUDENT ATTENDANCE SUMMARY + EXPANDABLE LOCAL HISTORY BOX -->
-        <div id="stu-attendance-summary" class="stu-att-summary-bar" onclick="toggleStudentAttendanceHistory()" title="Bấm để xem lịch sử điểm danh trên thiết bị">
+        <!-- UTILITARIAN ACADEMIC STUDENT ATTENDANCE SUMMARY + EXPANDABLE SHEET HISTORY BOX -->
+        <div id="stu-attendance-summary" class="stu-att-summary-bar" onclick="toggleStudentAttendanceHistory()" title="Bấm để xem chi tiết điểm chuyên cần và lịch sử điểm danh">
           <div class="stu-att-header-row">
             <div class="stu-att-chips">
               <span class="att-stat-item"><span class="att-dot dot-p"></span><span data-i18n="stu_att_p">Có mặt</span>: <strong>0</strong></span>
@@ -218,8 +224,12 @@
             </div>
             <svg class="att-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </div>
+          <div id="stu-att-warning-banner" class="stu-att-warning-banner hidden"></div>
           <div id="stu-att-history-drawer" class="stu-att-history-drawer hidden"></div>
         </div>
+
+        <!-- LIVE CLASSROOM GROUP ASSIGNMENT CARD (SHOWN WHEN LECTURER PUBLISHES GROUPS) -->
+        <div id="stu-group-card" class="stu-group-card hidden"></div>
 
         <!-- SINGLE STREAMLINED GPS STATUS BAR (NO REPETITION) -->
         <div id="gps-panel">
@@ -407,6 +417,10 @@
                 <svg class="icon icon-sm"><use href="#ic-shuffle"></use></svg>
                 <span data-i18n="tea_spot_check_btn">Gọi ngẫu nhiên</span>
               </button>
+              <button class="btn btn-outline btn-sm" onclick="openGroupMakerModal()">
+                <svg class="icon icon-sm"><use href="#ic-users"></use></svg>
+                <span data-i18n="tea_group_maker_btn">Chia nhóm</span>
+              </button>
               <button class="btn btn-outline btn-sm" id="btn-toggle-names" onclick="toggleRosterVisibility()">
                 <svg class="icon icon-sm"><use href="#ic-eye"></use></svg>
                 <span data-i18n="tea_show_hide_names">Ẩn/Hiện tên</span>
@@ -459,19 +473,20 @@
 
   <!-- IN-PAGE CONFIRMATION MODAL -->
   <div id="app-modal" class="modal-backdrop hidden no-print">
-    <div class="modal-card">
+    <div id="app-modal-card" class="modal-card">
       <div id="app-modal-title" class="modal-title" data-i18n="modal_confirm_title">Xác nhận</div>
       <div id="app-modal-body" class="modal-body"></div>
       <div class="btn-row">
         <button id="app-modal-cancel" class="btn btn-outline" onclick="closeAppModal()" data-i18n="btn_cancel_scan">Đóng</button>
+        <button id="app-modal-extra" class="btn btn-primary hidden"></button>
         <button id="app-modal-confirm" class="btn btn-primary" data-i18n="modal_confirm_btn">Đồng ý</button>
       </div>
     </div>
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/schedule-config.js?v=3.5.1"></script>
-  <script src="js/student.js?v=3.5.1"></script>
-  <script src="js/teacher.js?v=3.5.1"></script>
+  <script src="js/schedule-config.js?v=3.6.0"></script>
+  <script src="js/student.js?v=3.6.0"></script>
+  <script src="js/teacher.js?v=3.6.0"></script>
 </body>
 </html>

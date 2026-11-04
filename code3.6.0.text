@@ -1,9 +1,13 @@
 /**
  * ============================================================================
- * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.5.1)
+ * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.6.0)
  * ============================================================================
  * Architecture: Lecturer-Owned Google Sheet + Bound Google Apps Script
- * Key Upgrades & Verified Fixes in v3.5.1:
+ * Key Upgrades & Verified Fixes in v3.6.0:
+ *  - Unified Same-Day Session Merging & Ghost/Test Session Filtering (0-present closed sessions ignored)
+ *  - Official Attendance Score (Base 10.0, A=-1.0/1.0x, L=-0.5/0x, E=-0.5/0.5x) & Exam Ban (>6.0x or <0.0pt or Red Row)
+ *  - Past-Session Excuse (E) Approval by Lecturer (supports targetSessionId / targetDayKey override)
+ *  - Instant Classroom Group Maker Broadcast via CacheService (GROUP_SPLIT_<classId>)
  *  - Unified GitHub Pages URL (https://tntrung8321.github.io/ccs/) + Auto-Migration in Cell B5
  *  - Compatible 100% with modular index.html UI & external Sync.gs menu/functions
  *  - Zero-Read RAM Cache Layer for Sessions_Log & Attendance_Log (instant 0.01s manual mark & 2.5s polling)
@@ -22,7 +26,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.5.1';
+const SYSTEM_VERSION = '3.6.0';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -510,6 +514,8 @@ function doPost(e) {
         return requireTeacherAuth(ss, body, () => handleTeacherToggleReg(ss, body));
       case 'TEACHER_REBUILD_REPORT':
         return requireTeacherAuth(ss, body, () => handleTeacherRebuildReport(ss, body));
+      case 'TEACHER_PUBLISH_GROUPS':
+        return requireTeacherAuth(ss, body, () => handleTeacherPublishGroups(ss, body));
 
       default:
         return jsonResponse({ ok: false, code: 'ERR_UNKNOWN_ACTION', message: 'Unknown action: ' + action });
@@ -547,7 +553,8 @@ function handlePing(ss, body) {
       className: c.className,
       regOpen: c.regOpen,
       sessionOpenNow: Boolean(ses && ses.isOpen),
-      scheduleInfo: scheduleMetaMap[c.classId] || parseClassScheduleInfoBackend(c.className)
+      scheduleInfo: scheduleMetaMap[c.classId] || parseClassScheduleInfoBackend(c.className),
+      activeGroupSplit: getActiveGroupSplitForClass_(c.classId)
     };
   });
 
@@ -1358,9 +1365,11 @@ function handleTeacherGetState(ss, body) {
     sessionInfo = allLatestSes[selectedId] || getLatestSessionForDashboard(ss, selectedId, false);
     const rosterMap = getClassRosterMap(ss, selectedId, false);
     const sessionChecks = sessionInfo ? getSessionAttendanceMap(ss, sessionInfo.sessionId, false) : {};
+    const classStatsMap = getClassAttendanceStatsMap_(ss, selectedId, false);
 
     rosterSummary = Object.values(rosterMap).map(st => {
       const rec = sessionChecks[st.studentId];
+      const stStats = classStatsMap[st.studentId] || null;
       return {
         studentId: st.studentId,
         fullName: st.fullName,
@@ -1368,7 +1377,8 @@ function handleTeacherGetState(ss, body) {
         time: rec ? rec.time : '',
         distance: rec ? rec.distance : '',
         accuracy: rec ? rec.accuracy : '',
-        source: rec ? rec.source : ''
+        source: rec ? rec.source : '',
+        attendanceStats: stStats
       };
     });
   }
@@ -1382,6 +1392,7 @@ function handleTeacherGetState(ss, body) {
     classSchedules: scheduleMetaMap,
     selectedClassId: selectedId,
     activeSession: sessionInfo,
+    activeGroupSplit: selectedId ? getActiveGroupSplitForClass_(selectedId) : null,
     roster: rosterSummary
   });
 }
@@ -1552,43 +1563,90 @@ function handleTeacherControlSession(ss, body) {
 }
 
 function handleTeacherManualMark(ss, body) {
-  const classId   = String(body.classId || '').trim();
-  const studentId = normalizeId(body.studentId);
-  const status    = String(body.status || 'P').toUpperCase(); // P | L | E | -
+  const classId         = String(body.classId || '').trim();
+  const studentId       = normalizeId(body.studentId);
+  const status          = String(body.status || 'P').toUpperCase(); // P | L | E | -
+  const targetSessionId = String(body.targetSessionId || '').trim();
+  const targetDayKey    = String(body.targetDayKey || '').trim();
 
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
 
   try {
-    const session = getLatestSessionForDashboard(ss, classId, false) || getLatestSessionForDashboard(ss, classId, true);
-    if (!session) {
-      return jsonResponse({ ok: false, code: 'ERR_NO_SESSION', message: 'Start a session first before marking students.' });
+    let targetSessionIds = [];
+    let primarySessionId = '';
+    const isPastSessionOverride = Boolean(targetSessionId || targetDayKey);
+
+    if (isPastSessionOverride) {
+      const sesSheet = ss.getSheetByName(TAB_SESSIONS);
+      const sesData = (sesSheet && sesSheet.getLastRow() > 1)
+        ? sesSheet.getRange(2, 1, sesSheet.getLastRow() - 1, 4).getValues()
+        : [];
+      sesData.forEach(r => {
+        if (String(r[1]).trim() !== classId) return;
+        const sid = String(r[0]).trim();
+        const label = String(r[2] || '').trim();
+        const openedMs = parseSheetTimeMs(r[3]);
+        let dKey = '';
+        if (openedMs > 0) {
+          dKey = Utilities.formatDate(new Date(openedMs), TIMEZONE, 'yyyy-MM-dd');
+        } else if (label) {
+          dKey = label.split('_')[0] || sid;
+        }
+        if ((targetDayKey && dKey === targetDayKey) || (targetSessionId && sid === targetSessionId)) {
+          targetSessionIds.push(sid);
+          primarySessionId = sid;
+        }
+      });
+      if (!primarySessionId && targetSessionId) {
+        primarySessionId = targetSessionId;
+        targetSessionIds.push(targetSessionId);
+      }
+      if (!primarySessionId) {
+        return jsonResponse({ ok: false, code: 'ERR_NO_SESSION', message: 'Past session not found for the selected date.' });
+      }
+    } else {
+      const session = getLatestSessionForDashboard(ss, classId, false) || getLatestSessionForDashboard(ss, classId, true);
+      if (!session) {
+        return jsonResponse({ ok: false, code: 'ERR_NO_SESSION', message: 'Start a session first before marking students.' });
+      }
+      primarySessionId = session.sessionId;
+      targetSessionIds = [primarySessionId];
     }
 
     const attSheet = ss.getSheetByName(TAB_ATTEND);
-    const sesMap = getSessionAttendanceMap(ss, session.sessionId, false);
-    const existing = sesMap ? sesMap[studentId] : null;
+    const nowIso = formatIsoNow();
+    const timeStr = nowIso.slice(11, 19);
+    let foundRow = -1;
 
-    let foundRow = (existing && existing.rowIndex && existing.rowIndex >= 2) ? Number(existing.rowIndex) : -1;
-    if (foundRow === -1 && attSheet.getLastRow() > 1) {
-      const data = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 10).getValues();
-      for (let i = data.length - 1; i >= 0; i--) {
-        if (String(data[i][2]) === session.sessionId && normalizeId(data[i][4]) === studentId) {
-          foundRow = i + 2;
-          break;
-        }
+    if (!isPastSessionOverride) {
+      const sesMap = getSessionAttendanceMap(ss, primarySessionId, false);
+      const existing = sesMap ? sesMap[studentId] : null;
+      if (existing && existing.rowIndex && existing.rowIndex >= 2) {
+        foundRow = Number(existing.rowIndex);
       }
     }
 
-    const nowIso = formatIsoNow();
-    const timeStr = nowIso.slice(11, 19);
-    if (foundRow !== -1) {
+    if (foundRow === -1 && attSheet.getLastRow() > 1) {
+      const data = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 10).getValues();
+      const targetSet = {};
+      targetSessionIds.forEach(id => { targetSet[id] = true; });
+      for (let i = data.length - 1; i >= 0; i--) {
+        const rowSesId = String(data[i][2]).trim();
+        if (targetSet[rowSesId] && normalizeId(data[i][4]) === studentId) {
+          attSheet.getRange(i + 2, 6, 1, 5).setValues([[status, nowIso, 0, 0, 'TEACHER_MANUAL']]);
+          if (foundRow === -1) foundRow = i + 2;
+        }
+      }
+    } else if (foundRow !== -1) {
       attSheet.getRange(foundRow, 6, 1, 5).setValues([[status, nowIso, 0, 0, 'TEACHER_MANUAL']]);
-    } else {
+    }
+
+    if (foundRow === -1) {
       attSheet.appendRow([
         'ATT_M_' + generateRandomToken(8),
         'MANUAL_' + Date.now(),
-        session.sessionId,
+        primarySessionId,
         classId,
         studentId,
         status,
@@ -1605,7 +1663,7 @@ function handleTeacherManualMark(ss, body) {
       rowIndex: foundRow,
       attendanceId: 'ATT_M',
       requestId: 'MANUAL',
-      sessionId: session.sessionId,
+      sessionId: primarySessionId,
       classId: classId,
       studentId: studentId,
       status: status,
@@ -1616,17 +1674,73 @@ function handleTeacherManualMark(ss, body) {
       source: 'TEACHER_MANUAL'
     };
 
-    try {
-      cache.put('SES_ATT_' + session.sessionId + '_' + studentId, JSON.stringify(recPayload), 1800);
-    } catch (e) {}
+    targetSessionIds.forEach(sid => {
+      const payloadForSid = Object.assign({}, recPayload, { sessionId: sid });
+      try {
+        cache.put('SES_ATT_' + sid + '_' + studentId, JSON.stringify(payloadForSid), 1800);
+      } catch (e) {}
+      updateSessionAttendanceMapCache_(sid, studentId, payloadForSid);
+    });
 
-    updateSessionAttendanceMapCache_(session.sessionId, studentId, recPayload);
     invalidateClassAttendanceStatsCache_(classId);
+    if (isPastSessionOverride) {
+      try { rebuildSingleClassGrid(ss, classId); } catch (e) {}
+    }
 
-    logAudit(ss, 'TEACHER_APP', 'MANUAL_MARK', studentId, classId + ' -> ' + status);
+    logAudit(ss, 'TEACHER_APP', 'MANUAL_MARK', studentId, classId + ' [' + (targetDayKey || primarySessionId) + '] -> ' + status);
     return handleTeacherGetState(ss, { classId: classId });
   } finally {
     lock.releaseLock();
+  }
+}
+
+function handleTeacherPublishGroups(ss, body) {
+  const classId = String(body.classId || '').trim();
+  if (!classId) return jsonResponse({ ok: false, code: 'ERR_INVALID_CLASS', message: 'Missing classId.' });
+
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'GROUP_SPLIT_' + classId;
+
+  if (body.clear) {
+    try { cache.remove(cacheKey); } catch (e) {}
+    return jsonResponse({ ok: true, code: 'GROUPS_CLEARED', classId: classId, activeGroupSplit: null });
+  }
+
+  const groups = Array.isArray(body.groups) ? body.groups : [];
+  const groupSize = Number(body.groupSize || 0);
+  const payload = {
+    classId: classId,
+    groupSize: groupSize,
+    publishedAt: formatIsoNow(),
+    groups: groups.map((g, idx) => ({
+      groupNumber: Number(g.groupNumber || (idx + 1)),
+      members: Array.isArray(g.members) ? g.members.map(m => ({
+        studentId: normalizeId(m.studentId),
+        fullName: String(m.fullName || '').trim()
+      })) : []
+    }))
+  };
+
+  try {
+    cache.put(cacheKey, JSON.stringify(payload), 14400); // 4 hours in RAM cache
+  } catch (e) {}
+
+  logAudit(ss, 'TEACHER_APP', 'PUBLISH_GROUPS', classId, 'Groups: ' + payload.groups.length);
+  return jsonResponse({
+    ok: true,
+    code: 'GROUPS_PUBLISHED',
+    classId: classId,
+    activeGroupSplit: payload
+  });
+}
+
+function getActiveGroupSplitForClass_(classId) {
+  if (!classId) return null;
+  try {
+    const raw = CacheService.getScriptCache().get('GROUP_SPLIT_' + classId);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
   }
 }
 
@@ -1849,51 +1963,190 @@ function resetStudentCredentialInternal(studentId, actor) {
   return { ok: false, code: 'ERR_STUDENT_NOT_REGISTERED', message: 'Student ID ' + studentId + ' not found in Device_Registry.' };
 }
 
+function classifySheetCellColorLocal_(hexColor) {
+  const hex = String(hexColor || '').trim().toLowerCase();
+  if (!hex || hex === '#ffffff' || hex === '#000000' || hex === 'white' || hex === 'none' || hex === 'transparent') {
+    return 'NONE';
+  }
+  const clean = hex.replace('#', '');
+  if (!/^[0-9a-f]{6}$/.test(clean)) return 'NONE';
+
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  if (max > 245 && min > 235) return 'NONE';
+  if (delta < 28) return 'NONE';
+
+  const exactOranges = {
+    '#ff9900': 1, '#ffa500': 1, '#ffc000': 1, '#f6b26b': 1, '#f9cb9c': 1,
+    '#fce5cd': 1, '#e69138': 1, '#b45f06': 1, '#ff6d01': 1, '#ffab40': 1,
+    '#ffd180': 1, '#ff9100': 1, '#fb8c00': 1, '#f57c00': 1, '#ef6c00': 1
+  };
+  if (exactOranges[hex]) return 'ORANGE';
+
+  const exactYellows = {
+    '#ffff00': 1, '#fff2cc': 1, '#ffe599': 1, '#ffd966': 1, '#f1c232': 1,
+    '#bf9000': 1, '#ffeb3b': 1, '#fff59d': 1, '#fff176': 1, '#ffee58': 1,
+    '#fdd835': 1, '#fbc02d': 1, '#ffff8d': 1
+  };
+  if (exactYellows[hex]) return 'YELLOW';
+
+  const exactReds = {
+    '#ff0000': 1, '#e06666': 1, '#ea9999': 1, '#f4cccc': 1, '#cc0000': 1,
+    '#990000': 1, '#660000': 1, '#d93025': 1, '#f44336': 1, '#ef5350': 1,
+    '#e53935': 1, '#c62828': 1, '#ff5252': 1, '#ff1744': 1, '#dc2626': 1
+  };
+  if (exactReds[hex]) return 'RED';
+
+  let hue = 0;
+  if (max === r) {
+    hue = ((g - b) / delta) % 6;
+  } else if (max === g) {
+    hue = (b - r) / delta + 2;
+  } else {
+    hue = (r - g) / delta + 4;
+  }
+  hue = Math.round(hue * 60);
+  if (hue < 0) hue += 360;
+
+  if ((hue >= 0 && hue <= 16) || hue >= 342) return 'RED';
+  if (hue >= 17 && hue <= 46) return 'ORANGE';
+  if (hue >= 47 && hue <= 69) return 'YELLOW';
+  return 'OTHER';
+}
+
+function buildGroupedClassDayRecords_(ss, classId) {
+  const sesSheet = ss.getSheetByName(TAB_SESSIONS);
+  const sesData = (sesSheet && sesSheet.getLastRow() > 1)
+    ? sesSheet.getRange(2, 1, sesSheet.getLastRow() - 1, 7).getValues()
+    : [];
+
+  const nowMs = Date.now();
+  const dayGroups = {};
+  const dayOrder = [];
+  const sessionToDayKey = {};
+
+  sesData.forEach(r => {
+    if (String(r[1]).trim() !== classId) return;
+    const sesId = String(r[0]).trim();
+    const label = String(r[2] || '').trim();
+    const openedMs = parseSheetTimeMs(r[3]);
+    const closesMs = parseSheetTimeMs(r[5]);
+    const closedManual = String(r[6] || '').trim();
+    const isOpen = !closedManual && nowMs <= closesMs;
+
+    let dayKey = '';
+    let displayDate = '';
+    if (openedMs > 0) {
+      const dt = new Date(openedMs);
+      dayKey = Utilities.formatDate(dt, TIMEZONE, 'yyyy-MM-dd');
+      displayDate = Utilities.formatDate(dt, TIMEZONE, 'dd/MM/yyyy');
+    } else if (label) {
+      dayKey = label.split('_')[0] || sesId;
+      displayDate = dayKey;
+    } else {
+      dayKey = sesId;
+      displayDate = sesId;
+    }
+
+    if (!dayGroups[dayKey]) {
+      dayGroups[dayKey] = {
+        dayKey: dayKey,
+        displayDate: displayDate,
+        label: label || dayKey,
+        latestSessionId: sesId,
+        sessionIds: [sesId],
+        hasOpenSession: isOpen,
+        hasValidCheckIn: false,
+        marks: {},
+        manualLocked: {}
+      };
+      dayOrder.push(dayKey);
+    } else {
+      dayGroups[dayKey].sessionIds.push(sesId);
+      dayGroups[dayKey].latestSessionId = sesId;
+      if (label) dayGroups[dayKey].label = label;
+      if (isOpen) dayGroups[dayKey].hasOpenSession = true;
+    }
+    sessionToDayKey[sesId] = dayKey;
+  });
+
+  if (dayOrder.length === 0) return [];
+
+  const attSheet = ss.getSheetByName(TAB_ATTEND);
+  if (attSheet && attSheet.getLastRow() > 1) {
+    const attData = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 10).getValues();
+    attData.forEach(r => {
+      if (String(r[3]).trim() !== classId) return;
+      const sesId = String(r[2]).trim();
+      const dayKey = sessionToDayKey[sesId];
+      if (!dayKey || !dayGroups[dayKey]) return;
+      const grp = dayGroups[dayKey];
+      const sid = normalizeId(r[4]);
+      const st = String(r[5] || '').trim().toUpperCase();
+      const src = String(r[9] || '').trim();
+      if (!sid) return;
+
+      const isManual = (src === 'TEACHER_MANUAL');
+      if (st === 'P' || st === 'L' || st === 'E' || isManual) {
+        grp.hasValidCheckIn = true;
+      }
+
+      if (isManual) {
+        grp.marks[sid] = (st === '-') ? 'A_MANUAL' : st;
+        grp.manualLocked[sid] = true;
+      } else if (!grp.manualLocked[sid]) {
+        const cur = grp.marks[sid];
+        if (st === 'P') {
+          grp.marks[sid] = 'P';
+        } else if (st === 'E' && cur !== 'P') {
+          grp.marks[sid] = 'E';
+        } else if (st === 'L' && cur !== 'P' && cur !== 'E') {
+          grp.marks[sid] = 'L';
+        }
+      }
+    });
+  }
+
+  // Filter out closed ghost/test sessions where 0 students had any valid check-in or manual mark
+  return dayOrder
+    .map(k => dayGroups[k])
+    .filter(grp => grp.hasOpenSession || grp.hasValidCheckIn);
+}
+
 function rebuildSingleClassGrid(ss, classId) {
   const rosterSheet = ss.getSheetByName(classId);
   if (!rosterSheet || rosterSheet.getLastRow() < 2) return;
 
-  const sesSheet = ss.getSheetByName(TAB_SESSIONS);
-  const sesData = sesSheet.getLastRow() > 1
-    ? sesSheet.getRange(2, 1, sesSheet.getLastRow() - 1, 4).getValues()
-    : [];
-  const classSessions = sesData
-    .filter(r => String(r[1]) === classId)
-    .map(r => ({ sessionId: String(r[0]), label: String(r[2]) }));
-
-  const attSheet = ss.getSheetByName(TAB_ATTEND);
-  const attData = attSheet.getLastRow() > 1
-    ? attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 6).getValues()
-    : [];
-
-  const lookup = {};
-  attData.forEach(r => {
-    if (String(r[3]) === classId) {
-      const sid = String(r[2]);
-      const stId = normalizeId(r[4]);
-      if (!lookup[sid]) lookup[sid] = {};
-      lookup[sid][stId] = String(r[5]);
-    }
-  });
-
+  const validDays = buildGroupedClassDayRecords_(ss, classId);
   const numStudents = rosterSheet.getLastRow() - 1;
   const studentRows = rosterSheet.getRange(2, 1, numStudents, 3).getValues();
 
   const headers = ['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']
-    .concat(classSessions.map((s, idx) => 'S' + (idx + 1) + '_' + s.label));
+    .concat(validDays.map((d, idx) => 'S' + (idx + 1) + '_' + d.label));
 
   const outRows = studentRows.map(sRow => {
     const stId = normalizeId(sRow[1]);
     let pCount = 0;
     let lCount = 0;
-    const sessionCells = classSessions.map(ses => {
-      const st = (lookup[ses.sessionId] && lookup[ses.sessionId][stId]) ? lookup[ses.sessionId][stId] : '-';
+    const sessionCells = validDays.map(grp => {
+      const rawMark = grp.marks[stId] || '-';
+      const st = (rawMark === 'A_MANUAL') ? '-' : rawMark;
       if (st === 'P') pCount++;
       if (st === 'L') lCount++;
       return st;
     });
     return [sRow[0], stId, sRow[2], pCount, lCount].concat(sessionCells);
   });
+
+  const prevLastCol = rosterSheet.getLastColumn();
+  if (prevLastCol > headers.length) {
+    rosterSheet.getRange(1, headers.length + 1, rosterSheet.getLastRow(), prevLastCol - headers.length).clearContent().clearFormat();
+  }
 
   rosterSheet.getRange(1, 1, 1, headers.length).setValues([headers])
     .setBackground('#0f766e').setFontColor('#ffffff').setFontWeight('bold');
@@ -2147,9 +2400,9 @@ function updateSessionAttendanceMapCache_(sessionId, studentId, recObj) {
 }
 
 /**
- * Computes and caches per-student attendance counters { P, L, E, A, total } for an entire class.
- * Cached in CacheService for 60s under `CLASS_ATT_STATS_V35_<classId>` so 50+ students polling/checking in
- * share a single RAM cache entry without extra Google Sheets API reads.
+ * Computes and caches per-student attendance counters, official attendance score, exam ban status,
+ * and merged per-day history `{ P, L, E, A, total, equivAbsences, attendanceScore, manualExamBan, examStatus, history }`
+ * for an entire class. Cached in CacheService for 60s under `CLASS_ATT_STATS_V35_<classId>`.
  */
 function getClassAttendanceStatsMap_(ss, classId, bypassCache) {
   if (!classId) return {};
@@ -2165,109 +2418,135 @@ function getClassAttendanceStatsMap_(ss, classId, bypassCache) {
 
   const rosterMap = getClassRosterMap(ss, classId, false);
   const studentIds = Object.keys(rosterMap);
+
+  // Detect manual red-highlighted students from synced target sheet properties + local Master Sheet row colors
+  const manualBanMap = {};
+  try {
+    const rawPropBan = PropertiesService.getScriptProperties().getProperty('QR_MANUAL_EXAM_BAN_MAP');
+    if (rawPropBan) {
+      const parsedBan = JSON.parse(rawPropBan);
+      const classBan = parsedBan && parsedBan[classId] ? parsedBan[classId] : null;
+      if (classBan) {
+        Object.keys(classBan).forEach(k => {
+          if (classBan[k]) manualBanMap[normalizeId(k)] = true;
+        });
+      }
+    }
+  } catch (e) {}
+
+  const sheetCellOverrides = {}; // { [sid]: { [colIdx0]: 'E' | 'L' | 'A' | 'P' } }
+  try {
+    const classSheet = ss.getSheetByName(classId);
+    if (classSheet && classSheet.getLastRow() > 1) {
+      const numRows = classSheet.getLastRow() - 1;
+      const lastCol = Math.max(3, classSheet.getLastColumn());
+      const vals = classSheet.getRange(2, 1, numRows, lastCol).getValues();
+      const bgs = classSheet.getRange(2, 1, numRows, lastCol).getBackgrounds();
+      const fgs = classSheet.getRange(2, 1, numRows, 3).getFontColors();
+
+      for (let r = 0; r < numRows; r++) {
+        const sid = normalizeId(vals[r][1]);
+        if (!sid) continue;
+        const isRowRed =
+          classifySheetCellColorLocal_(bgs[r][0]) === 'RED' ||
+          classifySheetCellColorLocal_(bgs[r][1]) === 'RED' ||
+          classifySheetCellColorLocal_(bgs[r][2]) === 'RED' ||
+          classifySheetCellColorLocal_(fgs[r][0]) === 'RED' ||
+          classifySheetCellColorLocal_(fgs[r][1]) === 'RED' ||
+          classifySheetCellColorLocal_(fgs[r][2]) === 'RED';
+        if (isRowRed) {
+          manualBanMap[sid] = true;
+        }
+
+        // Also inspect session columns (col index 5+, i.e. Column F onward) for direct sheet color/text edits
+        if (lastCol > 5) {
+          for (let c = 5; c < lastCol; c++) {
+            const cellBgClass = classifySheetCellColorLocal_(bgs[r][c]);
+            const cellText = String(vals[r][c] || '').trim().toUpperCase();
+            const dayIdx = c - 5;
+            if (cellBgClass === 'ORANGE' || cellText === 'E' || cellText === 'P_EXCUSED') {
+              if (!sheetCellOverrides[sid]) sheetCellOverrides[sid] = {};
+              sheetCellOverrides[sid][dayIdx] = 'E';
+            } else if (cellBgClass === 'YELLOW' || cellText === 'L') {
+              if (!sheetCellOverrides[sid]) sheetCellOverrides[sid] = {};
+              sheetCellOverrides[sid][dayIdx] = 'L';
+            } else if (cellText === 'X') {
+              if (!sheetCellOverrides[sid]) sheetCellOverrides[sid] = {};
+              sheetCellOverrides[sid][dayIdx] = 'A_MANUAL';
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {}
+
   const statsMap = {};
   studentIds.forEach(sid => {
-    statsMap[sid] = { P: 0, L: 0, E: 0, A: 0, total: 0 };
+    statsMap[sid] = {
+      P: 0,
+      L: 0,
+      E: 0,
+      A: 0,
+      total: 0,
+      equivAbsences: 0,
+      attendanceScore: 10.0,
+      manualExamBan: Boolean(manualBanMap[sid]),
+      examStatus: manualBanMap[sid] ? 'BAN' : 'OK',
+      history: []
+    };
   });
 
-  // 1. Group Sessions_Log by calendar date (so multiple test/reopened sessions on the same day count as 1 session day)
-  const sesSheet = ss.getSheetByName(TAB_SESSIONS);
-  const sesData = (sesSheet && sesSheet.getLastRow() > 1)
-    ? sesSheet.getRange(2, 1, sesSheet.getLastRow() - 1, 7).getValues()
-    : [];
+  const validDays = buildGroupedClassDayRecords_(ss, classId);
 
-  const nowMs = Date.now();
-  const dayGroups = {};
-  const dayOrder = [];
-  const sessionToDayKey = {};
-
-  sesData.forEach(r => {
-    if (String(r[1]).trim() !== classId) return;
-    const sesId = String(r[0]).trim();
-    const label = String(r[2] || '').trim();
-    const openedMs = parseSheetTimeMs(r[3]);
-    const closesMs = parseSheetTimeMs(r[5]);
-    const closedManual = String(r[6] || '').trim();
-    const isOpen = !closedManual && nowMs <= closesMs;
-
-    let dayKey = '';
-    if (openedMs > 0) {
-      dayKey = Utilities.formatDate(new Date(openedMs), TIMEZONE, 'yyyy-MM-dd');
-    } else if (label) {
-      dayKey = label.split('_')[0] || sesId;
-    } else {
-      dayKey = sesId;
-    }
-
-    if (!dayGroups[dayKey]) {
-      dayGroups[dayKey] = {
-        dayKey: dayKey,
-        hasOpenSession: false,
-        marks: {}
-      };
-      dayOrder.push(dayKey);
-    }
-    if (isOpen) {
-      dayGroups[dayKey].hasOpenSession = true;
-    }
-    sessionToDayKey[sesId] = dayKey;
-  });
-
-  if (dayOrder.length === 0) {
-    try { cache.put(cacheKey, JSON.stringify(statsMap), 60); } catch (e) {}
-    return statsMap;
-  }
-
-  function mergeMark_(marksObj, sid, st, isExplicitManualAbsent) {
-    const cur = marksObj[sid];
-    if (st === 'P') {
-      marksObj[sid] = 'P';
-    } else if (st === 'E' && cur !== 'P') {
-      marksObj[sid] = 'E';
-    } else if (st === 'L' && cur !== 'P' && cur !== 'E') {
-      marksObj[sid] = 'L';
-    } else if (st === '-' && isExplicitManualAbsent) {
-      marksObj[sid] = 'A_MANUAL';
-    }
-  }
-
-  // 2. Read Attendance_Log for this class
-  const attSheet = ss.getSheetByName(TAB_ATTEND);
-  if (attSheet && attSheet.getLastRow() > 1) {
-    const attData = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 10).getValues();
-    attData.forEach(r => {
-      if (String(r[3]).trim() !== classId) return;
-      const sesId = String(r[2]).trim();
-      const dayKey = sessionToDayKey[sesId];
-      if (!dayKey || !dayGroups[dayKey]) return;
-      const sid = normalizeId(r[4]);
-      const st = String(r[5] || '').trim().toUpperCase();
-      const src = String(r[9] || '').trim();
-      if (!sid) return;
-      mergeMark_(dayGroups[dayKey].marks, sid, st, st === '-' && src === 'TEACHER_MANUAL');
-    });
-  }
-
-  // 3. Aggregate P / L / E / A per student across all session days
-  dayOrder.forEach(dayKey => {
-    const grp = dayGroups[dayKey];
+  validDays.forEach((grp, dayIdx) => {
     studentIds.forEach(sid => {
-      const mark = grp.marks[sid] || '-';
+      let mark = grp.marks[sid] || '-';
+      if (sheetCellOverrides[sid] && sheetCellOverrides[sid][dayIdx] && !grp.manualLocked[sid]) {
+        mark = sheetCellOverrides[sid][dayIdx];
+      }
+
+      let histStatus = '-';
       if (mark === 'P') {
         statsMap[sid].P++;
         statsMap[sid].total++;
+        histStatus = 'P';
       } else if (mark === 'L') {
         statsMap[sid].L++;
         statsMap[sid].total++;
+        histStatus = 'L';
       } else if (mark === 'E') {
         statsMap[sid].E++;
         statsMap[sid].total++;
+        histStatus = 'E';
       } else if (mark === 'A_MANUAL' || !grp.hasOpenSession) {
-        // Count as Absent once the session closes (or if Lecturer explicitly marked '-' manually)
         statsMap[sid].A++;
         statsMap[sid].total++;
+        histStatus = '-';
+      } else {
+        histStatus = 'OPEN';
       }
+
+      statsMap[sid].history.push({
+        dayKey: grp.dayKey,
+        date: grp.displayDate,
+        label: grp.label,
+        sessionId: grp.latestSessionId,
+        status: histStatus
+      });
     });
+  });
+
+  // Compute Official Attendance Score (base 10.0) & Exam Eligibility Status per student
+  studentIds.forEach(sid => {
+    const st = statsMap[sid];
+    const equivAbsences = Math.round((st.A + (st.E * 0.5)) * 10) / 10;
+    const attendanceScore = Math.round((10.0 - (st.A * 1.0) - (st.L * 0.5) - (st.E * 0.5)) * 10) / 10;
+    const isBanned = Boolean(st.manualExamBan) || (equivAbsences > 6.0) || (attendanceScore < 0.0);
+    const isWarn = !isBanned && ((equivAbsences >= 5.5 && equivAbsences <= 6.0) || (attendanceScore >= 0.0 && attendanceScore <= 1.0));
+
+    st.equivAbsences = equivAbsences;
+    st.attendanceScore = attendanceScore;
+    st.examStatus = isBanned ? 'BAN' : (isWarn ? 'WARN' : 'OK');
   });
 
   try { cache.put(cacheKey, JSON.stringify(statsMap), 60); } catch (e) {}
@@ -2276,9 +2555,13 @@ function getClassAttendanceStatsMap_(ss, classId, bypassCache) {
 
 function getStudentClassAttendanceStats(ss, classId, studentId, bypassCache) {
   const sid = normalizeId(studentId);
-  if (!classId || !sid) return { P: 0, L: 0, E: 0, A: 0, total: 0 };
+  const fallback = {
+    P: 0, L: 0, E: 0, A: 0, total: 0,
+    equivAbsences: 0, attendanceScore: 10.0, manualExamBan: false, examStatus: 'OK', history: []
+  };
+  if (!classId || !sid) return fallback;
   const classMap = getClassAttendanceStatsMap_(ss, classId, bypassCache);
-  return classMap[sid] || { P: 0, L: 0, E: 0, A: 0, total: 0 };
+  return classMap[sid] || fallback;
 }
 
 function getStudentAttendanceStatsMap(ss, studentId, classIds, bypassCache) {

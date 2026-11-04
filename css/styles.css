@@ -940,6 +940,220 @@ select.unselected-warning {
   padding: 2px 0;
 }
 
+/* Student Attendance Warning (Light Red) & Exam Ban (Solid Red — CẤM THI) */
+.stu-att-summary-bar.att-warn-light {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.stu-att-summary-bar.att-warn-light .att-stat-item {
+  color: #991b1b;
+}
+
+.stu-att-summary-bar.att-warn-light .att-stat-item strong {
+  color: #7f1d1d;
+}
+
+.stu-att-summary-bar.att-ban-solid {
+  background: #dc2626;
+  border: 1px solid #b91c1c;
+  color: #ffffff;
+}
+
+.stu-att-summary-bar.att-ban-solid .att-stat-item,
+.stu-att-summary-bar.att-ban-solid .att-stat-item strong,
+.stu-att-summary-bar.att-ban-solid .att-chevron {
+  color: #ffffff;
+}
+
+.stu-att-summary-bar.att-ban-solid .stu-att-history-drawer {
+  border-top-color: rgba(255, 255, 255, 0.28);
+}
+
+.stu-att-summary-bar.att-ban-solid .att-history-row {
+  border-bottom-color: rgba(255, 255, 255, 0.2);
+}
+
+.stu-att-summary-bar.att-ban-solid .att-history-time,
+.stu-att-summary-bar.att-ban-solid .att-history-status,
+.stu-att-summary-bar.att-ban-solid .att-history-empty {
+  color: #ffffff;
+}
+
+.stu-att-warning-banner {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-subtle);
+  font-size: 0.77rem;
+  font-weight: 600;
+  line-height: 1.38;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stu-att-summary-bar.att-warn-light .stu-att-warning-banner {
+  border-top-color: #fecaca;
+  color: #b91c1c;
+}
+
+.stu-att-summary-bar.att-ban-solid .stu-att-warning-banner {
+  border-top-color: rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+}
+
+.exam-ban-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #dc2626;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.exam-warn-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+/* Student Live Classroom Group Card */
+.stu-group-card {
+  background: var(--primary-subtle);
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 9px 12px;
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.stu-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+
+.stu-group-members {
+  font-size: 0.77rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+/* Lecturer Roster Clickable Student Name & Past-Session / Group Maker Modals */
+.stu-name-clickable {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.stu-name-clickable:hover {
+  color: var(--primary);
+}
+
+.stu-past-excuse-badge {
+  display: inline-block;
+  font-size: 0.69rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-subtle);
+  border: 1px solid #bfdbfe;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  cursor: pointer;
+}
+
+.modal-card.modal-wide {
+  max-width: 560px;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-card.modal-wide .modal-body {
+  overflow-y: auto;
+  white-space: normal;
+  padding-right: 2px;
+}
+
+.past-ses-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.past-ses-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.group-maker-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.group-maker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.group-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 0.79rem;
+}
+
+.group-box-title {
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 4px;
+  font-size: 0.81rem;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 3px;
+}
+
+.group-box-member {
+  padding: 2px 0;
+  color: var(--text-secondary);
+  font-size: 0.77rem;
+}
+
 @media (max-width: 440px) {
   .roster-item {
     flex-wrap: wrap;
