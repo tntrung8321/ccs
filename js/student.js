@@ -166,14 +166,12 @@ function onStudentInstChange(preserveManualSelection = false) {
   );
 
   // Resolve real-time class from Google Calendar / Period Slots (123, 456, 789, 10-12, 13-15) / CLASS_SCHEDULE
-  // Fallback to open session class, last selected class, or first enrolled class so attendance stats are always shown
+  // If outside scheduled hours and no session is open, default to "" (-- Chưa chọn lớp - Ngoài khung giờ --)
   const scheduleMatch = resolveActiveClassBySchedule(enrolled, new Date());
   const openSesClass = enrolled.find(c => c && c.sessionOpenNow);
-  const savedLastClass = safeGetLocal('cc_last_class_' + selInst, '');
-  const validLastClass = (savedLastClass && enrolled.some(c => c.classId === savedLastClass)) ? savedLastClass : '';
   const autoClassId = preserveManualSelection && currentSelectedVal
     ? currentSelectedVal
-    : (scheduleMatch.matchedClassId || (openSesClass ? openSesClass.classId : '') || validLastClass || (enrolled[0] ? enrolled[0].classId : ''));
+    : (scheduleMatch.matchedClassId || (openSesClass ? openSesClass.classId : ''));
 
   const unselectedLabel = I18N[currentLang].stu_unselected_class_opt || '-- Chưa chọn lớp - Ngoài khung giờ --';
   const optionsHtml = [

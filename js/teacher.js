@@ -58,15 +58,17 @@ async function restoreTeacherSessionOnLoad(auth) {
   document.getElementById('box-teacher-dashboard').classList.remove('hidden');
   hideStatus();
 
-  selectedTeacherClassId = safeGetSession('cc_tea_selected_class', safeGetLocal('cc_tea_selected_class', ''));
-  teacherHasManuallySelectedClass = Boolean(selectedTeacherClassId);
+  safeRemoveLocal('cc_tea_selected_class');
+  safeRemoveSession('cc_tea_selected_class');
+  selectedTeacherClassId = '';
+  teacherHasManuallySelectedClass = false;
 
   const cachedRaw = safeGetSession('cc_tea_state_cache', null);
   if (cachedRaw) {
     try {
       const cachedState = JSON.parse(cachedRaw);
       if (cachedState && cachedState.ok) {
-        await applyTeacherState(cachedState, false);
+        await applyTeacherState(cachedState, false, true);
       }
     } catch (e) {}
   }
@@ -169,14 +171,15 @@ async function refreshTeacherState(force = false) {
   }
 }
 
-async function applyTeacherState(state, isInitialLoad = false) {
+async function applyTeacherState(state, isInitialLoad = false, isFromCache = false) {
   if (!state) return;
   ingestServerScheduleData(state);
 
   // Filter out removed test sample class ENG101_G1 while keeping 100% of real classes
+  const isStaleCache = isFromCache && state.serverTimeMs && (Date.now() - Number(state.serverTimeMs) > 15 * 60 * 1000);
   const cleanClasses = (state.classes || []).filter(
     c => c && c.classId && !REMOVED_SAMPLE_CLASSES.includes(String(c.classId).trim().toUpperCase())
-  );
+  ).map(c => isStaleCache ? Object.assign({}, c, { sessionOpenNow: false }) : c);
   state.classes = cleanClasses;
   if (Array.isArray(state.roster)) {
     overlayPendingManualMarksOnRoster(state.roster);
@@ -195,12 +198,10 @@ async function applyTeacherState(state, isInitialLoad = false) {
   const openSesClass = cleanClasses.find(c => c.sessionOpenNow);
   const autoClassId = scheduleMatch.matchedClassId || (openSesClass ? openSesClass.classId : '');
 
-  if (isInitialLoad && !teacherHasManuallySelectedClass) {
+  if (!teacherHasManuallySelectedClass) {
     // Auto-select the class matching the current period/calendar or active open session, or "" if outside teaching hours
     selectedTeacherClassId = autoClassId;
-    safeSetSession('cc_tea_selected_class', selectedTeacherClassId);
-    safeSetLocal('cc_tea_selected_class', selectedTeacherClassId);
-    if (selectedTeacherClassId && selectedTeacherClassId !== state.selectedClassId) {
+    if (selectedTeacherClassId && selectedTeacherClassId !== state.selectedClassId && !isFromCache) {
       const auth = getTeacherAuth();
       if (auth) {
         const switchedRes = await callBackend(auth.apiUrl, {
@@ -209,18 +210,11 @@ async function applyTeacherState(state, isInitialLoad = false) {
           classId: selectedTeacherClassId
         }, 1);
         if (switchedRes && switchedRes.ok) {
-          teacherHasManuallySelectedClass = true;
-          await applyTeacherState(switchedRes, false);
+          await applyTeacherState(switchedRes, false, false);
           return;
         }
       }
     }
-  } else if (teacherHasManuallySelectedClass && selectedTeacherClassId) {
-    // Keep lecturer's chosen class
-  } else if (!teacherHasManuallySelectedClass) {
-    selectedTeacherClassId = autoClassId;
-    safeSetSession('cc_tea_selected_class', selectedTeacherClassId);
-    safeSetLocal('cc_tea_selected_class', selectedTeacherClassId);
   }
 
   const sel = document.getElementById('sel-tea-class');
@@ -385,8 +379,6 @@ async function onTeacherClassChange() {
   const sel = document.getElementById('sel-tea-class');
   selectedTeacherClassId = sel ? sel.value : '';
   teacherHasManuallySelectedClass = true;
-  safeSetSession('cc_tea_selected_class', selectedTeacherClassId);
-  safeSetLocal('cc_tea_selected_class', selectedTeacherClassId);
   cancelOpenSessionConfirm();
 
   if (!selectedTeacherClassId) {
