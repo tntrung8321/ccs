@@ -282,6 +282,10 @@ async function applyTeacherState(state, isInitialLoad = false) {
 
   setupTeacherCountdown(ses, Boolean(activeCfg));
   renderTeacherRoster();
+  if (document.getElementById('hist-modal-rows')) {
+    refreshHistoryModalDateOptionsIfNeeded();
+    renderHistoryModalList();
+  }
 }
 
 function updateTeacherClassOverviewUI(activeCfg, ses, scheduleMatch) {
@@ -693,23 +697,50 @@ function renderTeacherRoster() {
   function cleanRosterTimeStr(rawTime) {
     const s = String(rawTime || '').trim();
     if (!s) return '';
-    if (/^\d{4}\s+\d{1,2}:$/.test(s)) return '';
-    const m = s.match(/\b(\d{2}:\d{2}(?::\d{2})?)\b/);
-    return m ? m[1] : s;
+    const m = s.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\b/);
+    if (m) {
+      return `${m[1].padStart(2, '0')}:${m[2]}`;
+    }
+    const mLegacy = s.match(/^\d{4}\s+(\d{1,2}):$/);
+    if (mLegacy) {
+      const hh = mLegacy[1].padStart(2, '0');
+      const ses = teacherState && teacherState.activeSession;
+      if (ses) {
+        if (ses.sessionLabel) {
+          const mLbl = String(ses.sessionLabel).match(/_(\d{2})(\d{2})$/);
+          if (mLbl && mLbl[1] === hh) return `${hh}:${mLbl[2]}`;
+        }
+        if (ses.openedAtMs) {
+          const d = new Date(Number(ses.openedAtMs));
+          if (!isNaN(d.getTime()) && String(d.getHours()).padStart(2, '0') === hh) {
+            return `${hh}:${String(d.getMinutes()).padStart(2, '0')}`;
+          }
+        }
+      }
+      return `${hh}:00`;
+    }
+    return '';
   }
 
   container.innerHTML = filtered.map(st => {
     const suspectNote = suspectMap[st.studentId];
     const isDuplicateName = (nameCounts[String(st.fullName || '').trim().toLowerCase()] || 0) > 1;
     const maskedTail = isDuplicateName && st.studentId ? ` (***${String(st.studentId).slice(-3)})` : '';
-    const cleanTime = cleanRosterTimeStr(st.time);
+    const cleanTime = st.status && st.status !== '-' ? cleanRosterTimeStr(st.time) : '';
+    const hasDist =
+      (st.status === 'P' || st.status === 'L') &&
+      st.distance !== '' &&
+      st.distance !== null &&
+      st.distance !== undefined &&
+      String(st.distance).trim() !== '' &&
+      !isNaN(Number(st.distance));
+    const distNum = hasDist ? Math.round(Number(st.distance)) : null;
     return `
       <div class="roster-item ${suspectNote ? 'suspect-row' : ''}">
         <div class="roster-student-info">
           <strong title="MSSV: ${escapeHtml(st.studentId)}">${escapeHtml(st.fullName)}${escapeHtml(maskedTail)}</strong>
-          <span class="status-pill st-${st.status}">${escapeHtml(st.status)}</span>
           ${cleanTime ? `<span style="font-size:0.75rem; color:var(--muted); font-family:var(--font-mono);">${escapeHtml(cleanTime)}</span>` : ''}
-          ${st.distance !== '' && st.distance !== undefined ? `<span style="font-size:0.74rem; color:#0f766e; font-weight:600; font-family:var(--font-mono);">(${escapeHtml(st.distance)}m)</span>` : ''}
+          ${distNum !== null ? `<span style="font-size:0.74rem; color:#0f766e; font-weight:600; font-family:var(--font-mono);">(${distNum}m)</span>` : ''}
           ${suspectNote ? `<span class="suspect-tag">[${isEn ? 'SUSPECT' : 'NGHI VẤN'}] ${escapeHtml(suspectNote)}</span>` : ''}
         </div>
         <div class="roster-actions">
@@ -829,13 +860,72 @@ function triggerRandomSpotCheck() {
   );
 }
 
+function deriveActiveSessionDayMeta() {
+  const ses = teacherState && teacherState.activeSession;
+  if (!ses || !ses.sessionId) return null;
+  if (selectedTeacherClassId && ses.classId && ses.classId !== selectedTeacherClassId) return null;
+
+  let dayKey = '';
+  let dateStr = '';
+  const pad2 = n => String(n).padStart(2, '0');
+
+  if (ses.openedAtMs && Number(ses.openedAtMs) > 0) {
+    const d = new Date(Number(ses.openedAtMs));
+    if (!isNaN(d.getTime())) {
+      const yyyy = d.getFullYear();
+      const mm = pad2(d.getMonth() + 1);
+      const dd = pad2(d.getDate());
+      dayKey = `${yyyy}-${mm}-${dd}`;
+      dateStr = `${dd}/${mm}/${yyyy}`;
+    }
+  }
+
+  if (!dayKey) {
+    const mSes = String(ses.sessionId).match(/_(\d{4})(\d{2})(\d{2})_/);
+    if (mSes) {
+      dayKey = `${mSes[1]}-${mSes[2]}-${mSes[3]}`;
+      dateStr = `${mSes[3]}/${mSes[2]}/${mSes[1]}`;
+    }
+  }
+
+  if (!dayKey) {
+    dayKey = ses.sessionLabel || ses.sessionId;
+    dateStr = dayKey;
+  }
+
+  return {
+    dayKey: dayKey,
+    date: dateStr || dayKey,
+    label: ses.sessionLabel || '',
+    sessionId: ses.sessionId || ''
+  };
+}
+
+function getEffectiveStudentHistory(st) {
+  const hist = (st && st.attendanceStats && Array.isArray(st.attendanceStats.history))
+    ? st.attendanceStats.history.slice()
+    : [];
+  const activeMeta = deriveActiveSessionDayMeta();
+  if (activeMeta && activeMeta.dayKey) {
+    const exists = hist.some(h => h && h.dayKey === activeMeta.dayKey);
+    if (!exists) {
+      hist.push({
+        dayKey: activeMeta.dayKey,
+        date: activeMeta.date,
+        label: activeMeta.label,
+        sessionId: activeMeta.sessionId,
+        status: (st && st.status) ? st.status : '-'
+      });
+    }
+  }
+  return hist;
+}
+
 function collectClassSessionDaysFromRoster() {
   const list = (teacherState && teacherState.roster) || [];
   const dayMap = {};
   list.forEach(st => {
-    const hist = st && st.attendanceStats && Array.isArray(st.attendanceStats.history)
-      ? st.attendanceStats.history
-      : [];
+    const hist = getEffectiveStudentHistory(st);
     hist.forEach(h => {
       if (h && h.dayKey && !dayMap[h.dayKey]) {
         dayMap[h.dayKey] = {
@@ -848,6 +938,31 @@ function collectClassSessionDaysFromRoster() {
     });
   });
   return Object.values(dayMap).sort((a, b) => b.dayKey.localeCompare(a.dayKey));
+}
+
+function refreshHistoryModalDateOptionsIfNeeded() {
+  const selDateEl = document.getElementById('sel-hist-date');
+  if (!selDateEl) return;
+  const isEn = currentLang === 'en';
+  const currentVal = selDateEl.value;
+  const days = collectClassSessionDaysFromRoster();
+  if (days.length === 0) return;
+
+  const hasCurrent = days.some(d => d.dayKey === currentVal);
+  const selectedVal = (currentVal && currentVal !== 'ALL' && hasCurrent)
+    ? currentVal
+    : (currentVal === 'ALL' && selDateEl.options.length > 1 ? 'ALL' : days[0].dayKey);
+
+  const dateOptsHtml = [
+    `<option value="ALL" ${selectedVal === 'ALL' ? 'selected' : ''}>${isEn ? '-- All Sessions --' : '-- Tất cả các buổi học --'}</option>`
+  ].concat(
+    days.map(d => {
+      const lbl = d.label ? `${d.date} (${d.label})` : d.date;
+      return `<option value="${escapeHtml(d.dayKey)}" ${d.dayKey === selectedVal ? 'selected' : ''}>${escapeHtml(lbl)}</option>`;
+    })
+  ).join('');
+  selDateEl.innerHTML = dateOptsHtml;
+  selDateEl.value = selectedVal;
 }
 
 function openAttendanceHistoryManagerModal() {
@@ -899,6 +1014,11 @@ function openAttendanceHistoryManagerModal() {
   );
 
   renderHistoryModalList();
+
+  // If full attendanceStats history was not yet loaded in cache, trigger a fresh sync in the background
+  if (!list[0] || !list[0].attendanceStats || !Array.isArray(list[0].attendanceStats.history)) {
+    refreshTeacherState(true);
+  }
 }
 
 function renderHistoryModalList() {
@@ -923,15 +1043,11 @@ function renderHistoryModalList() {
 
   const items = [];
   matchedStudents.forEach(st => {
-    const hist = (st.attendanceStats && Array.isArray(st.attendanceStats.history))
-      ? st.attendanceStats.history.slice().reverse()
-      : [];
+    const hist = getEffectiveStudentHistory(st).slice().reverse();
     hist.forEach(h => {
       if (!h || !h.dayKey) return;
       if (selectedDayKey !== 'ALL' && h.dayKey !== selectedDayKey) return;
       const curSt = h.status === 'OPEN' ? '-' : (h.status || '-');
-      // If viewing ALL dates with no search query, prioritize showing rows with -, E, or L so the list stays focused
-      if (selectedDayKey === 'ALL' && !query && curSt === 'P') return;
       items.push({
         studentId: st.studentId,
         fullName: formatProjectorDisplayName(st, list),
@@ -943,6 +1059,16 @@ function renderHistoryModalList() {
       });
     });
   });
+
+  if (selectedDayKey === 'ALL' && !query) {
+    const rank = { '-': 0, 'E': 1, 'L': 2, 'P': 3 };
+    items.sort((a, b) => {
+      const ra = rank[a.status] !== undefined ? rank[a.status] : 4;
+      const rb = rank[b.status] !== undefined ? rank[b.status] : 4;
+      if (ra !== rb) return ra - rb;
+      return b.dayKey.localeCompare(a.dayKey);
+    });
+  }
 
   if (items.length === 0) {
     container.innerHTML = `<div style="padding:12px 0; color:var(--muted); font-size:0.82rem; text-align:center;">${isEn ? 'No matching attendance records found.' : 'Không có bản ghi nào khớp điều kiện lọc.'}</div>`;
@@ -1027,10 +1153,17 @@ async function teacherMarkPastSession(studentId, dayKey, sessionId, newStatus) {
 
   if (teacherState && Array.isArray(teacherState.roster)) {
     const st = teacherState.roster.find(r => r && r.studentId === studentId);
-    if (st && st.attendanceStats && Array.isArray(st.attendanceStats.history)) {
-      const hItem = st.attendanceStats.history.find(h => h && h.dayKey === dayKey);
-      if (hItem) hItem.status = newStatus;
+    if (st) {
+      const activeMeta = deriveActiveSessionDayMeta();
+      if (activeMeta && activeMeta.dayKey === dayKey) {
+        st.status = newStatus;
+      }
+      if (st.attendanceStats && Array.isArray(st.attendanceStats.history)) {
+        const hItem = st.attendanceStats.history.find(h => h && h.dayKey === dayKey);
+        if (hItem) hItem.status = newStatus;
+      }
     }
+    renderTeacherRoster();
   }
   renderHistoryModalList();
 
@@ -1281,7 +1414,7 @@ async function teacherManualMark(studentId, status) {
   // 1. Instant 0.01s Optimistic UI Update (updates badge, counters, and roster immediately before network round-trip)
   const nowD = new Date();
   const pad2 = n => String(n).padStart(2, '0');
-  const nowTimeStr = `${pad2(nowD.getHours())}:${pad2(nowD.getMinutes())}:${pad2(nowD.getSeconds())}`;
+  const nowTimeStr = `${pad2(nowD.getHours())}:${pad2(nowD.getMinutes())}`;
   let prevSnapshot = null;
 
   if (teacherState && Array.isArray(teacherState.roster)) {

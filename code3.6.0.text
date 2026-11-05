@@ -1846,7 +1846,7 @@ function invalidateClassCache(classId) {
       'PING_STATE_V32',
       'ALL_LATEST_SES_V35',
       'LATEST_SES_' + classId,
-      'CLASS_ATT_STATS_V35_' + classId
+      'CLASS_ATT_STATS_V36_' + classId
     ]);
   } catch (e) {}
 }
@@ -1854,7 +1854,7 @@ function invalidateClassCache(classId) {
 function invalidateClassAttendanceStatsCache_(classId) {
   if (!classId) return;
   try {
-    CacheService.getScriptCache().remove('CLASS_ATT_STATS_V35_' + classId);
+    CacheService.getScriptCache().remove('CLASS_ATT_STATS_V36_' + classId);
   } catch (e) {}
 }
 
@@ -2345,20 +2345,20 @@ function findExistingAttendance(ss, sessionId, studentId, requestId) {
 function formatAttendanceTimeStr_(val) {
   if (!val) return '';
   if (typeof val.getTime === 'function') {
-    return Utilities.formatDate(val, TIMEZONE, 'HH:mm:ss');
+    return Utilities.formatDate(val, TIMEZONE, 'HH:mm');
   }
   const s = String(val).trim();
-  const mIso = s.match(/T(\d{2}:\d{2}:\d{2})/);
+  const mIso = s.match(/T(\d{2}:\d{2})/);
   if (mIso) return mIso[1];
-  const mTime = s.match(/\b(\d{2}:\d{2}(?::\d{2})?)\b/);
-  if (mTime) return mTime[1];
-  return s.slice(11, 19);
+  const mTime = s.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\b/);
+  if (mTime) return ('0' + mTime[1]).slice(-2) + ':' + mTime[2];
+  return s.slice(11, 16);
 }
 
 function getSessionAttendanceMap(ss, sessionId, bypassCache) {
   if (!sessionId) return {};
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'SES_ATT_MAP_V35_' + sessionId;
+  const cacheKey = 'SES_ATT_MAP_V36_' + sessionId;
 
   if (!bypassCache) {
     const cached = cache.get(cacheKey);
@@ -2402,7 +2402,7 @@ function updateSessionAttendanceMapCache_(sessionId, studentId, recObj) {
   if (!sessionId || !studentId) return;
   try {
     const cache = CacheService.getScriptCache();
-    const cacheKey = 'SES_ATT_MAP_V35_' + sessionId;
+    const cacheKey = 'SES_ATT_MAP_V36_' + sessionId;
     const raw = cache.get(cacheKey);
     if (raw) {
       const map = JSON.parse(raw);
@@ -2415,12 +2415,12 @@ function updateSessionAttendanceMapCache_(sessionId, studentId, recObj) {
 /**
  * Computes and caches per-student attendance counters, official attendance score, exam ban status,
  * and merged per-day history `{ P, L, E, A, total, equivAbsences, attendanceScore, manualExamBan, examStatus, history }`
- * for an entire class. Cached in CacheService for 60s under `CLASS_ATT_STATS_V35_<classId>`.
+ * for an entire class. Cached in CacheService for 1800s under `CLASS_ATT_STATS_V36_<classId>`.
  */
 function getClassAttendanceStatsMap_(ss, classId, bypassCache) {
   if (!classId) return {};
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'CLASS_ATT_STATS_V35_' + classId;
+  const cacheKey = 'CLASS_ATT_STATS_V36_' + classId;
 
   if (!bypassCache) {
     const cached = cache.get(cacheKey);
@@ -2562,7 +2562,7 @@ function getClassAttendanceStatsMap_(ss, classId, bypassCache) {
     st.examStatus = isBanned ? 'BAN' : (isWarn ? 'WARN' : 'OK');
   });
 
-  try { cache.put(cacheKey, JSON.stringify(statsMap), 60); } catch (e) {}
+  try { cache.put(cacheKey, JSON.stringify(statsMap), 1800); } catch (e) {}
   return statsMap;
 }
 
