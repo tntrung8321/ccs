@@ -20,6 +20,7 @@ let activeRosterFilter = 'ALL'; // 'ALL' | 'PRESENT' | 'ABSENT' | 'SUSPECT'
 let teacherHasManuallySelectedClass = false;
 let selectedTeacherClassId = '';
 let pendingManualMarks = {}; // Optimistic UI locks keyed by studentId so rapid clicks never wait or flicker
+let lastPulsedManualMark = null; // { studentId, status, dayKey, expiresAt } for P/L/E/- button pulse across re-renders
 let randomCallerVisitedByClass = {}; // Per-class shuffle bag Set of studentIds already called
 let currentDraftGroups = [];
 let currentDraftGroupSize = 4;
@@ -115,6 +116,10 @@ async function loginTeacher() {
   selectedTeacherClassId = '';
   safeSetSession('cc_tea_selected_class', '');
   safeSetLocal('cc_tea_selected_class', '');
+
+  if (typeof pulseButtonConfirm === 'function') {
+    await pulseButtonConfirm('btn-tea-login', currentLang === 'en' ? 'VERIFIED' : 'ĐÃ XÁC THỰC', 'success', 420);
+  }
 
   document.getElementById('card-teacher-login').classList.add('hidden');
   document.getElementById('box-teacher-dashboard').classList.remove('hidden');
@@ -431,6 +436,14 @@ async function confirmAndStartSession() {
     return;
   }
   const isMakeUpConfirmed = Boolean(requiresMakeUpConfirm && makeUpChk && makeUpChk.checked);
+  if (typeof pulseButtonConfirm === 'function') {
+    await pulseButtonConfirm(
+      'btn-tea-confirm-open',
+      currentLang === 'en' ? 'OPENING SESSION...' : 'ĐANG MỞ PHIÊN...',
+      'success',
+      380
+    );
+  }
   cancelOpenSessionConfirm();
   await teacherStartSession(isMakeUpConfirmed);
 }
@@ -626,6 +639,14 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
     safeSetSession('cc_tea_selected_class', selectedTeacherClassId);
     safeSetLocal('cc_tea_selected_class', selectedTeacherClassId);
     await applyTeacherState(res, false);
+    if (typeof pulseButtonConfirm === 'function') {
+      pulseButtonConfirm(
+        'btn-tea-open-trigger',
+        isEn ? 'SESSION OPENED' : 'ĐÃ MỞ PHIÊN ĐIỂM DANH',
+        'success',
+        1400
+      );
+    }
     showStatus(
       useGps
         ? (isEn
@@ -829,6 +850,11 @@ function renderTeacherRoster() {
     return '';
   }
 
+  const nowPulseTs = Date.now();
+  const activePulse = (lastPulsedManualMark && !lastPulsedManualMark.dayKey && nowPulseTs < lastPulsedManualMark.expiresAt)
+    ? lastPulsedManualMark
+    : null;
+
   container.innerHTML = filtered.map(st => {
     const suspectNote = suspectMap[st.studentId];
     const isDuplicateName = (nameCounts[String(st.fullName || '').trim().toLowerCase()] || 0) > 1;
@@ -842,6 +868,11 @@ function renderTeacherRoster() {
       String(st.distance).trim() !== '' &&
       !isNaN(Number(st.distance));
     const distNum = hasDist ? Math.round(Number(st.distance)) : null;
+    const isRowPulsing = Boolean(activePulse && activePulse.studentId === st.studentId);
+    const pulseP = isRowPulsing && activePulse.status === 'P' ? 'mark-pulse-P' : '';
+    const pulseL = isRowPulsing && activePulse.status === 'L' ? 'mark-pulse-L' : '';
+    const pulseE = isRowPulsing && activePulse.status === 'E' ? 'mark-pulse-E' : '';
+    const pulseDash = isRowPulsing && activePulse.status === '-' ? 'mark-pulse-dash' : '';
     return `
       <div class="roster-item ${suspectNote ? 'suspect-row' : ''}">
         <div class="roster-student-info">
@@ -851,10 +882,10 @@ function renderTeacherRoster() {
           ${suspectNote ? `<span class="suspect-tag">[${isEn ? 'SUSPECT' : 'NGHI VẤN'}] ${escapeHtml(suspectNote)}</span>` : ''}
         </div>
         <div class="roster-actions">
-          <button class="btn btn-outline btn-sm ${st.status === 'P' ? 'btn-mark-active-P' : ''}" title="${isEn ? 'Mark Present (P)' : 'Đánh dấu Có mặt (P)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','P')">P</button>
-          <button class="btn btn-outline btn-sm ${st.status === 'L' ? 'btn-mark-active-L' : ''}" title="${isEn ? 'Mark Late (L)' : 'Đánh dấu Đi trễ (L)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','L')">L</button>
-          <button class="btn btn-outline btn-sm ${st.status === 'E' ? 'btn-mark-active-E' : ''}" title="${isEn ? 'Mark Excused (E)' : 'Đánh dấu Có phép (E)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','E')">E</button>
-          <button class="btn btn-outline btn-sm" title="${isEn ? 'Revoke attendance (-)' : 'Hủy điểm danh (-)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','-')">-</button>
+          <button class="btn btn-outline btn-sm ${st.status === 'P' ? 'btn-mark-active-P' : ''} ${pulseP}" title="${isEn ? 'Mark Present (P)' : 'Đánh dấu Có mặt (P)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','P')">P</button>
+          <button class="btn btn-outline btn-sm ${st.status === 'L' ? 'btn-mark-active-L' : ''} ${pulseL}" title="${isEn ? 'Mark Late (L)' : 'Đánh dấu Đi trễ (L)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','L')">L</button>
+          <button class="btn btn-outline btn-sm ${st.status === 'E' ? 'btn-mark-active-E' : ''} ${pulseE}" title="${isEn ? 'Mark Excused (E)' : 'Đánh dấu Có phép (E)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','E')">E</button>
+          <button class="btn btn-outline btn-sm ${pulseDash}" title="${isEn ? 'Revoke attendance (-)' : 'Hủy điểm danh (-)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','-')">-</button>
           <button class="btn btn-outline btn-sm" title="${isEn ? 'Reset device lock' : 'Đặt lại khóa thiết bị'}" onclick="teacherResetStudentDevice('${escapeHtml(st.studentId)}')">${isEn ? 'Unlock' : 'Mở khóa'}</button>
         </div>
       </div>
@@ -1512,6 +1543,11 @@ function renderHistoryModalList() {
     return;
   }
 
+  const nowHistPulseTs = Date.now();
+  const activeHistPulse = (lastPulsedManualMark && lastPulsedManualMark.dayKey && nowHistPulseTs < lastPulsedManualMark.expiresAt)
+    ? lastPulsedManualMark
+    : null;
+
   container.innerHTML = items.map(item => {
     const rowDomId = `${escapeHtml(item.studentId)}_${escapeHtml(item.dayKey)}`;
     const safeSid = escapeHtml(item.studentId);
@@ -1520,6 +1556,15 @@ function renderHistoryModalList() {
     const safeDate = escapeHtml(item.date);
     const safeSesId = escapeHtml(item.sessionId);
     const curSt = item.status;
+    const isHistRowPulsing = Boolean(
+      activeHistPulse &&
+      activeHistPulse.studentId === item.studentId &&
+      activeHistPulse.dayKey === item.dayKey
+    );
+    const hPulseP = isHistRowPulsing && activeHistPulse.status === 'P' ? 'mark-pulse-P' : '';
+    const hPulseL = isHistRowPulsing && activeHistPulse.status === 'L' ? 'mark-pulse-L' : '';
+    const hPulseE = isHistRowPulsing && activeHistPulse.status === 'E' ? 'mark-pulse-E' : '';
+    const hPulseDash = isHistRowPulsing && activeHistPulse.status === '-' ? 'mark-pulse-dash' : '';
 
     return `
       <div class="past-ses-row" id="past-row-${rowDomId}">
@@ -1530,10 +1575,10 @@ function renderHistoryModalList() {
             <span id="past-pill-${rowDomId}" class="status-pill st-${curSt}" style="margin-left:6px;">${escapeHtml(curSt)}</span>
           </div>
           <div style="display:flex; gap:4px;">
-            <button type="button" class="btn btn-outline btn-sm ${curSt === 'P' ? 'btn-mark-active-P' : ''}" onclick="promptPastSessionConfirm('${safeSid}','${safeName}','${safeDayKey}','${safeDate}','${safeSesId}','${curSt}','P')">P</button>
-            <button type="button" class="btn btn-outline btn-sm ${curSt === 'L' ? 'btn-mark-active-L' : ''}" onclick="promptPastSessionConfirm('${safeSid}','${safeName}','${safeDayKey}','${safeDate}','${safeSesId}','${curSt}','L')">L</button>
-            <button type="button" class="btn btn-outline btn-sm ${curSt === 'E' ? 'btn-mark-active-E' : ''}" onclick="promptPastSessionConfirm('${safeSid}','${safeName}','${safeDayKey}','${safeDate}','${safeSesId}','${curSt}','E')">E</button>
-            <button type="button" class="btn btn-outline btn-sm ${curSt === '-' ? 'btn-mark-active--' : ''}" onclick="promptPastSessionConfirm('${safeSid}','${safeName}','${safeDayKey}','${safeDate}','${safeSesId}','${curSt}','-')">-</button>
+            <button type="button" class="btn btn-outline btn-sm ${curSt === 'P' ? 'btn-mark-active-P' : ''} ${hPulseP}" onclick="promptPastSessionConfirm('${safeSid}','${safeName}','${safeDayKey}','${safeDate}','${safeSesId}','${curSt}','P')">P</button>
+            <button type="button" class="btn btn-outline btn-sm ${curSt === 'L' ? 'btn-mark-active-L' : ''} ${hPulseL}" onclick="promptPastSessionConfirm('${safeSid}','${safeName}','${safeDayKey}','${safeDate}','${safeSesId}','${curSt}','L')">L</button>
+            <button type="button" class="btn btn-outline btn-sm ${curSt === 'E' ? 'btn-mark-active-E' : ''} ${hPulseE}" onclick="promptPastSessionConfirm('${safeSid}','${safeName}','${safeDayKey}','${safeDate}','${safeSesId}','${curSt}','E')">E</button>
+            <button type="button" class="btn btn-outline btn-sm ${curSt === '-' ? 'btn-mark-active--' : ''} ${hPulseDash}" onclick="promptPastSessionConfirm('${safeSid}','${safeName}','${safeDayKey}','${safeDate}','${safeSesId}','${curSt}','-')">-</button>
           </div>
         </div>
         <div id="past-confirm-${rowDomId}" class="past-ses-confirm-box hidden"></div>
@@ -1580,6 +1625,18 @@ async function teacherMarkPastSession(studentId, dayKey, sessionId, newStatus) {
 
   const rowDomId = `${studentId}_${dayKey}`;
   cancelPastSessionConfirm(studentId, dayKey);
+
+  lastPulsedManualMark = {
+    studentId: studentId,
+    status: newStatus,
+    dayKey: dayKey,
+    expiresAt: Date.now() + 680
+  };
+  if (navigator.vibrate) {
+    try {
+      navigator.vibrate(newStatus === 'L' ? [35, 45, 35] : 25);
+    } catch (e) {}
+  }
 
   // Instant 0.01s visual update inside the modal & local teacherState
   const pillEl = document.getElementById(`past-pill-${rowDomId}`);
@@ -1874,6 +1931,17 @@ async function teacherManualMark(studentId, status) {
     distance: status === '-' ? '' : 0,
     expiresAt: Date.now() + 10000
   };
+  lastPulsedManualMark = {
+    studentId: studentId,
+    status: status,
+    dayKey: '',
+    expiresAt: Date.now() + 680
+  };
+  if (navigator.vibrate) {
+    try {
+      navigator.vibrate(status === 'L' ? [35, 45, 35] : 25);
+    } catch (e) {}
+  }
 
   if (!showRosterNames) {
     const searchInput = document.getElementById('inp-roster-search');
@@ -2021,6 +2089,9 @@ async function teacherRebuildSheet() {
     classId: classId
   });
   if (res && res.ok) {
+    if (typeof pulseButtonConfirm === 'function') {
+      pulseButtonConfirm('btn-tea-rebuild-sheet', isEn ? 'SYNCED' : 'ĐÃ ĐỒNG BỘ', 'success', 1300);
+    }
     if (res.newStudentsAdded && res.newStudentsAdded > 0) {
       await refreshTeacherState();
       const namesStr = Array.isArray(res.newStudentNames) && res.newStudentNames.length > 0

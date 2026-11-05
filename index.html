@@ -109,12 +109,30 @@
 
   <main id="main-container" class="container">
 
-    <!-- SHOWN IF OPENED INSIDE IN-APP WEBVIEW (ZALO / MESSENGER) -->
-    <div id="ios-install-banner" class="alert alert-err hidden">
-      <div id="t-ios-guard"></div>
-      <div style="margin-top:8px;">
-        <button type="button" id="btn-open-external-browser" class="btn btn-primary btn-sm" onclick="openInExternalMainBrowser()" data-i18n="btn_open_external_browser">
-          Mở ngay bằng trình duyệt chính (Chrome / Safari)
+    <!-- COMPACT MOBILE WALKTHROUGH IF OPENED IN ZALO/MESSENGER OR APPLE iOS CODE SCANNER -->
+    <div id="ios-install-banner" class="compact-webview-guard hidden">
+      <div class="compact-guard-header">
+        <span class="compact-guard-icon">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+        </span>
+        <div id="t-ios-guard" class="compact-guard-title">Không dùng trình duyệt trong Zalo / Messenger</div>
+      </div>
+      <div class="compact-guard-steps">
+        <div class="compact-guard-step">
+          <span class="compact-guard-badge">1</span>
+          <span id="t-ios-guard-step1">Bấm nút ••• góc trên phải → chọn Mở bằng trình duyệt.</span>
+        </div>
+        <div class="compact-guard-step">
+          <span class="compact-guard-badge">2</span>
+          <span id="t-ios-guard-step2">Hoặc chép link bên dưới dán vào Safari / Chrome:</span>
+        </div>
+      </div>
+      <div class="compact-guard-actions">
+        <button type="button" id="btn-copy-browser-url" class="btn btn-primary btn-sm" onclick="copyCurrentUrlForMainBrowser()" data-i18n="btn_copy_browser_url">
+          Sao chép link mở Safari / Chrome
+        </button>
+        <button type="button" id="btn-open-external-browser" class="btn btn-outline btn-sm" onclick="openInExternalMainBrowser()" data-i18n="btn_open_external_browser">
+          Mở ngay bằng trình duyệt chính
         </button>
       </div>
     </div>
@@ -170,6 +188,12 @@
 
         <!-- ONBOARDING / LINK NEW COURSE SUB-PANEL (SHOWN ONLY BEFORE FIRST STUDENT ID BINDING) -->
         <div id="box-add-course" class="hidden" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border-subtle);">
+          <div id="onboard-compact-rules" class="onboard-compact-rules">
+            <div class="onboard-compact-rules-title" data-i18n="stu_onboard_rule_title">Lưu ý tránh bị khóa máy:</div>
+            <div data-i18n="stu_onboard_rule_1">• Không mở từ Zalo hoặc Trình quét mã của iPhone.</div>
+            <div data-i18n="stu_onboard_rule_2">• Chỉ dùng cố định 1 trình duyệt (Safari hoặc Chrome).</div>
+          </div>
+
           <label id="lbl-student-id" for="inp-student-id" data-i18n="stu_id_label">Mã số sinh viên:</label>
           <input type="text" id="inp-student-id" data-i18n-placeholder="stu_id_placeholder" placeholder="Nhập mã số sinh viên..." autocomplete="off" />
 
@@ -302,7 +326,7 @@
           <option value="SESSION" data-i18n="tea_persist_pc">Máy tính phòng học (Tự động đăng xuất sau 60 phút)</option>
         </select>
 
-        <button class="btn btn-primary" onclick="loginTeacher()" data-i18n="tea_login_btn">Đăng nhập Giảng viên</button>
+        <button id="btn-tea-login" class="btn btn-primary" onclick="loginTeacher()" data-i18n="tea_login_btn">Đăng nhập Giảng viên</button>
         <div id="tea-login-inline-status" class="inline-feedback hidden"></div>
 
         <div style="margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
@@ -465,7 +489,7 @@
             <button id="btn-reg-gate-toggle" class="btn btn-outline btn-sm" onclick="teacherToggleRegGate()">
               ĐK thiết bị: MỞ
             </button>
-            <button class="btn btn-outline btn-sm" onclick="teacherRebuildSheet()" data-i18n="tea_rebuild_sheet_btn">
+            <button id="btn-tea-rebuild-sheet" class="btn btn-outline btn-sm" onclick="teacherRebuildSheet()" data-i18n="tea_rebuild_sheet_btn">
               Đồng bộ Sheet
             </button>
             <button class="btn btn-danger btn-sm" onclick="logoutTeacher()" data-i18n="tea_logout_btn">

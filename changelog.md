@@ -40,7 +40,16 @@
   * **Upgraded Random Caller (`Gọi ngẫu nhiên`)**: Uses a per-session `Shuffle Bag` so already-called students are not repeated until every present student has been called, hides full Student IDs on the projector modal (showing `(***123)` only if two students share the exact same full name), and adds a **`"Gọi tiếp"`** (`Call Next`) button directly inside the modal alongside **`"Hủy & Khóa (-)"`**.
   * **Instant Classroom Group Maker (`Chia nhóm`)**: Splits present students (`P` + `L`, or full roster if no session is open) into groups of `2, 3, 4, 5` in `0ms` with instant reshuffling, and broadcasts the groups (`TEACHER_PUBLISH_GROUPS` via `CacheService`) to students' phones (`#stu-group-card`) so students immediately see their Group # and teammates.
 * **Exported Complete System Rules (`RULES.md`)**: Documented all time windows, GPS radius/allowance rules, 1-1 device lock & anti-cheat rules, attendance score/exam-ban formulas, and customization settings in [`RULES.md`](file:///d:/CCS%20-%20ClassCheck%20System/RULES.md).
-* **Backend Key Upgrades Summary (Moved from `code3.6.0.text` Header)**:
+* **Tactile `Pulse to Confirm` Micro-Interactions Across Student & Lecturer Buttons (`css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)**:
+  * Added `pulseButtonConfirm(btnOrId, confirmLabel, variant, durationMs)` with hardware-accelerated double expanding ring animations (`@keyframes ccsPulseGreen`, `ccsPulseAmber`, `ccsPulseOrange`, `ccsPulseSlate`) and inline animated SVG icons (`@keyframes ccsCheckDraw`):
+    * **Student Check-In (`#btn-start-checkin`)**: Flashes **Emerald Green (`#16a34a`, `.btn-pulse-success` + checkmark SVG)** when recorded **Present (`P` — `ĐÃ ĐIỂM DANH CÓ MẶT`)**, and **Amber/Yellow (`#eab308`, `.btn-pulse-warn` + clock SVG)** when recorded **Late (`L` — `ĐÃ GHI NHẬN ĐI TRỄ`)**.
+    * **Student Device Binding (`#btn-submit-onboard`), Pre-Check GPS (`#btn-check-gps`), and Copy Browser Link (`#btn-copy-browser-url`)**: Instant green confirmation pulse (`ĐÃ LIÊN KẾT THIẾT BỊ`, `GPS TỐT (±Xm)`, `ĐÃ CHÉP LINK — DÁN VÀO SAFARI / CHROME`).
+    * **Lecturer Open Session (`#btn-tea-confirm-open` & `#btn-tea-open-trigger`), Login (`#btn-tea-login`), and Rebuild Sheet (`#btn-tea-rebuild-sheet`)**: Green confirmation pulse on session launch (`ĐÃ MỞ PHIÊN ĐIỂM DANH`) and completion.
+    * **Lecturer Manual Attendance (`P / L / E / -` in Live Roster & Past-Session History Modal)**: Instant `0.01s` Optimistic UI ring pulse matching the semantic status color (`.mark-pulse-P` Green, `.mark-pulse-L` Yellow, `.mark-pulse-E` Orange, `.mark-pulse-dash` Slate) preserved across live DOM re-renders via `lastPulsedManualMark`.
+* **Ultra-Compact Mobile Walkthrough & Detection for Zalo/Messenger & Apple iOS Code Scanner (`index.html`, `js/schedule-config.js`, `js/student.js`, `css/styles.css`)**:
+  * Upgraded `evaluateStudentAntiCheat()` to distinguish **Zalo / Social In-App WebViews (`ZALO_SOCIAL`)** from **iPhone Control Center "Scan Code" (`APPLE_CODE_SCANNER` — ephemeral `SFSafariViewController` lacking `Version/... Safari/` that wipes `localStorage` on close)**.
+  * Replaced verbose warning paragraphs with an ultra-compact 2-step mobile card (`.compact-webview-guard` inside `#ios-install-banner` with `Copy Link` + `Open Safari/Chrome` buttons when blocked, and a 2-bullet `.onboard-compact-rules` reminder inside `#box-add-course` before linking `MSSV`).
+* **Backend Key Upgrades Summary & Behavior-Preserving Cleanup (`code3.6.0.text`)**:
   * Unified Same-Day Session Merging & Ghost/Test Session Filtering (`0`-present closed sessions ignored).
   * Official Attendance Score (`Base 10.0`, `A=-1.0/1.0x`, `L=-0.5/0x`, `E=-0.5/0.5x`) & Exam Ban (`>6.0x` or `<0.0pt` or Red Row).
   * Past-Session Excuse (`E`) Approval by Lecturer (`targetSessionId` / `targetDayKey` override).
@@ -49,6 +58,7 @@
   * Zero-Read RAM Cache Layer for `Sessions_Log` & `Attendance_Log` (`0.01s` manual mark & `2.5s` polling) + Piggybacked Student Attendance Summary.
   * Strict Live GPS Evaluation (`50m` max accuracy allowance, `100m` radius, zero coordinate caching) + Default `TEACHER_GPS` / Advanced `STUDENT_AVG_3` Anchor.
   * Auto-Rebind on Check-In after Lecturer Device Reset (`REVOKED` -> `ACTIVE` seamlessly) + Precision Anti-Cheat Soft-Flagging (`deviceFp`, 6-decimal coords, F12/Mock GPS).
+  * Refactored and deduplicated helper functions (`invalidateSessionCaches_`, `ensureSheetWithHeaders_`, `normalizeDashboardBaseUrl_`, `resetFailedAuthCounterIfNeeded_`, `getEnrolledStudentsMap_`) and removed dead cache keys with 100% identical runtime behavior.
 
 ### 🔧 Version `v3.5.1` — *Unified GitHub Repository & GitHub Pages URL (`tntrung8321/ccs` & `https://tntrung8321.github.io/ccs/`) + Seamless Legacy Redirect*
 * **Unified GitHub Repository & GitHub Pages Endpoint (`tntrung8321/ccs`)**:

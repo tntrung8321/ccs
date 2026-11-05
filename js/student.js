@@ -726,16 +726,22 @@ async function handleStudentPreCheckGps() {
   const check = evaluateStudentAntiCheat();
   if (!check.browserOk) {
     isCheckingGps = false;
+    checkIosStandaloneNotice();
     if (dot) dot.className = 'status-dot dot-err';
+    const isAppleQr = check.webViewType === 'APPLE_CODE_SCANNER';
     if (readout) {
       readout.textContent = currentLang === 'en'
-        ? 'Unsupported in-app browser (Open Safari/Chrome)'
-        : 'Đang mở trong Zalo/Messenger (Hãy mở bằng Safari/Chrome)';
+        ? (isAppleQr ? 'iPhone Code Scanner blocked (Open Safari)' : 'In-app browser blocked (Open Safari/Chrome)')
+        : (isAppleQr ? 'Đang mở bằng Trình quét mã iPhone (Hãy mở Safari)' : 'Đang mở trong Zalo/Messenger (Hãy mở Safari/Chrome)');
     }
     showStatus(
       currentLang === 'en'
-        ? 'Do not check in inside Zalo or Messenger. Please open your main browser (Safari, Chrome).'
-        : 'Không điểm danh trong Zalo/Messenger. Hãy mở bằng trình duyệt chính (Safari, Chrome).',
+        ? (isAppleQr
+            ? 'Do not use iPhone Code Scanner (auto-wipes storage). Please copy link above and open in Safari.'
+            : 'Do not check in inside Zalo or Messenger. Please open your main browser (Safari, Chrome).')
+        : (isAppleQr
+            ? 'Không dùng "Trình quét mã" của iPhone (tự xóa bộ nhớ). Hãy bấm Sao chép link phía trên và mở bằng Safari.'
+            : 'Không điểm danh trong Zalo/Messenger. Hãy mở bằng trình duyệt chính (Safari, Chrome).'),
       'err',
       'checkin-inline-status'
     );
@@ -787,6 +793,14 @@ async function handleStudentPreCheckGps() {
             : `Đã bật GPS (Sai số ±${accVal}m)`;
         }
         hideStatus('checkin-inline-status');
+        if (typeof pulseButtonConfirm === 'function') {
+          pulseButtonConfirm(
+            'btn-check-gps',
+            currentLang === 'en' ? `GPS OK (±${accVal}m)` : `GPS TỐT (±${accVal}m)`,
+            'success',
+            1300
+          );
+        }
       }
     }
   } catch (err) {
@@ -832,10 +846,16 @@ async function submitStudentOnboarding() {
 
   const check = evaluateStudentAntiCheat();
   if (!check.browserOk) {
+    checkIosStandaloneNotice();
+    const isAppleQr = check.webViewType === 'APPLE_CODE_SCANNER';
     showStatus(
       currentLang === 'en'
-        ? 'Please open in your main browser (Safari, Chrome, Edge), not inside Zalo or Messenger.'
-        : 'Vui lòng mở bằng trình duyệt chính (Safari, Chrome, Cốc Cốc, Edge), không mở trong Zalo/Messenger.',
+        ? (isAppleQr
+            ? 'Do not link your device inside iPhone Code Scanner (auto-wipes storage). Please copy link above and open in Safari.'
+            : 'Please open in your main browser (Safari, Chrome, Edge), not inside Zalo or Messenger.')
+        : (isAppleQr
+            ? 'Không liên kết thiết bị trong "Trình quét mã" của iPhone (tự xóa bộ nhớ khi đóng). Hãy chép link phía trên và mở bằng Safari.'
+            : 'Vui lòng mở bằng trình duyệt chính (Safari, Chrome, Cốc Cốc, Edge), không mở trong Zalo/Messenger.'),
       'err',
       'onboard-inline-status'
     );
@@ -916,6 +936,14 @@ async function submitStudentOnboarding() {
   });
 
   hideStatus('onboard-inline-status');
+  if (typeof pulseButtonConfirm === 'function') {
+    await pulseButtonConfirm(
+      'btn-submit-onboard',
+      currentLang === 'en' ? 'DEVICE LINKED' : 'ĐÃ LIÊN KẾT THIẾT BỊ',
+      'success',
+      550
+    );
+  }
   document.getElementById('box-add-course').classList.add('hidden');
   renderStudentCourseSelectors();
   syncStudentViewportScrollLock();
@@ -1011,10 +1039,16 @@ async function executeStudentCheckIn(qrString) {
 
   const check = evaluateStudentAntiCheat();
   if (!check.browserOk) {
+    checkIosStandaloneNotice();
+    const isAppleQr = check.webViewType === 'APPLE_CODE_SCANNER';
     showStatus(
       currentLang === 'en'
-        ? 'Do not check in inside Zalo or Messenger. Please open your registered browser.'
-        : 'Không điểm danh trong Zalo/Messenger. Hãy mở bằng trình duyệt đã đăng ký.',
+        ? (isAppleQr
+            ? 'Do not check in inside iPhone Code Scanner (auto-wipes storage). Please copy link above and open in Safari.'
+            : 'Do not check in inside Zalo or Messenger. Please open your registered browser.')
+        : (isAppleQr
+            ? 'Không điểm danh trong "Trình quét mã" của iPhone (tự xóa bộ nhớ). Hãy chép link phía trên và mở bằng Safari.'
+            : 'Không điểm danh trong Zalo/Messenger. Hãy mở bằng trình duyệt đã đăng ký.'),
       'err',
       'checkin-inline-status'
     );
@@ -1126,6 +1160,17 @@ async function executeStudentCheckIn(qrString) {
     if (res && res.ok && res.receipt) {
       const r = res.receipt;
       const recordedClassId = r.classId || classId;
+      const isLate = r.status === 'L';
+      if (typeof pulseButtonConfirm === 'function') {
+        pulseButtonConfirm(
+          'btn-start-checkin',
+          isLate
+            ? (currentLang === 'en' ? 'RECORDED LATE (L)' : 'GHI NHẬN ĐI TRỄ (L)')
+            : (currentLang === 'en' ? 'RECORDED PRESENT (P)' : 'ĐÃ GHI NHẬN CÓ MẶT (P)'),
+          isLate ? 'warn' : 'success',
+          1350
+        );
+      }
       if (recordedClassId !== classId && selClassEl) {
         selClassEl.value = recordedClassId;
       }
@@ -1139,7 +1184,7 @@ async function executeStudentCheckIn(qrString) {
         status: r.status,
         time: r.time,
         dist: r.distanceMeters
-      }), 'success', 'checkin-inline-status');
+      }), isLate ? 'warn' : 'success', 'checkin-inline-status');
     } else if (res && res.code === 'ERR_NETWORK') {
       const checkRec = await callBackend(profile.apiUrl, {
         action: 'CHECK_RECEIPT',
@@ -1148,6 +1193,17 @@ async function executeStudentCheckIn(qrString) {
       }, 1);
       if (checkRec && checkRec.ok && checkRec.receipt) {
         const recordedClassId = checkRec.receipt.classId || classId;
+        const isLate = checkRec.receipt.status === 'L';
+        if (typeof pulseButtonConfirm === 'function') {
+          pulseButtonConfirm(
+            'btn-start-checkin',
+            isLate
+              ? (currentLang === 'en' ? 'RECORDED LATE (L)' : 'GHI NHẬN ĐI TRỄ (L)')
+              : (currentLang === 'en' ? 'RECORDED PRESENT (P)' : 'ĐÃ GHI NHẬN CÓ MẶT (P)'),
+            isLate ? 'warn' : 'success',
+            1350
+          );
+        }
         if (checkRec.receipt.attendanceStats) {
           updateStoredStudentClassStats(instId, recordedClassId, checkRec.receipt.attendanceStats);
         }
@@ -1157,7 +1213,7 @@ async function executeStudentCheckIn(qrString) {
         showStatus(formatServerMessage('CONFIRMED_' + (checkRec.receipt.status === 'P' ? 'PRESENT' : 'LATE'), {
           time: checkRec.receipt.time,
           dist: checkRec.receipt.distanceMeters
-        }), 'success', 'checkin-inline-status');
+        }), isLate ? 'warn' : 'success', 'checkin-inline-status');
       } else {
         showStatus(
           currentLang === 'en' ? 'Network connection error, please try again.' : 'Lỗi kết nối mạng, vui lòng thử bấm lại.',
@@ -1191,29 +1247,27 @@ async function executeStudentCheckIn(qrString) {
 function resetCheckInButtonImmediate() {
   isSubmitting = false;
   const btn = document.getElementById('btn-start-checkin');
-  const btnLabel = document.getElementById('btn-start-checkin-label');
-  if (btn) btn.disabled = false;
   const defaultText = I18N[currentLang].stu_one_tap_checkin_btn || 'ĐIỂM DANH NGAY';
-  if (btnLabel) {
-    btnLabel.textContent = defaultText;
-  } else if (btn) {
-    btn.textContent = defaultText;
+  if (btn) {
+    btn.disabled = false;
+    btn.classList.remove('btn-pulse-success', 'btn-pulse-warn');
+    btn.innerHTML = `<svg class="icon icon-lg"><use href="#ic-check"></use></svg><span id="btn-start-checkin-label">${escapeHtml(defaultText)}</span>`;
   }
 }
 
 function startCheckInButtonCooldown(seconds) {
   const btn = document.getElementById('btn-start-checkin');
-  const btnLabel = document.getElementById('btn-start-checkin-label');
   if (checkInCooldownTimer) clearInterval(checkInCooldownTimer);
   let rem = seconds;
-  btn.disabled = true;
+  if (btn) btn.disabled = true;
   checkInCooldownTimer = setInterval(() => {
     rem--;
     if (rem <= 0) {
       clearInterval(checkInCooldownTimer);
       resetCheckInButtonImmediate();
-    } else {
+    } else if (btn && !btn.classList.contains('btn-pulse-success') && !btn.classList.contains('btn-pulse-warn')) {
       const waitText = currentLang === 'en' ? `Please wait ${rem} seconds...` : `Vui lòng chờ ${rem} giây...`;
+      const btnLabel = document.getElementById('btn-start-checkin-label');
       if (btnLabel) btnLabel.textContent = waitText;
       else btn.textContent = waitText;
     }

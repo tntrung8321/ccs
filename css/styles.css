@@ -1629,6 +1629,261 @@ select.unselected-warning {
   color: var(--text-secondary);
 }
 
+/* ============================================================================
+   PULSE TO CONFIRM SUCCESS / LATE & MANUAL MARK FEEDBACK
+   ============================================================================ */
+@keyframes ccsPulseGreen {
+  0% {
+    box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.58), 0 0 0 0 rgba(22, 163, 74, 0.28);
+    transform: scale(0.985);
+  }
+  38% {
+    box-shadow: 0 0 0 6px rgba(22, 163, 74, 0.24), 0 0 0 13px rgba(22, 163, 74, 0.08);
+    transform: scale(1.015);
+  }
+  100% {
+    box-shadow: 0 0 0 11px rgba(22, 163, 74, 0), 0 0 0 20px rgba(22, 163, 74, 0);
+    transform: scale(1);
+  }
+}
+
+@keyframes ccsPulseAmber {
+  0% {
+    box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.64), 0 0 0 0 rgba(234, 179, 8, 0.32);
+    transform: scale(0.985);
+  }
+  38% {
+    box-shadow: 0 0 0 6px rgba(234, 179, 8, 0.28), 0 0 0 13px rgba(234, 179, 8, 0.1);
+    transform: scale(1.015);
+  }
+  100% {
+    box-shadow: 0 0 0 11px rgba(234, 179, 8, 0), 0 0 0 20px rgba(234, 179, 8, 0);
+    transform: scale(1);
+  }
+}
+
+@keyframes ccsPulseOrange {
+  0% {
+    box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.58);
+    transform: scale(0.95);
+  }
+  40% {
+    box-shadow: 0 0 0 5px rgba(249, 115, 22, 0.24);
+    transform: scale(1.04);
+  }
+  100% {
+    box-shadow: 0 0 0 9px rgba(249, 115, 22, 0);
+    transform: scale(1);
+  }
+}
+
+@keyframes ccsPulseSlate {
+  0% {
+    box-shadow: 0 0 0 0 rgba(100, 116, 139, 0.52);
+    transform: scale(0.95);
+  }
+  40% {
+    box-shadow: 0 0 0 5px rgba(100, 116, 139, 0.2);
+    transform: scale(1.04);
+  }
+  100% {
+    box-shadow: 0 0 0 9px rgba(100, 116, 139, 0);
+    transform: scale(1);
+  }
+}
+
+@keyframes ccsCheckDraw {
+  0% {
+    stroke-dashoffset: 24;
+    opacity: 0.4;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+.btn-pulse-success {
+  background: #16a34a !important;
+  border-color: #15803d !important;
+  color: #ffffff !important;
+  animation: ccsPulseGreen 680ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.btn-pulse-warn {
+  background: #eab308 !important;
+  border-color: #ca8a04 !important;
+  color: #422006 !important;
+  animation: ccsPulseAmber 680ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.btn-pulse-success .pulse-draw-path,
+.btn-pulse-warn .pulse-draw-path {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: ccsCheckDraw 280ms ease-out 60ms forwards;
+}
+
+.roster-actions .mark-pulse-P,
+.past-ses-row .mark-pulse-P {
+  background: #dcfce7 !important;
+  color: #166534 !important;
+  border-color: #86efac !important;
+  font-weight: 800 !important;
+  animation: ccsPulseGreen 620ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.roster-actions .mark-pulse-L,
+.past-ses-row .mark-pulse-L {
+  background: #fef9c3 !important;
+  color: #854d0e !important;
+  border-color: #fde047 !important;
+  font-weight: 800 !important;
+  animation: ccsPulseAmber 620ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.roster-actions .mark-pulse-E,
+.past-ses-row .mark-pulse-E {
+  background: #ffedd5 !important;
+  color: #c2410c !important;
+  border-color: #fdba74 !important;
+  font-weight: 800 !important;
+  animation: ccsPulseOrange 620ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.roster-actions .mark-pulse-dash,
+.past-ses-row .mark-pulse-dash {
+  background: #f1f5f9 !important;
+  color: #334155 !important;
+  border-color: #94a3b8 !important;
+  font-weight: 800 !important;
+  animation: ccsPulseSlate 620ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ============================================================================
+   COMPACT MOBILE BROWSER WALKTHROUGH (ANTI-ZALO & APPLE QR SCANNER GUARD)
+   ============================================================================ */
+.compact-webview-guard {
+  border-radius: 9px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  text-align: left;
+  border: 1.5px solid #fca5a5;
+  background: #fef2f2;
+}
+
+.compact-webview-guard.guard-apple-qr {
+  border-color: #fbbf24;
+  background: #fffbeb;
+}
+
+.compact-guard-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.compact-guard-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #dc2626;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.compact-webview-guard.guard-apple-qr .compact-guard-icon {
+  background: #d97706;
+}
+
+.compact-guard-title {
+  font-size: 0.81rem;
+  font-weight: 700;
+  color: #7f1d1d;
+  line-height: 1.3;
+}
+
+.compact-webview-guard.guard-apple-qr .compact-guard-title {
+  color: #78350f;
+}
+
+.compact-guard-steps {
+  background: #ffffff;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 7px 9px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.77rem;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.compact-webview-guard.guard-apple-qr .compact-guard-steps {
+  border-color: #fde68a;
+}
+
+.compact-guard-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.compact-guard-badge {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fee2e2;
+  color: #991b1b;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.compact-webview-guard.guard-apple-qr .compact-guard-badge {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.compact-guard-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.compact-guard-actions .btn {
+  flex: 1;
+  min-width: 140px;
+}
+
+.onboard-compact-rules {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 7px;
+  padding: 7px 10px;
+  margin-bottom: 9px;
+  font-size: 0.76rem;
+  line-height: 1.38;
+  color: #78350f;
+  text-align: left;
+}
+
+.onboard-compact-rules-title {
+  font-weight: 700;
+  color: #92400e;
+  margin-bottom: 2px;
+}
+
 @media print {
   body * {
     visibility: hidden;

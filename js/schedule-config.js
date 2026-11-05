@@ -628,7 +628,11 @@ const I18N = {
     ERR_SERVER_BUSY: "Hệ thống đang xử lý, vui lòng chờ giây lát...",
     ERR_UNAUTHORIZED: "[TỪ CHỐI] Mật khẩu phiên không đúng hoặc đã hết hạn. Hãy kiểm tra lại ô C9 trên Google Sheet.",
     DEVICE_RESET_OK: "[ĐÃ MỞ KHÓA] Đã đặt lại khóa thiết bị cho sinh viên {id}.",
-    btn_open_external_browser: "Mở ngay bằng trình duyệt chính (Chrome / Safari)",
+    btn_open_external_browser: "Mở ngay bằng trình duyệt chính",
+    btn_copy_browser_url: "Sao chép link mở Safari / Chrome",
+    stu_onboard_rule_title: "Lưu ý tránh bị khóa máy:",
+    stu_onboard_rule_1: "• Không mở từ Zalo hoặc Trình quét mã của iPhone.",
+    stu_onboard_rule_2: "• Chỉ dùng cố định 1 trình duyệt (Safari hoặc Chrome).",
     perm_guide_title: "Cách mở quyền Vị trí trên thanh địa chỉ:",
     perm_guide_retry_btn: "Kiểm tra lại GPS",
     stu_att_summary_label: "Chuyên cần:",
@@ -710,7 +714,11 @@ const I18N = {
     ERR_SERVER_BUSY: "System is processing requests, please wait a moment...",
     ERR_UNAUTHORIZED: "[UNAUTHORIZED] Invalid or expired session code. Please check Cell C9 in your Google Sheet.",
     DEVICE_RESET_OK: "[UNLOCKED] Device lock has been reset for Student ID {id}.",
-    btn_open_external_browser: "Open in main browser (Chrome / Safari)",
+    btn_open_external_browser: "Open in main browser",
+    btn_copy_browser_url: "Copy link for Safari / Chrome",
+    stu_onboard_rule_title: "Avoid device lock:",
+    stu_onboard_rule_1: "• Do not open inside Zalo or iPhone Code Scanner.",
+    stu_onboard_rule_2: "• Always use 1 fixed browser (Safari or Chrome).",
     perm_guide_title: "How to allow Location on the address bar:",
     perm_guide_retry_btn: "Re-check GPS",
     stu_att_summary_label: "Attendance:",
@@ -922,9 +930,21 @@ function saveTeacherAuth(apiUrl, token, persistence) {
  */
 function evaluateStudentAntiCheat() {
   const ua = navigator.userAgent || '';
-  const isInApp = /Zalo|FBAN|FBAV|Messenger|Instagram|BytedanceWebview|TikTok|Line\/|MicroMessenger/i.test(ua);
+  const isIos =
+    /iPhone|iPad|iPod/i.test(ua) ||
+    (navigator.platform === 'MacIntel' && Number(navigator.maxTouchPoints || 0) > 1);
+  const isZaloOrSocial = /Zalo|FBAN|FBAV|Messenger|Instagram|BytedanceWebview|TikTok|Line\/|MicroMessenger/i.test(ua);
+  const isIosMainBrowser =
+    /Version\/[\d.]+.*Safari\/|CriOS\/|FxiOS\/|EdgiOS\/|OPiOS\/|CocCoc|DuckDuckGo/i.test(ua) ||
+    Boolean(window.navigator && window.navigator.standalone);
+  const isAppleCodeScanner = isIos && !isZaloOrSocial && !isIosMainBrowser && /AppleWebKit/i.test(ua);
+  const isInApp = isZaloOrSocial || isAppleCodeScanner;
+  const webViewType = isZaloOrSocial ? 'ZALO_SOCIAL' : (isAppleCodeScanner ? 'APPLE_CODE_SCANNER' : '');
+
   return {
     isInApp,
+    webViewType,
+    isAppleCodeScanner,
     isSecondaryMobileBrowser: false,
     browserOk: !isInApp,
     deviceOk: true
@@ -1441,6 +1461,84 @@ function watchBrowserLocationPermission() {
   }).catch(() => {});
 }
 
+function pulseButtonConfirm(btnOrId, confirmLabel = '', variant = 'success', durationMs = 1200) {
+  const btn = typeof btnOrId === 'string' ? document.getElementById(btnOrId) : btnOrId;
+  if (!btn) return Promise.resolve();
+
+  if (navigator.vibrate) {
+    try {
+      navigator.vibrate(variant === 'warn' ? [45, 60, 45] : [35, 50, 65]);
+    } catch (e) {}
+  }
+
+  const pulseCls = variant === 'warn' ? 'btn-pulse-warn' : 'btn-pulse-success';
+  if (!btn._origPulseHtml) {
+    btn._origPulseHtml = btn.innerHTML;
+  }
+
+  btn.classList.remove('btn-pulse-success', 'btn-pulse-warn');
+  void btn.offsetWidth;
+  btn.classList.add(pulseCls);
+
+  if (confirmLabel) {
+    const svgIcon = variant === 'warn'
+      ? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path class="pulse-draw-path" d="M12 7v5l3 2"></path></svg>'
+      : '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path class="pulse-draw-path" d="M20 6L9 17l-5-5"></path></svg>';
+    const hasHeroLabel = btn.id === 'btn-start-checkin';
+    btn.innerHTML = hasHeroLabel
+      ? `${svgIcon}<span id="btn-start-checkin-label">${escapeHtml(confirmLabel)}</span>`
+      : `${svgIcon}<span>${escapeHtml(confirmLabel)}</span>`;
+  }
+
+  if (btn._pulseRestoreTimer) {
+    clearTimeout(btn._pulseRestoreTimer);
+  }
+
+  return new Promise((resolve) => {
+    if (durationMs <= 0) {
+      resolve();
+      return;
+    }
+    btn._pulseRestoreTimer = setTimeout(() => {
+      btn.classList.remove('btn-pulse-success', 'btn-pulse-warn');
+      if (btn._origPulseHtml && btn.id !== 'btn-start-checkin') {
+        btn.innerHTML = btn._origPulseHtml;
+      }
+      delete btn._origPulseHtml;
+      btn._pulseRestoreTimer = null;
+      resolve();
+    }, durationMs);
+  });
+}
+
+function copyCurrentUrlForMainBrowser() {
+  const url = window.location.href;
+  const isEn = currentLang === 'en';
+  const doneMsg = isEn ? 'LINK COPIED — PASTE IN SAFARI / CHROME' : 'ĐÃ CHÉP LINK — DÁN VÀO SAFARI / CHROME';
+
+  const fallbackCopy = () => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) {}
+  };
+
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(url).catch(() => fallbackCopy());
+  } else {
+    fallbackCopy();
+  }
+
+  pulseButtonConfirm('btn-copy-browser-url', doneMsg, 'success', 1600);
+}
+
 function openInExternalMainBrowser() {
   const url = window.location.href;
   const ua = navigator.userAgent || '';
@@ -1549,11 +1647,48 @@ function checkIosStandaloneNotice() {
     return;
   }
   const check = evaluateStudentAntiCheat();
+  const isEn = currentLang === 'en';
+  const titleEl = document.getElementById('t-ios-guard');
+  const step1El = document.getElementById('t-ios-guard-step1');
+  const step2El = document.getElementById('t-ios-guard-step2');
+
   if (!check.browserOk) {
-    document.getElementById('t-ios-guard').textContent =
-      currentLang === 'vi'
-        ? '[CẢNH BÁO TRÌNH DUYỆT] Vui lòng mở bằng trình duyệt chính (Safari, Chrome, Cốc Cốc, Edge), không mở trực tiếp trong Zalo/Messenger.'
-        : '[BROWSER WARNING] Please open in Safari, Chrome, CocCoc, or Edge (not inside Zalo/Messenger).';
+    const isAppleQr = check.webViewType === 'APPLE_CODE_SCANNER';
+    banner.classList.toggle('guard-apple-qr', isAppleQr);
+
+    if (isAppleQr) {
+      if (titleEl) {
+        titleEl.textContent = isEn
+          ? 'Do not use iPhone "Code Scanner" (Auto-wipes storage)'
+          : 'Không dùng "Trình quét mã" của iPhone (Tự xóa bộ nhớ)';
+      }
+      if (step1El) {
+        step1El.textContent = isEn
+          ? 'Tap the Safari icon at the bottom-right corner.'
+          : 'Bấm biểu tượng Safari ở góc dưới phải màn hình.';
+      }
+      if (step2El) {
+        step2El.textContent = isEn
+          ? 'Or copy link below and paste into Safari:'
+          : 'Hoặc chép link bên dưới dán vào ứng dụng Safari:';
+      }
+    } else {
+      if (titleEl) {
+        titleEl.textContent = isEn
+          ? 'Do not use Zalo / Messenger in-app browser'
+          : 'Không dùng trình duyệt trong Zalo / Messenger';
+      }
+      if (step1El) {
+        step1El.textContent = isEn
+          ? 'Tap ••• at top-right → select Open in Browser.'
+          : 'Bấm ••• góc trên phải → chọn Mở bằng trình duyệt.';
+      }
+      if (step2El) {
+        step2El.textContent = isEn
+          ? 'Or copy link below and paste into Safari / Chrome:'
+          : 'Hoặc chép link bên dưới dán vào Safari / Chrome:';
+      }
+    }
     banner.classList.remove('hidden');
   } else {
     banner.classList.add('hidden');
