@@ -1269,6 +1269,363 @@ select.unselected-warning {
   display: none !important;
 }
 
+/* ============================================================================
+   COURSE SESSION PROGRESS STRIP & INTERACTIVE MONTH CALENDAR (LECTURER UI)
+   ============================================================================ */
+.course-progress-strip {
+  margin-top: 8px;
+  padding: 9px 11px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  text-align: left;
+}
+
+.course-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 7px;
+}
+
+.course-progress-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.77rem;
+  color: var(--text-secondary);
+}
+
+.course-progress-title strong {
+  color: var(--primary);
+  font-family: var(--font-mono);
+}
+
+.course-progress-bar-track {
+  width: 72px;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.course-progress-bar-fill {
+  height: 100%;
+  background: #16a34a;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.course-progress-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.strip-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-strip-cal {
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--primary);
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.btn-strip-cal:hover {
+  background: #dbeafe;
+}
+
+.course-progress-chips {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  padding-bottom: 3px;
+  scrollbar-width: thin;
+}
+
+.session-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.session-chip.chip-done {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #166534;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.session-chip.chip-done:hover {
+  background: #dcfce7;
+}
+
+.session-chip.chip-open {
+  background: #eff6ff;
+  border-color: #60a5fa;
+  color: #1e40af;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.session-chip.chip-upcoming {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  color: #64748b;
+}
+
+.session-chip.chip-skipped {
+  background: #f8fafc;
+  border: 1px dashed #e2e8f0;
+  color: #94a3b8;
+  opacity: 0.78;
+}
+
+.chip-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.chip-dot.dot-done {
+  background: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.18);
+}
+
+.chip-dot.dot-open {
+  background: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+}
+
+.chip-dot.dot-upcoming {
+  background: #cbd5e1;
+}
+
+.chip-dot.dot-skipped {
+  background: #e2e8f0;
+}
+
+.chip-count {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+/* Interactive Month Calendar inside Attendance History Modal */
+.hist-calendar-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.hist-cal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.hist-cal-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hist-cal-nav-btn {
+  padding: 3px 9px !important;
+  font-size: 0.74rem !important;
+  min-height: 26px !important;
+}
+
+.hist-cal-month-title {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--primary);
+  min-width: 118px;
+  text-align: center;
+}
+
+.hist-cal-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.hist-cal-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hist-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.hist-cal-weekday {
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 2px 0 4px 0;
+}
+
+.hist-cal-cell {
+  min-height: 40px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: #ffffff;
+  padding: 3px 5px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: left;
+  font-family: var(--font-sans);
+  color: var(--muted);
+}
+
+.hist-cal-cell.cal-empty {
+  background: transparent;
+  border-color: transparent;
+}
+
+.hist-cal-cell.cal-day-done {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #166534;
+  cursor: pointer;
+}
+
+.hist-cal-cell.cal-day-done:hover {
+  background: #dcfce7;
+}
+
+.hist-cal-cell.cal-day-open {
+  background: #eff6ff;
+  border: 1px solid #60a5fa;
+  color: #1e40af;
+  cursor: pointer;
+}
+
+.hist-cal-cell.cal-day-scheduled {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  color: #475569;
+}
+
+.hist-cal-cell.cal-day-skipped {
+  background: #f8fafc;
+  border: 1px dashed #e2e8f0;
+  color: #94a3b8;
+  opacity: 0.78;
+}
+
+.hist-cal-cell.cal-day-selected {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+  background: #dcfce7;
+}
+
+.cal-day-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.cal-day-num {
+  font-size: 0.74rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.cal-day-meta {
+  font-size: 0.66rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.hist-quick-pills-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.hist-quick-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.hist-quick-pill.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+.hist-day-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+}
+
 @media print {
   body * {
     visibility: hidden;

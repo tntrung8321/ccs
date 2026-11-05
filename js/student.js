@@ -241,12 +241,17 @@ function updateStudentClassSelectionUI(instId, scheduleMatch) {
 function normalizeSessionDayKey(sessionKey) {
   const raw = String(sessionKey || '').trim();
   if (!raw) return getTodayDateKey();
-  // Match SES_<classId>_20261103_151600 -> 2026-11-03
-  const mSes = raw.match(/_(\d{4})(\d{2})(\d{2})_/);
+  // Match SES_<classId>_20261103_151600 or HIST_<classId>_20261020 -> 2026-11-03
+  const mSes = raw.match(/_(\d{4})(\d{2})(\d{2})(?:_|$)/);
   if (mSes) return `${mSes[1]}-${mSes[2]}-${mSes[3]}`;
   // Match 2026-11-03
   const mIso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (mIso) return `${mIso[1]}-${mIso[2]}-${mIso[3]}`;
+  // Match 03/11/2026
+  const mDmy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mDmy) {
+    return `${mDmy[3]}-${String(mDmy[2]).padStart(2, '0')}-${String(mDmy[1]).padStart(2, '0')}`;
+  }
   return raw;
 }
 
@@ -385,14 +390,28 @@ function getMergedStudentClassStats(studentId, classId, serverStats) {
   }
 
   // Merge sheet history (already deduplicated by dayKey on backend) + local device history by calendar dayKey
+  // Strictly show only past/completed sessions that exist on the Sheet schedule, hiding future & accidental dates
+  const todayKey = getTodayDateKey();
+  const courseDates = (typeof getClassCourseSessionDates === 'function')
+    ? getClassCourseSessionDates(cid, null)
+    : [];
+  const allowedSheetSet = new Set(courseDates.map(cd => cd.dayKey));
+  const hasSheetSchedule = allowedSheetSet.size > 0;
+
   const dayMap = {};
   if (Array.isArray(srv.history)) {
     srv.history.forEach(item => {
       if (!item) return;
-      const dKey = normalizeSessionDayKey(item.dayKey || item.date || '');
+      const dKey = normalizeSessionDayKey(item.dayKey || item.date || item.sessionId || '');
       if (!dKey) return;
       const rawSt = String(item.status || '-').trim().toUpperCase();
       if (rawSt === 'OPEN') return;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dKey) && dKey > todayKey && rawSt !== 'P' && rawSt !== 'L' && rawSt !== 'E') {
+        return;
+      }
+      if (hasSheetSchedule && /^\d{4}-\d{2}-\d{2}$/.test(dKey) && !allowedSheetSet.has(dKey)) {
+        return;
+      }
       const normSt = (rawSt === '-' || rawSt === 'X') ? 'A' : rawSt;
       dayMap[dKey] = {
         dayKey: dKey,
@@ -409,6 +428,9 @@ function getMergedStudentClassStats(studentId, classId, serverStats) {
   localHistory.forEach(item => {
     if (!item || !item.dayKey) return;
     const dKey = normalizeSessionDayKey(item.dayKey);
+    if (hasSheetSchedule && /^\d{4}-\d{2}-\d{2}$/.test(dKey) && !allowedSheetSet.has(dKey)) {
+      return;
+    }
     const localSt = item.status === '-' ? 'A' : item.status;
     const existing = dayMap[dKey];
     if (!existing) {

@@ -613,20 +613,20 @@ function syncSingleClassRosterFromDrive_(masterSs, classId, className, options) 
     props.setProperty(ROSTER_SYNC_META_PROP_KEY, JSON.stringify(syncMetaMap));
   } catch (e) {}
 
-  // Invalidate Master Sheet roster cache & rebuild attendance columns if new students were added
-  if (newStudentsAdded > 0) {
-    try {
-      const cache = CacheService.getScriptCache();
-      cache.removeAll([
-        'ROSTER_MAP_' + classId + '_' + (existingStudentCount + 1),
-        'ROSTER_MAP_' + classId + '_' + (finalStudentCount + 1),
-        ROSTER_PREVIEW_CACHE_PREFIX + classId
-      ]);
-      if (typeof rebuildSingleClassGrid === 'function') {
-        rebuildSingleClassGrid(masterSs, classId);
-      }
-    } catch (e) {}
-  }
+  // Invalidate Master Sheet roster/history cache & rebuild attendance columns whenever Drive file is synced
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.removeAll([
+      'ROSTER_MAP_' + classId + '_' + (existingStudentCount + 1),
+      'ROSTER_MAP_' + classId + '_' + (finalStudentCount + 1),
+      'CLASS_ATT_STATS_V36_' + classId,
+      'CLASS_ATT_STATS_V35_' + classId,
+      ROSTER_PREVIEW_CACHE_PREFIX + classId
+    ]);
+    if (typeof rebuildSingleClassGrid === 'function') {
+      rebuildSingleClassGrid(masterSs, classId);
+    }
+  } catch (e) {}
 
   return {
     ok: true,
@@ -1532,6 +1532,18 @@ function autoSyncTodayAttendanceAfterClass() {
 
     const statusMap = getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup);
     if (!statusMap || Object.keys(statusMap).length === 0) continue;
+
+    // Guard against syncing accidental/test sessions where 0 students were marked Present/Late/Excused
+    const hasAnyRealMark = Object.keys(statusMap).some(function(sid) {
+      const st = statusMap[sid];
+      return st === 'P' || st === 'L' || st === 'E';
+    });
+    if (!hasAnyRealMark) {
+      syncedMap[sessionGroup.groupKey] = 'SKIPPED_ZERO_CHECKINS';
+      anySynced = true;
+      continue;
+    }
+
     const statusSignature = JSON.stringify(statusMap);
     if (syncedMap[sessionGroup.groupKey] === statusSignature) continue;
 
@@ -1568,21 +1580,30 @@ function autoSyncTodayAttendanceAfterClass() {
         (result.excusedCount ? ', Excused: ' + result.excusedCount : '') + ', Absent: ' + result.absentCount
       );
     } catch (err) {
-      appendAuditLog_(
-        masterSs,
-        'AUTO_SYNC',
-        'ATTENDANCE_SYNC_ERROR',
-        classId + ' (' + sessionGroup.day + '/' + sessionGroup.month + ')',
-        err.message
-      );
+      const errMsg = String(err && err.message || err || '');
+      if (errMsg.indexOf('Date column ') !== -1 && errMsg.indexOf('not found') !== -1) {
+        // Lock unscheduled test dates so AUTO_SYNC never retries them every 15 minutes
+        syncedMap[sessionGroup.groupKey] = 'SKIPPED_NO_DATE_COL';
+        anySynced = true;
+      } else {
+        appendAuditLog_(
+          masterSs,
+          'AUTO_SYNC',
+          'ATTENDANCE_SYNC_ERROR',
+          classId + ' (' + sessionGroup.day + '/' + sessionGroup.month + ')',
+          errMsg
+        );
+      }
     }
   }
 
   if (anySynced) {
     props.setProperty(AUTO_SYNCED_SESSIONS_KEY, JSON.stringify(syncedMap));
-    props.setProperty(LAST_SYNC_PROP_KEY, JSON.stringify(undoBatch));
-    if (props.getProperty(LAST_ACTION_TYPE_KEY) !== 'CLASS_DELETE') {
-      props.setProperty(LAST_ACTION_TYPE_KEY, 'ATTENDANCE_SYNC');
+    if (undoBatch.length > 0) {
+      props.setProperty(LAST_SYNC_PROP_KEY, JSON.stringify(undoBatch));
+      if (props.getProperty(LAST_ACTION_TYPE_KEY) !== 'CLASS_DELETE') {
+        props.setProperty(LAST_ACTION_TYPE_KEY, 'ATTENDANCE_SYNC');
+      }
     }
   }
 }
@@ -2123,11 +2144,11 @@ function normalizeStudentId_(val, optionalNameVal) {
  */
 function parseDateCell_(rawVal, dispVal) {
   if (rawVal instanceof Date && !isNaN(rawVal.getTime())) {
-    return { day: rawVal.getDate(), month: rawVal.getMonth() + 1 };
+    return { day: rawVal.getDate(), month: rawVal.getMonth() + 1, year: rawVal.getFullYear() };
   }
   const parsed = parseDateString_(dispVal);
   if (parsed) {
-    return { day: parsed.day, month: parsed.month };
+    return { day: parsed.day, month: parsed.month, year: parsed.year || null };
   }
   return null;
 }
@@ -2144,7 +2165,7 @@ function parseDateCell_(rawVal, dispVal) {
  */
 function detectSheetLayout_(sheet) {
   const maxScanRows = Math.min(sheet.getLastRow(), 20);
-  const maxScanCols = Math.min(sheet.getLastColumn(), 45);
+  const maxScanCols = Math.min(sheet.getLastColumn(), 100);
 
   if (maxScanRows < 2 || maxScanCols < 2) {
     return {
@@ -2475,26 +2496,53 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
       return { roster: [], sheetName: sheet.getName() };
     }
 
+    const totalCols = Math.min(sheet.getLastColumn(), 100);
+    const detectedDateCols = []; // [{ colIdx0, day, month, year, dayKey, displayDate, label }]
+
     // Extract period & session date schedule metadata from top rows (rows 1..dateRow)
     try {
       const metaRows = Math.min(layout.dateRow, sheet.getLastRow(), 12);
-      const metaCols = Math.min(sheet.getLastColumn(), 45);
-      const rawTop = sheet.getRange(1, 1, metaRows, metaCols).getValues();
-      const dispTop = sheet.getRange(1, 1, metaRows, metaCols).getDisplayValues();
+      const rawTop = sheet.getRange(1, 1, metaRows, totalCols).getValues();
+      const dispTop = sheet.getRange(1, 1, metaRows, totalCols).getDisplayValues();
       const headerTexts = [sheet.getName(), className || ''];
       for (let r = 0; r < metaRows; r++) {
-        for (let c = 0; c < Math.min(metaCols, 12); c++) {
+        for (let c = 0; c < Math.min(totalCols, 12); c++) {
           const cellStr = String(dispTop[r][c] || '').trim();
           if (cellStr && cellStr.length <= 120) headerTexts.push(cellStr);
         }
       }
       const sessionDates = [];
       const dRowIdx = layout.dateRow - 1;
+      const fallbackYear = new Date().getFullYear();
+      let prevMonth = null;
+      let runningYear = fallbackYear;
       if (dRowIdx >= 0 && dRowIdx < metaRows) {
-        for (let c = layout.dateStartCol - 1; c < metaCols; c++) {
+        for (let c = layout.dateStartCol - 1; c < totalCols; c++) {
           const parsedDate = parseDateCell_(rawTop[dRowIdx][c], dispTop[dRowIdx][c]);
           if (parsedDate) {
-            sessionDates.push(parsedDate.day + '/' + parsedDate.month);
+            let yr = parsedDate.year;
+            if (!yr) {
+              if (prevMonth !== null && parsedDate.month < prevMonth && (prevMonth - parsedDate.month) >= 6) {
+                runningYear++;
+              }
+              yr = runningYear;
+            } else {
+              runningYear = yr;
+            }
+            prevMonth = parsedDate.month;
+            const dd = ('0' + parsedDate.day).slice(-2);
+            const mm = ('0' + parsedDate.month).slice(-2);
+            const dayKey = yr + '-' + mm + '-' + dd;
+            sessionDates.push(dayKey);
+            detectedDateCols.push({
+              colIdx0: c,
+              day: parsedDate.day,
+              month: parsedDate.month,
+              year: yr,
+              dayKey: dayKey,
+              displayDate: dd + '/' + mm + '/' + yr,
+              label: dd + '/' + mm
+            });
           }
         }
       }
@@ -2502,7 +2550,7 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
     } catch (metaErr) {}
 
     const numRows = lastRow - layout.dataStartRow + 1;
-    const maxColNeeded = Math.max(layout.idCol, layout.nameCol + (layout.isTwoColName ? 1 : 0));
+    const maxColNeeded = Math.max(layout.idCol, layout.nameCol + (layout.isTwoColName ? 1 : 0), totalCols);
     const infoRange = sheet.getRange(layout.dataStartRow, 1, numRows, maxColNeeded);
     const rows = infoRange.getValues();
     let infoBgs = null;
@@ -2514,6 +2562,7 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
 
     const roster = [];
     const manualBans = {};
+    const validRowStudentIds = [];
 
     for (let i = 0; i < rows.length; i++) {
       const rawId = rows[i][layout.idCol - 1];
@@ -2524,12 +2573,19 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
         .trim();
 
       const sid = normalizeStudentId_(rawId, fullName);
-      if (!sid || !fullName) continue;
+      if (!sid || !fullName) {
+        validRowStudentIds.push('');
+        continue;
+      }
+
+      const sidUpper = sid.toUpperCase();
+      validRowStudentIds.push(sidUpper);
 
       // Check if STT, MSSV, or Full Name cell is highlighted in Red (Manual Exam Ban on Sheet)
+      const identityCols = Math.max(layout.idCol, layout.nameCol + (layout.isTwoColName ? 1 : 0));
       if (infoBgs || infoFontColors) {
         let isRedRow = false;
-        for (let c = 0; c < maxColNeeded; c++) {
+        for (let c = 0; c < identityCols; c++) {
           const bgType = infoBgs && infoBgs[i] ? classifySheetCellColor_(infoBgs[i][c]) : 'EMPTY';
           const fcType = infoFontColors && infoFontColors[i] ? classifySheetCellColor_(infoFontColors[i][c]) : 'EMPTY';
           if (bgType === 'RED' || fcType === 'RED') {
@@ -2538,7 +2594,7 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
           }
         }
         if (isRedRow) {
-          manualBans[sid.toUpperCase()] = true;
+          manualBans[sidUpper] = true;
         }
       }
 
@@ -2547,6 +2603,64 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
     }
 
     saveManualExamBanForClass_(classId, manualBans);
+
+    // Extract past completed attendance columns (dayKey <= todayKey with at least 1 mark/color in the column)
+    try {
+      const now = new Date();
+      const todayKey =
+        now.getFullYear() + '-' +
+        ('0' + (now.getMonth() + 1)).slice(-2) + '-' +
+        ('0' + now.getDate()).slice(-2);
+      const pastHistoryDays = [];
+
+      for (let d = 0; d < detectedDateCols.length; d++) {
+        const dc = detectedDateCols[d];
+        if (dc.dayKey > todayKey) continue;
+
+        let colHasActivity = false;
+        const rawMarksByStudent = {};
+
+        for (let r = 0; r < rows.length; r++) {
+          const sidUpper = validRowStudentIds[r];
+          if (!sidUpper) continue;
+
+          const cellVal = String(rows[r][dc.colIdx0] !== undefined && rows[r][dc.colIdx0] !== null ? rows[r][dc.colIdx0] : '').trim();
+          const cellUpper = cellVal.toUpperCase();
+          const bgType = infoBgs && infoBgs[r] ? classifySheetCellColor_(infoBgs[r][dc.colIdx0]) : 'EMPTY';
+
+          if (bgType === 'ORANGE' || cellUpper === 'E' || cellUpper === 'P_EXCUSED') {
+            colHasActivity = true;
+            rawMarksByStudent[sidUpper] = 'E';
+          } else if (bgType === 'YELLOW' || cellUpper === 'L' || cellUpper === 'M') {
+            colHasActivity = true;
+            rawMarksByStudent[sidUpper] = 'L';
+          } else if (cellUpper === 'X' || cellUpper === 'V' || cellUpper === 'A' || cellUpper === '-') {
+            colHasActivity = true;
+            rawMarksByStudent[sidUpper] = 'A_MANUAL';
+          } else if (cellUpper === 'P' || cellUpper === '1' || cellUpper === '✓') {
+            colHasActivity = true;
+            rawMarksByStudent[sidUpper] = 'P';
+          } else {
+            rawMarksByStudent[sidUpper] = 'P';
+          }
+        }
+
+        if (colHasActivity) {
+          pastHistoryDays.push({
+            dayKey: dc.dayKey,
+            displayDate: dc.displayDate,
+            label: dc.label,
+            sessionId: 'HIST_' + classId + '_' + dc.dayKey.replace(/-/g, ''),
+            marks: rawMarksByStudent
+          });
+        }
+      }
+
+      PropertiesService.getScriptProperties().setProperty(
+        'QR_SHEET_PAST_HISTORY_' + classId,
+        JSON.stringify(pastHistoryDays)
+      );
+    } catch (histErr) {}
 
     return {
       roster: roster,
@@ -2614,12 +2728,23 @@ function saveClassScheduleMetaFromSheet_(classId, combinedHeaderText, sessionDat
 
   const props = PropertiesService.getScriptProperties();
   const existingMap = JSON.parse(props.getProperty('QR_CLASS_SCHEDULE_META_MAP') || '{}');
+  const prevEntry = existingMap[classId] || {};
+  const makeUpDates = Array.isArray(prevEntry.makeUpDates) ? prevEntry.makeUpDates : [];
+  const mergedDates = (sessionDates || []).slice();
+  makeUpDates.forEach(function(md) {
+    if (md && mergedDates.indexOf(md) === -1) {
+      mergedDates.push(md);
+    }
+  });
+  mergedDates.sort(function(a, b) { return String(a).localeCompare(String(b)); });
+
   existingMap[classId] = {
     startPeriod: startPeriod,
     endPeriod: endPeriod,
     dayOfWeek: dayOfWeek,
     daysOfWeek: daysOfWeek,
-    sessionDates: sessionDates || []
+    sessionDates: mergedDates,
+    makeUpDates: makeUpDates
   };
   props.setProperty('QR_CLASS_SCHEDULE_META_MAP', JSON.stringify(existingMap));
 }
@@ -2633,18 +2758,106 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
   return withTargetSpreadsheet_(targetInfo, classId, className, true, function(ss, sheet) {
     const layout = detectSheetLayout_(sheet);
     const lastCol = Math.max(sheet.getLastColumn(), layout.dateStartCol + 35);
-    const numCols = Math.min(lastCol - layout.dateStartCol + 1, 60);
+    const numCols = Math.min(lastCol - layout.dateStartCol + 1, 100);
 
     const dateRowValues = sheet.getRange(layout.dateRow, layout.dateStartCol, 1, numCols).getValues()[0];
     const dateRowDisplay = sheet.getRange(layout.dateRow, layout.dateStartCol, 1, numCols).getDisplayValues()[0];
     let targetCol = -1;
 
+    const refreshedSessionDates = [];
+    const dateColPositions = []; // [{ colNumber, dayKey }]
+    let runningYear = new Date().getFullYear();
+    let prevMonth = null;
+
     for (let i = 0; i < numCols; i++) {
       const parsed = parseDateCell_(dateRowValues[i], dateRowDisplay[i]);
-      if (parsed && parsed.day === targetDay && parsed.month === targetMonth) {
-        targetCol = layout.dateStartCol + i;
-        break;
+      if (parsed) {
+        let yr = parsed.year;
+        if (!yr) {
+          if (prevMonth !== null && parsed.month < prevMonth && (prevMonth - parsed.month) >= 6) {
+            runningYear++;
+          }
+          yr = runningYear;
+        } else {
+          runningYear = yr;
+        }
+        prevMonth = parsed.month;
+        const dd = ('0' + parsed.day).slice(-2);
+        const mm = ('0' + parsed.month).slice(-2);
+        const dayKey = yr + '-' + mm + '-' + dd;
+        const colNumber = layout.dateStartCol + i;
+        refreshedSessionDates.push(dayKey);
+        dateColPositions.push({ colNumber: colNumber, dayKey: dayKey });
+
+        if (targetCol === -1 && parsed.day === targetDay && parsed.month === targetMonth) {
+          targetCol = colNumber;
+        }
       }
+    }
+
+    // If targetCol was not found on the Sheet, check if this date is a confirmed Make-up session
+    if (targetCol === -1 && restoreCells === null) {
+      try {
+        const props = PropertiesService.getScriptProperties();
+        const existingMap = JSON.parse(props.getProperty('QR_CLASS_SCHEDULE_META_MAP') || '{}');
+        const curEntry = existingMap[classId] || {};
+        const makeUpDates = Array.isArray(curEntry.makeUpDates) ? curEntry.makeUpDates : [];
+        const ddTarget = ('0' + targetDay).slice(-2);
+        const mmTarget = ('0' + targetMonth).slice(-2);
+        let matchedMakeUpKey = '';
+        for (let m = 0; m < makeUpDates.length; m++) {
+          const mk = String(makeUpDates[m] || '');
+          if (mk.slice(5, 7) === mmTarget && mk.slice(8, 10) === ddTarget) {
+            matchedMakeUpKey = mk;
+            break;
+          }
+        }
+
+        if (matchedMakeUpKey) {
+          if (dateColPositions.length > 0) {
+            let insertBeforeCol = -1;
+            for (let p = 0; p < dateColPositions.length; p++) {
+              if (dateColPositions[p].dayKey > matchedMakeUpKey) {
+                insertBeforeCol = dateColPositions[p].colNumber;
+                break;
+              }
+            }
+            if (insertBeforeCol !== -1) {
+              sheet.insertColumnBefore(insertBeforeCol);
+              targetCol = insertBeforeCol;
+            } else {
+              const lastDateCol = dateColPositions[dateColPositions.length - 1].colNumber;
+              sheet.insertColumnAfter(lastDateCol);
+              targetCol = lastDateCol + 1;
+            }
+          } else {
+            targetCol = layout.dateStartCol;
+          }
+          sheet.getRange(layout.dateRow, targetCol).setValue(ddTarget + '/' + mmTarget);
+          if (refreshedSessionDates.indexOf(matchedMakeUpKey) === -1) {
+            refreshedSessionDates.push(matchedMakeUpKey);
+            refreshedSessionDates.sort(function(a, b) { return String(a).localeCompare(String(b)); });
+          }
+        }
+      } catch (insertErr) {}
+    }
+
+    if (refreshedSessionDates.length > 0) {
+      try {
+        const props = PropertiesService.getScriptProperties();
+        const existingMap = JSON.parse(props.getProperty('QR_CLASS_SCHEDULE_META_MAP') || '{}');
+        const curEntry = existingMap[classId] || {};
+        const makeUpDates = Array.isArray(curEntry.makeUpDates) ? curEntry.makeUpDates : [];
+        makeUpDates.forEach(function(md) {
+          if (md && refreshedSessionDates.indexOf(md) === -1) {
+            refreshedSessionDates.push(md);
+          }
+        });
+        refreshedSessionDates.sort(function(a, b) { return String(a).localeCompare(String(b)); });
+        curEntry.sessionDates = refreshedSessionDates;
+        existingMap[classId] = curEntry;
+        props.setProperty('QR_CLASS_SCHEDULE_META_MAP', JSON.stringify(existingMap));
+      } catch (e) {}
     }
 
     if (targetCol === -1) {
@@ -3013,7 +3226,7 @@ function updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap) {
   if (typeof rebuildSingleClassGrid === 'function') {
     try {
       rebuildSingleClassGrid(masterSs, classId);
-      CacheService.getScriptCache().remove('CLASS_ATT_STATS_V35_' + classId);
+      CacheService.getScriptCache().removeAll(['CLASS_ATT_STATS_V36_' + classId, 'CLASS_ATT_STATS_V35_' + classId]);
       SpreadsheetApp.flush();
       return;
     } catch (e) {}

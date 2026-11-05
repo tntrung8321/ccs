@@ -1471,10 +1471,31 @@ function handleTeacherStartSession(ss, body) {
 
     const nowMs = Date.now();
     const presentUntilMs = nowMs + cfg.presentMins * 60 * 1000;
-    const closesAtMs     = nowMs + cfg.lateMins * 60 * 1000;
+    const closesAtMs     = presentUntilMs + cfg.lateMins * 60 * 1000;
 
     const dateLabel = Utilities.formatDate(new Date(nowMs), TIMEZONE, 'ddMMM_HHmm');
     const sessionId = 'SES_' + classId + '_' + Utilities.formatDate(new Date(nowMs), TIMEZONE, 'yyyyMMdd_HHmmss');
+    const todayIsoKey = Utilities.formatDate(new Date(nowMs), TIMEZONE, 'yyyy-MM-dd');
+
+    // If lecturer explicitly confirmed a MAKE-UP session on an unscheduled date, register todayIsoKey into class schedule metadata
+    if (Boolean(body.isMakeUpSession)) {
+      try {
+        const props = PropertiesService.getScriptProperties();
+        const schedMap = JSON.parse(props.getProperty('QR_CLASS_SCHEDULE_META_MAP') || '{}');
+        const entry = schedMap[classId] || { sessionDates: [], makeUpDates: [] };
+        if (!Array.isArray(entry.sessionDates)) entry.sessionDates = [];
+        if (!Array.isArray(entry.makeUpDates)) entry.makeUpDates = [];
+        if (entry.sessionDates.indexOf(todayIsoKey) === -1) {
+          entry.sessionDates.push(todayIsoKey);
+          entry.sessionDates.sort((a, b) => String(a).localeCompare(String(b)));
+        }
+        if (entry.makeUpDates.indexOf(todayIsoKey) === -1) {
+          entry.makeUpDates.push(todayIsoKey);
+        }
+        schedMap[classId] = entry;
+        props.setProperty('QR_CLASS_SCHEDULE_META_MAP', JSON.stringify(schedMap));
+      } catch (e) {}
+    }
 
     const sesSheet = ss.getSheetByName(TAB_SESSIONS);
     sesSheet.appendRow([
@@ -1517,6 +1538,24 @@ function handleTeacherStartSession(ss, body) {
   }
 }
 
+function removeMakeUpDateFromScheduleMeta_(classId, dayKey) {
+  if (!classId || !dayKey) return;
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const schedMap = JSON.parse(props.getProperty('QR_CLASS_SCHEDULE_META_MAP') || '{}');
+    const entry = schedMap[classId];
+    if (!entry) return;
+    if (Array.isArray(entry.makeUpDates) && entry.makeUpDates.indexOf(dayKey) !== -1) {
+      entry.makeUpDates = entry.makeUpDates.filter(d => d !== dayKey);
+      if (Array.isArray(entry.sessionDates)) {
+        entry.sessionDates = entry.sessionDates.filter(d => d !== dayKey);
+      }
+      schedMap[classId] = entry;
+      props.setProperty('QR_CLASS_SCHEDULE_META_MAP', JSON.stringify(schedMap));
+    }
+  } catch (e) {}
+}
+
 function handleTeacherControlSession(ss, body) {
   const classId   = String(body.classId || '').trim();
   const subAction = String(body.subAction || '').toUpperCase();
@@ -1535,22 +1574,60 @@ function handleTeacherControlSession(ss, body) {
   if (targetRow === -1) return jsonResponse({ ok: false, code: 'ERR_NO_SESSION' });
 
   const rowVals = data[targetRow - 2];
+  const targetSesId = String(rowVals[0] || '').trim();
+  const openedMs = parseSheetTimeMs(rowVals[3]);
+  const sesDayKey = openedMs > 0
+    ? Utilities.formatDate(new Date(openedMs), TIMEZONE, 'yyyy-MM-dd')
+    : '';
   const nowMs = Date.now();
 
-  if (subAction === 'CLOSE_NOW') {
+  if (subAction === 'CANCEL_MISTAKEN_SESSION') {
+    sesSheet.deleteRow(targetRow);
+    const attSheet = ss.getSheetByName(TAB_ATTEND);
+    if (attSheet && attSheet.getLastRow() >= 2 && targetSesId) {
+      const attVals = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 4).getValues();
+      for (let r = attVals.length - 1; r >= 0; r--) {
+        if (String(attVals[r][2]).trim() === targetSesId) {
+          attSheet.deleteRow(r + 2);
+        }
+      }
+    }
+    if (sesDayKey) {
+      removeMakeUpDateFromScheduleMeta_(classId, sesDayKey);
+    }
+    invalidateClassCache(classId);
+    rebuildSingleClassGrid(ss, classId);
+    logAudit(ss, 'TEACHER', 'CANCEL_MISTAKEN_SESSION', classId, 'Deleted mistaken session ' + targetSesId);
+  } else if (subAction === 'CLOSE_NOW') {
     sesSheet.getRange(targetRow, 7).setValue(formatIso(nowMs));
+    if (sesDayKey && targetSesId) {
+      const checks = getSessionAttendanceMap(ss, targetSesId, true);
+      if (Object.keys(checks).length === 0) {
+        removeMakeUpDateFromScheduleMeta_(classId, sesDayKey);
+      }
+    }
     invalidateClassCache(classId);
     rebuildSingleClassGrid(ss, classId);
     refreshTempPcCode(ss, true);
   } else if (subAction === 'EXTEND_2M') {
-    const curClose = parseSheetTimeMs(rowVals[5]);
-    const newClose = Math.max(nowMs, curClose) + 2 * 60 * 1000;
-    sesSheet.getRange(targetRow, 6).setValue(formatIso(newClose));
-    sesSheet.getRange(targetRow, 7).setValue('');
+    const curPresent = parseSheetTimeMs(rowVals[4]);
+    const curClose   = parseSheetTimeMs(rowVals[5]);
+    if (nowMs <= curPresent) {
+      const newPresent = curPresent + 2 * 60 * 1000;
+      const newClose   = Math.max(curClose, newPresent) + 2 * 60 * 1000;
+      sesSheet.getRange(targetRow, 5, 1, 3).setValues([[formatIso(newPresent), formatIso(newClose), '']]);
+    } else {
+      const newClose = Math.max(nowMs, curClose) + 2 * 60 * 1000;
+      sesSheet.getRange(targetRow, 6, 1, 2).setValues([[formatIso(newClose), '']]);
+    }
     invalidateClassCache(classId);
   } else if (subAction === 'REOPEN_5M') {
-    const newPresent = nowMs + 2 * 60 * 1000;
-    const newClose   = nowMs + 5 * 60 * 1000;
+    const classes    = getClassesMap(ss, false);
+    const cfg        = classes[classId] || { presentMins: 5, lateMins: 60 };
+    const curClose   = parseSheetTimeMs(rowVals[5]);
+    const reopenMins = Math.max(5, Number(cfg.presentMins || 5));
+    const newPresent = nowMs + reopenMins * 60 * 1000;
+    const newClose   = Math.max(curClose, newPresent + Number(cfg.lateMins || 60) * 60 * 1000);
     sesSheet.getRange(targetRow, 5, 1, 3).setValues([[formatIso(newPresent), formatIso(newClose), '']]);
     invalidateClassCache(classId);
   } else if (subAction === 'SET_QR_MODE') {
@@ -1598,6 +1675,32 @@ function handleTeacherManualMark(ss, body) {
           primarySessionId = sid;
         }
       });
+      if (!primarySessionId && targetDayKey && /^\d{4}-\d{2}-\d{2}$/.test(targetDayKey)) {
+        const ymdCompact = targetDayKey.replace(/-/g, '');
+        const dtParts = targetDayKey.split('-');
+        const dtObj = new Date(Number(dtParts[0]), Number(dtParts[1]) - 1, Number(dtParts[2]), 15, 0, 0);
+        const dtIso = formatIso(dtObj.getTime());
+        const dtLabel = Utilities.formatDate(dtObj, TIMEZONE, 'ddMMM') + '_HIST';
+        primarySessionId = 'SES_' + classId + '_' + ymdCompact + '_150000';
+        targetSessionIds.push(primarySessionId);
+        const classes = getClassesMap(ss, false);
+        const cfg = classes[classId] || { roomLat: 0, roomLng: 0, radiusMeters: 100 };
+        if (sesSheet) {
+          sesSheet.appendRow([
+            primarySessionId,
+            classId,
+            dtLabel,
+            dtIso,
+            dtIso,
+            dtIso,
+            dtIso,
+            cfg.roomLat || 0,
+            cfg.roomLng || 0,
+            cfg.radiusMeters || 100,
+            'STATIC'
+          ]);
+        }
+      }
       if (!primarySessionId && targetSessionId) {
         primarySessionId = targetSessionId;
         targetSessionIds.push(targetSessionId);
@@ -1834,20 +1937,24 @@ function handleTeacherRebuildReport(ss, body) {
 function invalidateSystemCache() {
   try {
     const cache = CacheService.getScriptCache();
-    cache.removeAll(['CLASSES_MAP_V32', 'PING_STATE_V32', 'ALL_LATEST_SES_V35']);
+    const keys = ['CLASSES_MAP_V32', 'PING_STATE_V32', 'ALL_LATEST_SES_V35'];
+    for (let r = 1; r <= 30; r++) keys.push('CLASSES_MAP_V32_' + r);
+    cache.removeAll(keys);
   } catch (e) {}
 }
 
 function invalidateClassCache(classId) {
   try {
     const cache = CacheService.getScriptCache();
-    cache.removeAll([
+    const keys = [
       'CLASSES_MAP_V32',
       'PING_STATE_V32',
       'ALL_LATEST_SES_V35',
       'LATEST_SES_' + classId,
       'CLASS_ATT_STATS_V36_' + classId
-    ]);
+    ];
+    for (let r = 1; r <= 30; r++) keys.push('CLASSES_MAP_V32_' + r);
+    cache.removeAll(keys);
   } catch (e) {}
 }
 
@@ -2026,10 +2133,48 @@ function buildGroupedClassDayRecords_(ss, classId) {
     : [];
 
   const nowMs = Date.now();
+  const todayKey = Utilities.formatDate(new Date(nowMs), TIMEZONE, 'yyyy-MM-dd');
   const dayGroups = {};
   const dayOrder = [];
   const sessionToDayKey = {};
 
+  // 1. Seed any past completed sessions synced from the official Drive attendance sheet (dayKey <= todayKey)
+  try {
+    const rawPast = PropertiesService.getScriptProperties().getProperty('QR_SHEET_PAST_HISTORY_' + classId);
+    if (rawPast) {
+      const pastDays = JSON.parse(rawPast);
+      if (Array.isArray(pastDays)) {
+        pastDays.forEach(pd => {
+          const dk = String(pd && pd.dayKey || '').trim();
+          if (!dk || dk > todayKey) return;
+          const histSesId = String(pd.sessionId || ('HIST_' + classId + '_' + dk.replace(/-/g, ''))).trim();
+          const disp = String(pd.displayDate || (dk.slice(8, 10) + '/' + dk.slice(5, 7) + '/' + dk.slice(0, 4)));
+          const lbl = String(pd.label || disp.slice(0, 5));
+          const marksCopy = {};
+          if (pd.marks && typeof pd.marks === 'object') {
+            Object.keys(pd.marks).forEach(sid => {
+              marksCopy[normalizeId(sid)] = String(pd.marks[sid]);
+            });
+          }
+          dayGroups[dk] = {
+            dayKey: dk,
+            displayDate: disp,
+            label: lbl,
+            latestSessionId: histSesId,
+            sessionIds: [histSesId],
+            hasOpenSession: false,
+            hasValidCheckIn: true,
+            marks: marksCopy,
+            manualLocked: {}
+          };
+          dayOrder.push(dk);
+          sessionToDayKey[histSesId] = dk;
+        });
+      }
+    }
+  } catch (e) {}
+
+  // 2. Merge sessions from Sessions_Log
   sesData.forEach(r => {
     if (String(r[1]).trim() !== classId) return;
     const sesId = String(r[0]).trim();
@@ -2067,7 +2212,9 @@ function buildGroupedClassDayRecords_(ss, classId) {
       };
       dayOrder.push(dayKey);
     } else {
-      dayGroups[dayKey].sessionIds.push(sesId);
+      if (dayGroups[dayKey].sessionIds.indexOf(sesId) === -1) {
+        dayGroups[dayKey].sessionIds.push(sesId);
+      }
       dayGroups[dayKey].latestSessionId = sesId;
       if (label) dayGroups[dayKey].label = label;
       if (isOpen) dayGroups[dayKey].hasOpenSession = true;
@@ -2077,13 +2224,20 @@ function buildGroupedClassDayRecords_(ss, classId) {
 
   if (dayOrder.length === 0) return [];
 
+  // 3. Merge Attendance_Log records (including HIST_ manual overrides)
   const attSheet = ss.getSheetByName(TAB_ATTEND);
   if (attSheet && attSheet.getLastRow() > 1) {
     const attData = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 10).getValues();
     attData.forEach(r => {
       if (String(r[3]).trim() !== classId) return;
       const sesId = String(r[2]).trim();
-      const dayKey = sessionToDayKey[sesId];
+      let dayKey = sessionToDayKey[sesId];
+      if (!dayKey) {
+        const mHist = sesId.match(/^HIST_[A-Za-z0-9_-]+_(\d{4})(\d{2})(\d{2})$/);
+        if (mHist) {
+          dayKey = mHist[1] + '-' + mHist[2] + '-' + mHist[3];
+        }
+      }
       if (!dayKey || !dayGroups[dayKey]) return;
       const grp = dayGroups[dayKey];
       const sid = normalizeId(r[4]);
@@ -2112,10 +2266,51 @@ function buildGroupedClassDayRecords_(ss, classId) {
     });
   }
 
-  // Filter out closed ghost/test sessions where 0 students had any valid check-in or manual mark
+  // Check official Sheet sessionDates (if available) so accidental wrong-class sessions on unscheduled dates are ignored once closed
+  const allowedSheetDates = {};
+  let hasSheetSchedule = false;
+  try {
+    const schedMap = getStoredClassSchedulesMap();
+    const sDates = (schedMap && schedMap[classId] && Array.isArray(schedMap[classId].sessionDates))
+      ? schedMap[classId].sessionDates
+      : [];
+    if (sDates.length > 0) {
+      hasSheetSchedule = true;
+      sDates.forEach(raw => {
+        const s = String(raw || '').trim();
+        if (!s) return;
+        allowedSheetDates[s] = true;
+        // Also index DD/MM shorthand in case sessionDates was stored as D/M or DD/MM
+        const mIso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+        if (mIso) {
+          const d = parseInt(mIso[3], 10);
+          const m = parseInt(mIso[2], 10);
+          allowedSheetDates[d + '/' + m] = true;
+          allowedSheetDates[('0' + d).slice(-2) + '/' + ('0' + m).slice(-2)] = true;
+        }
+      });
+    }
+  } catch (e) {}
+
+  // Sort chronologically by dayKey and filter out:
+  //  (a) closed ghost/test sessions where 0 students had any valid check-in
+  //  (b) closed accidental sessions opened on a date that does NOT exist on the class Sheet
   return dayOrder
+    .slice()
+    .sort((a, b) => String(a).localeCompare(String(b)))
     .map(k => dayGroups[k])
-    .filter(grp => grp.hasOpenSession || grp.hasValidCheckIn);
+    .filter(grp => {
+      if (grp.hasOpenSession) return true;
+      if (!grp.hasValidCheckIn) return false;
+      if (hasSheetSchedule) {
+        const dk = String(grp.dayKey || '');
+        const dmShort = dk.length >= 10 ? (dk.slice(8, 10) + '/' + dk.slice(5, 7)) : '';
+        if (!allowedSheetDates[dk] && (!dmShort || !allowedSheetDates[dmShort])) {
+          return false;
+        }
+      }
+      return true;
+    });
 }
 
 function rebuildSingleClassGrid(ss, classId) {

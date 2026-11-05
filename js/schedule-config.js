@@ -67,7 +67,14 @@ const CLASS_SCHEDULE = [
     dayOfWeek: 1,
     periods: '10-12',
     startTime: '15:00',
-    endTime: '17:30'
+    endTime: '17:30',
+    sessionDates: [
+      '2026-10-23', '2026-10-26', '2026-10-30', '2026-11-02', '2026-11-06', '2026-11-09',
+      '2026-11-13', '2026-11-16', '2026-11-20', '2026-11-23', '2026-11-27', '2026-11-30',
+      '2026-12-04', '2026-12-07', '2026-12-11', '2026-12-14', '2026-12-18', '2026-12-21',
+      '2026-12-25', '2026-12-28', '2027-01-01', '2027-01-04', '2027-01-08', '2027-01-11',
+      '2027-01-15', '2027-01-18', '2027-01-22', '2027-01-25', '2027-01-29', '2027-02-01'
+    ]
   },
   {
     classId: '2610AVCB003',
@@ -76,7 +83,14 @@ const CLASS_SCHEDULE = [
     dayOfWeek: 1,
     periods: '13-15',
     startTime: '17:30',
-    endTime: '20:00'
+    endTime: '20:00',
+    sessionDates: [
+      '2026-10-19', '2026-10-23', '2026-10-26', '2026-10-30', '2026-11-02', '2026-11-06',
+      '2026-11-09', '2026-11-13', '2026-11-16', '2026-11-20', '2026-11-23', '2026-11-27',
+      '2026-11-30', '2026-12-04', '2026-12-07', '2026-12-11', '2026-12-14', '2026-12-18',
+      '2026-12-21', '2026-12-25', '2026-12-28', '2027-01-01', '2027-01-04', '2027-01-08',
+      '2027-01-11', '2027-01-15', '2027-01-18', '2027-01-22', '2027-01-25', '2027-01-29'
+    ]
   },
   {
     classId: '2610AVCB004',
@@ -85,7 +99,14 @@ const CLASS_SCHEDULE = [
     dayOfWeek: 2,
     periods: '10-12',
     startTime: '15:00',
-    endTime: '17:30'
+    endTime: '17:30',
+    sessionDates: [
+      '2026-10-20', '2026-10-22', '2026-10-27', '2026-10-29', '2026-11-03', '2026-11-05',
+      '2026-11-10', '2026-11-12', '2026-11-17', '2026-11-19', '2026-11-24', '2026-11-26',
+      '2026-12-01', '2026-12-03', '2026-12-08', '2026-12-10', '2026-12-15', '2026-12-17',
+      '2026-12-22', '2026-12-24', '2026-12-29', '2026-12-31', '2027-01-05', '2027-01-07',
+      '2027-01-12', '2027-01-14', '2027-01-19', '2027-01-21', '2027-01-26', '2027-01-28'
+    ]
   }
 ];
 
@@ -95,6 +116,68 @@ window.liveServerSchedule = {
   calendarEvents: [],
   classSchedules: {}
 };
+
+function getClassCourseSessionDates(classId, scheduleInfo) {
+  const cid = String(classId || '').trim();
+  const meta =
+    scheduleInfo ||
+    (window.liveServerSchedule && window.liveServerSchedule.classSchedules && window.liveServerSchedule.classSchedules[cid]) ||
+    null;
+
+  const localEntry = CLASS_SCHEDULE.find(e => e.classId === cid || (e.aliases || []).includes(cid));
+  let rawDates = (meta && Array.isArray(meta.sessionDates) && meta.sessionDates.length > 0)
+    ? meta.sessionDates
+    : (localEntry && Array.isArray(localEntry.sessionDates) ? localEntry.sessionDates : []);
+
+  if (!rawDates || rawDates.length === 0) return [];
+
+  const out = [];
+  let runningYear = 2026;
+  let prevMonth = null;
+
+  rawDates.forEach((raw, idx) => {
+    const s = String(raw || '').trim();
+    if (!s) return;
+    let y = null, m = null, d = null;
+    const mIso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (mIso) {
+      y = parseInt(mIso[1], 10);
+      m = parseInt(mIso[2], 10);
+      d = parseInt(mIso[3], 10);
+      runningYear = y;
+      prevMonth = m;
+    } else {
+      const mDm = s.match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?$/);
+      if (mDm) {
+        d = parseInt(mDm[1], 10);
+        m = parseInt(mDm[2], 10);
+        if (mDm[3]) {
+          y = parseInt(mDm[3], 10);
+          if (y < 100) y += 2000;
+          runningYear = y;
+        } else {
+          if (prevMonth !== null && m < prevMonth && (prevMonth - m) >= 6) {
+            runningYear++;
+          }
+          y = runningYear;
+        }
+        prevMonth = m;
+      }
+    }
+    if (y && m && d) {
+      const dd = String(d).padStart(2, '0');
+      const mm = String(m).padStart(2, '0');
+      out.push({
+        sessionNumber: idx + 1,
+        dayKey: `${y}-${mm}-${dd}`,
+        displayDate: `${dd}/${mm}/${y}`,
+        shortDate: `${dd}/${mm}`
+      });
+    }
+  });
+
+  return out;
+}
 
 function minsToHhMm(totalMins) {
   const clamped = Math.max(0, Math.min(1439, Math.round(totalMins)));
@@ -350,8 +433,12 @@ function resolveActiveClassBySchedule(availableClasses, now = new Date()) {
       parseDaysOfWeekFromText(combinedText).forEach(d => parsedDaysSet.add(d));
       const parsedDays = Array.from(parsedDaysSet);
 
+      const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const todayPadDdMm = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}`;
       const hasTodayInAttendanceSheet =
-        meta && Array.isArray(meta.sessionDates) && meta.sessionDates.includes(todayDdMm);
+        meta &&
+        Array.isArray(meta.sessionDates) &&
+        (meta.sessionDates.includes(todayDdMm) || meta.sessionDates.includes(todayPadDdMm) || meta.sessionDates.includes(todayIso));
 
       const dayMatches =
         hasTodayInAttendanceSheet ||

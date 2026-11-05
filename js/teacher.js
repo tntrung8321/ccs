@@ -276,8 +276,10 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
 
   setupTeacherCountdown(ses, Boolean(activeCfg));
   renderTeacherRoster();
+  renderTeacherCourseProgressStrip(activeCfg, ses);
   if (document.getElementById('hist-modal-rows')) {
     refreshHistoryModalDateOptionsIfNeeded();
+    renderHistoryCalendarWidget();
     renderHistoryModalList();
   }
 }
@@ -349,30 +351,88 @@ function promptOpenSessionConfirm() {
   const confirmBox = document.getElementById('tea-open-confirm-bar');
   const confirmLabel = document.getElementById('tea-open-confirm-text');
   const confirmBtn = document.getElementById('btn-tea-confirm-open');
+  const makeUpWrap = document.getElementById('tea-makeup-confirm-wrap');
+  const makeUpChk = document.getElementById('chk-confirm-makeup-session');
+  const makeUpLbl = document.getElementById('lbl-confirm-makeup-session');
 
-  if (confirmLabel) {
-    confirmLabel.textContent = isEn
-      ? `You are about to open an attendance session for class [${classId}]. Please confirm:`
-      : `Bạn chuẩn bị mở phiên điểm danh cho lớp [${classId}]. Vui lòng xác nhận:`;
+  const activeCfg = (teacherState && Array.isArray(teacherState.classes))
+    ? teacherState.classes.find(c => c && c.classId === classId)
+    : null;
+  const courseDates = typeof getClassCourseSessionDates === 'function'
+    ? getClassCourseSessionDates(classId, activeCfg ? activeCfg.scheduleInfo : null)
+    : [];
+  const todayKey = getTodayDateKey();
+  const isTodayOnSheet = courseDates.length === 0 || courseDates.some(cd => cd.dayKey === todayKey);
+
+  if (makeUpChk) {
+    makeUpChk.checked = false;
   }
-  if (confirmBtn) {
-    confirmBtn.textContent = isEn ? 'Confirm Open' : 'Xác nhận mở phiên';
+
+  if (!isTodayOnSheet) {
+    const todayShort = `${todayKey.slice(8, 10)}/${todayKey.slice(5, 7)}`;
+    if (confirmLabel) {
+      confirmLabel.textContent = isEn
+        ? `[WARNING] Today (${todayShort}) is NOT in the regular Sheet schedule for [${classId}]. If you selected the wrong class, click Cancel:`
+        : `[CẢNH BÁO] Hôm nay (${todayShort}) KHÔNG nằm trong lịch trình cột ngày trên Sheet của lớp [${classId}]. Nếu chọn nhầm lớp, vui lòng bấm Hủy:`;
+    }
+    if (makeUpLbl) {
+      makeUpLbl.textContent = isEn
+        ? `I confirm opening a MAKE-UP session for [${classId}] (Auto-add column ${todayShort} to schedule & Sheet)`
+        : `Tôi xác nhận mở phiên DẠY BÙ cho lớp [${classId}] (Tự động thêm cột ngày ${todayShort} vào lịch & Sheet)`;
+    }
+    if (makeUpWrap) makeUpWrap.classList.remove('hidden');
+    if (confirmBtn) {
+      confirmBtn.textContent = isEn ? 'Confirm Make-up Session' : 'Xác nhận mở phiên dạy bù';
+      confirmBtn.disabled = true;
+    }
+  } else {
+    if (confirmLabel) {
+      confirmLabel.textContent = isEn
+        ? `You are about to open an attendance session for class [${classId}]. Please confirm:`
+        : `Bạn chuẩn bị mở phiên điểm danh cho lớp [${classId}]. Vui lòng xác nhận:`;
+    }
+    if (makeUpWrap) makeUpWrap.classList.add('hidden');
+    if (confirmBtn) {
+      confirmBtn.textContent = isEn ? 'Confirm Open' : 'Xác nhận mở phiên';
+      confirmBtn.disabled = false;
+    }
   }
 
   if (triggerBtn) triggerBtn.classList.add('hidden');
   if (confirmBox) confirmBox.classList.remove('hidden');
 }
 
+function onMakeUpConfirmCheckboxChange() {
+  const makeUpChk = document.getElementById('chk-confirm-makeup-session');
+  const confirmBtn = document.getElementById('btn-tea-confirm-open');
+  if (confirmBtn && makeUpChk) {
+    confirmBtn.disabled = !makeUpChk.checked;
+  }
+}
+
 function cancelOpenSessionConfirm() {
   const triggerBtn = document.getElementById('btn-tea-open-trigger');
   const confirmBox = document.getElementById('tea-open-confirm-bar');
+  const makeUpWrap = document.getElementById('tea-makeup-confirm-wrap');
+  const makeUpChk = document.getElementById('chk-confirm-makeup-session');
+  const confirmBtn = document.getElementById('btn-tea-confirm-open');
+  if (makeUpChk) makeUpChk.checked = false;
+  if (makeUpWrap) makeUpWrap.classList.add('hidden');
+  if (confirmBtn) confirmBtn.disabled = false;
   if (confirmBox) confirmBox.classList.add('hidden');
   if (triggerBtn) triggerBtn.classList.remove('hidden');
 }
 
 async function confirmAndStartSession() {
+  const makeUpWrap = document.getElementById('tea-makeup-confirm-wrap');
+  const makeUpChk = document.getElementById('chk-confirm-makeup-session');
+  const requiresMakeUpConfirm = Boolean(makeUpWrap && !makeUpWrap.classList.contains('hidden'));
+  if (requiresMakeUpConfirm && (!makeUpChk || !makeUpChk.checked)) {
+    return;
+  }
+  const isMakeUpConfirmed = Boolean(requiresMakeUpConfirm && makeUpChk && makeUpChk.checked);
   cancelOpenSessionConfirm();
-  await teacherStartSession();
+  await teacherStartSession(isMakeUpConfirmed);
 }
 
 async function onTeacherClassChange() {
@@ -468,7 +528,7 @@ function probeLecturerDeviceGpsFast() {
   });
 }
 
-async function teacherStartSession() {
+async function teacherStartSession(isMakeUpConfirmed = false) {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
   const isEn = currentLang === 'en';
@@ -521,16 +581,32 @@ async function teacherStartSession() {
           : 'Đang bật: Lấy tâm phòng học theo trung bình vị trí của 3 sinh viên đầu tiên.');
   }
 
-  await executeStartSessionRequest(auth, classId, hasTeacherGps, lat, lng, acc, anchorMode);
+  await executeStartSessionRequest(auth, classId, hasTeacherGps, lat, lng, acc, anchorMode, isMakeUpConfirmed);
 }
 
-async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAccuracy = 0, anchorMode = 'TEACHER_GPS') {
+async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAccuracy = 0, anchorMode = 'TEACHER_GPS', isMakeUpConfirmed = false) {
   const isEn = currentLang === 'en';
   showStatus(
     isEn ? `Opening attendance session for ${classId}...` : `Đang mở phiên điểm danh cho lớp ${classId}...`,
     'warn',
     'tea-session-inline-status'
   );
+
+  if (isMakeUpConfirmed) {
+    const todayKey = getTodayDateKey();
+    if (window.liveServerSchedule && window.liveServerSchedule.classSchedules) {
+      if (!window.liveServerSchedule.classSchedules[classId]) {
+        window.liveServerSchedule.classSchedules[classId] = { sessionDates: [todayKey] };
+      } else if (Array.isArray(window.liveServerSchedule.classSchedules[classId].sessionDates)) {
+        const arr = window.liveServerSchedule.classSchedules[classId].sessionDates;
+        if (!arr.includes(todayKey)) {
+          arr.push(todayKey);
+          arr.sort((a, b) => String(a).localeCompare(String(b)));
+        }
+      }
+    }
+  }
+
   const res = await callBackend(auth.apiUrl, {
     action: 'TEACHER_START_SESSION',
     teacherToken: auth.token,
@@ -540,7 +616,8 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
     lng: lng,
     gpsAccuracy: gpsAccuracy,
     anchorMode: anchorMode,
-    qrMode: 'STATIC'
+    qrMode: 'STATIC',
+    isMakeUpSession: Boolean(isMakeUpConfirmed)
   });
 
   if (res && res.ok) {
@@ -585,7 +662,45 @@ async function teacherControlSession(subAction, extra = {}) {
   }, extra));
   if (res && res.ok) {
     await applyTeacherState(res, false);
+    if (subAction === 'CANCEL_MISTAKEN_SESSION') {
+      showStatus(
+        currentLang === 'en'
+          ? `Cancelled and removed the mistaken session for ${classId}.`
+          : `Đã hủy và xóa bỏ phiên mở nhầm của lớp ${classId}.`,
+        'success',
+        'tea-session-inline-status'
+      );
+    }
   }
+}
+
+function promptCancelMistakenSession() {
+  const classId = document.getElementById('sel-tea-class').value;
+  const isEn = currentLang === 'en';
+  if (!classId) {
+    showStatus(isEn ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.', 'warn');
+    return;
+  }
+  const ses = teacherState && teacherState.activeSession;
+  if (!ses || !ses.sessionId) {
+    showStatus(
+      isEn ? 'No recent session found to cancel for this class.' : 'Không có phiên nào gần đây để hủy cho lớp này.',
+      'warn',
+      'tea-session-inline-status'
+    );
+    return;
+  }
+  openAppModal(
+    isEn ? 'Cancel Mistaken Session' : 'Xác nhận Hủy Phiên Mở Nhầm',
+    isEn
+      ? `Are you sure you want to CANCEL and DELETE session [${ses.sessionLabel || ses.sessionId}] of class [${classId}]? This session will be completely removed from history and students will not be marked absent.`
+      : `Bạn có chắc chắn muốn HỦY và XÓA BỎ phiên [${ses.sessionLabel || ses.sessionId}] vừa mở nhầm của lớp [${classId}] không? Phiên này sẽ được gỡ hoàn toàn khỏi lịch sử và không tính vắng sinh viên.`,
+    isEn ? 'Delete Mistaken Session' : 'Xóa phiên mở nhầm',
+    async () => {
+      await teacherControlSession('CANCEL_MISTAKEN_SESSION');
+    },
+    { confirmClass: 'btn btn-danger' }
+  );
 }
 
 function detectCoCheckInSuspects(roster) {
@@ -894,24 +1009,48 @@ function deriveActiveSessionDayMeta() {
 }
 
 function getEffectiveStudentHistory(st) {
-  const hist = (st && st.attendanceStats && Array.isArray(st.attendanceStats.history))
+  const rawHist = (st && st.attendanceStats && Array.isArray(st.attendanceStats.history))
     ? st.attendanceStats.history.slice()
     : [];
+
+  const activeCfg = (teacherState && Array.isArray(teacherState.classes))
+    ? teacherState.classes.find(c => c && c.classId === selectedTeacherClassId)
+    : null;
+  const courseDates = (selectedTeacherClassId && typeof getClassCourseSessionDates === 'function')
+    ? getClassCourseSessionDates(selectedTeacherClassId, activeCfg ? activeCfg.scheduleInfo : null)
+    : [];
+  const allowedSheetSet = new Set(courseDates.map(cd => cd.dayKey));
+  const hasSheetSchedule = allowedSheetSet.size > 0;
+
+  const ses = teacherState && teacherState.activeSession;
+  const isSesOpen = Boolean(ses && ses.isOpen);
   const activeMeta = deriveActiveSessionDayMeta();
+  const openDayKey = (isSesOpen && activeMeta) ? activeMeta.dayKey : '';
+
+  const hist = hasSheetSchedule
+    ? rawHist.filter(h => h && h.dayKey && (allowedSheetSet.has(h.dayKey) || h.dayKey === openDayKey))
+    : rawHist;
+
   if (activeMeta && activeMeta.dayKey) {
-    const exists = hist.some(h => h && h.dayKey === activeMeta.dayKey);
-    if (!exists) {
-      hist.push({
-        dayKey: activeMeta.dayKey,
-        date: activeMeta.date,
-        label: activeMeta.label,
-        sessionId: activeMeta.sessionId,
-        status: (st && st.status) ? st.status : '-'
-      });
+    const isAllowed = isSesOpen || !hasSheetSchedule || allowedSheetSet.has(activeMeta.dayKey);
+    if (isAllowed) {
+      const exists = hist.some(h => h && h.dayKey === activeMeta.dayKey);
+      if (!exists) {
+        hist.push({
+          dayKey: activeMeta.dayKey,
+          date: activeMeta.date,
+          label: activeMeta.label,
+          sessionId: activeMeta.sessionId,
+          status: (st && st.status) ? st.status : '-'
+        });
+      }
     }
   }
   return hist;
 }
+
+let historyModalCalendarYear = new Date().getFullYear();
+let historyModalCalendarMonth = new Date().getMonth() + 1;
 
 function collectClassSessionDaysFromRoster() {
   const list = (teacherState && teacherState.roster) || [];
@@ -919,17 +1058,181 @@ function collectClassSessionDaysFromRoster() {
   list.forEach(st => {
     const hist = getEffectiveStudentHistory(st);
     hist.forEach(h => {
-      if (h && h.dayKey && !dayMap[h.dayKey]) {
+      if (!h || !h.dayKey) return;
+      if (!dayMap[h.dayKey]) {
+        const mIso = String(h.dayKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        const shortDate = mIso ? `${mIso[3]}/${mIso[2]}` : (h.date || h.dayKey).slice(0, 5);
         dayMap[h.dayKey] = {
           dayKey: h.dayKey,
           date: h.date || h.dayKey,
+          shortDate: shortDate,
           label: h.label || '',
-          sessionId: h.sessionId || ''
+          sessionId: h.sessionId || '',
+          P: 0,
+          L: 0,
+          E: 0,
+          A: 0,
+          total: 0
         };
       }
+      const dObj = dayMap[h.dayKey];
+      const curSt = h.status === 'OPEN' ? '-' : (h.status || '-');
+      dObj.total++;
+      if (curSt === 'P') dObj.P++;
+      else if (curSt === 'L') dObj.L++;
+      else if (curSt === 'E') dObj.E++;
+      else dObj.A++;
     });
   });
   return Object.values(dayMap).sort((a, b) => b.dayKey.localeCompare(a.dayKey));
+}
+
+function renderTeacherCourseProgressStrip(activeCfg, ses) {
+  const stripEl = document.getElementById('tea-course-progress-strip');
+  if (!stripEl) return;
+
+  if (!activeCfg || !activeCfg.classId) {
+    stripEl.classList.add('hidden');
+    stripEl.innerHTML = '';
+    return;
+  }
+
+  const isEn = currentLang === 'en';
+  const recordedDays = collectClassSessionDaysFromRoster();
+  const recordedMap = {};
+  recordedDays.forEach(d => {
+    recordedMap[d.dayKey] = d;
+  });
+
+  const activeMeta = (ses && ses.isOpen) ? deriveActiveSessionDayMeta() : null;
+  const openDayKey = activeMeta ? activeMeta.dayKey : '';
+
+  const courseSchedule = typeof getClassCourseSessionDates === 'function'
+    ? getClassCourseSessionDates(activeCfg.classId, activeCfg.scheduleInfo)
+    : [];
+
+  const mergedByKey = {};
+  courseSchedule.forEach(item => {
+    mergedByKey[item.dayKey] = {
+      dayKey: item.dayKey,
+      displayDate: item.displayDate,
+      shortDate: item.shortDate,
+      isScheduled: true,
+      recorded: recordedMap[item.dayKey] || null
+    };
+  });
+
+  // Only merge non-sheet dates if the class has no Sheet schedule OR if the session is currently open right now
+  recordedDays.forEach(rec => {
+    if (!mergedByKey[rec.dayKey] && (courseSchedule.length === 0 || rec.dayKey === openDayKey)) {
+      mergedByKey[rec.dayKey] = {
+        dayKey: rec.dayKey,
+        displayDate: rec.date,
+        shortDate: rec.shortDate,
+        isScheduled: false,
+        recorded: rec
+      };
+    }
+  });
+
+  const allSessionItems = Object.values(mergedByKey).sort((a, b) => a.dayKey.localeCompare(b.dayKey));
+  if (allSessionItems.length === 0) {
+    stripEl.classList.add('hidden');
+    stripEl.innerHTML = '';
+    return;
+  }
+
+  const todayKey = getTodayDateKey();
+  let completedCount = 0;
+  let activeOrUpcomingCount = 0;
+
+  allSessionItems.forEach((item) => {
+    item.isOpenNow = (item.dayKey === openDayKey);
+    item.isDone = Boolean(item.recorded) && !item.isOpenNow;
+    item.isSkippedPast = !item.isDone && !item.isOpenNow && item.dayKey < todayKey;
+    item.isMakeUp = Boolean(item.recorded) && !item.isScheduled && courseSchedule.length > 0;
+
+    if (item.isSkippedPast) {
+      item.sessionNumber = null;
+    } else {
+      activeOrUpcomingCount++;
+      item.sessionNumber = activeOrUpcomingCount;
+    }
+
+    if (item.isDone || item.isOpenNow) {
+      completedCount++;
+    }
+  });
+
+  const totalSessions = Math.max(completedCount, activeOrUpcomingCount);
+  const pct = totalSessions > 0 ? Math.min(100, Math.round((completedCount / totalSessions) * 100)) : 0;
+
+  const chipsHtml = allSessionItems.map(item => {
+    const safeDayKey = escapeHtml(item.dayKey);
+    const shortLbl = escapeHtml(item.shortDate);
+    const sesNum = item.sessionNumber;
+    const makeUpTag = item.isMakeUp ? (isEn ? ' (Make-up)' : ' (Bù)') : '';
+
+    if (item.isOpenNow) {
+      const rec = item.recorded;
+      const countBadge = rec ? `<span class="chip-count">${rec.P + rec.L}/${rec.total}</span>` : '';
+      return `
+        <button type="button" class="session-chip chip-open" onclick="openAttendanceHistoryManagerModal('${safeDayKey}')" title="${isEn ? 'Session currently open — Click to view/edit' : 'Phiên đang mở — Bấm để xem chi tiết'}">
+          <span class="chip-dot dot-open"></span>
+          <span class="chip-label">B${sesNum} • ${shortLbl}${escapeHtml(makeUpTag)}</span>
+          ${countBadge}
+        </button>
+      `;
+    }
+
+    if (item.isDone) {
+      const rec = item.recorded;
+      const countBadge = rec ? `<span class="chip-count">${rec.P + rec.L}/${rec.total}</span>` : '';
+      return `
+        <button type="button" class="session-chip chip-done" onclick="openAttendanceHistoryManagerModal('${safeDayKey}')" title="${isEn ? `Completed (${item.displayDate}${makeUpTag}) — Click to view/edit` : `Đã điểm danh (${item.displayDate}${makeUpTag}) — Bấm để xem/sửa`}">
+          <span class="chip-dot dot-done"></span>
+          <span class="chip-label">B${sesNum} • ${shortLbl}${escapeHtml(makeUpTag)}</span>
+          ${countBadge}
+        </button>
+      `;
+    }
+
+    if (item.isSkippedPast) {
+      return `
+        <span class="session-chip chip-skipped" title="${isEn ? `No session opened on ${item.displayDate} (Holiday / Rescheduled)` : `Ngày ${item.displayDate} không mở điểm danh (Nghỉ lễ / Đổi lịch dạy bù)`}">
+          <span class="chip-dot dot-skipped"></span>
+          <span class="chip-label">${isEn ? 'Off' : 'Nghỉ'} • ${shortLbl}</span>
+        </span>
+      `;
+    }
+
+    return `
+      <span class="session-chip chip-upcoming" title="${isEn ? `Upcoming scheduled session #${sesNum} (${item.displayDate})` : `Buổi học sắp tới B${sesNum} (${item.displayDate})`}">
+        <span class="chip-dot dot-upcoming"></span>
+        <span class="chip-label">B${sesNum} • ${shortLbl}</span>
+      </span>
+    `;
+  }).join('');
+
+  stripEl.innerHTML = `
+    <div class="course-progress-header">
+      <div class="course-progress-title">
+        <span>${isEn ? 'Course Progress:' : 'Tiến độ học phần:'} <strong>${completedCount} / ${totalSessions}</strong> ${isEn ? 'sessions' : 'buổi'}</span>
+        <div class="course-progress-bar-track">
+          <div class="course-progress-bar-fill" style="width:${pct}%;"></div>
+        </div>
+      </div>
+      <div class="course-progress-legend">
+        <span class="strip-legend-item"><span class="chip-dot dot-done"></span>${isEn ? 'Completed' : 'Đã điểm danh'}</span>
+        <span class="strip-legend-item"><span class="chip-dot dot-upcoming"></span>${isEn ? 'Upcoming' : 'Chưa mở'}</span>
+        <button type="button" class="btn-strip-cal" onclick="openAttendanceHistoryManagerModal()">
+          ${isEn ? 'Month Calendar' : 'Lịch tháng'}
+        </button>
+      </div>
+    </div>
+    <div class="course-progress-chips">${chipsHtml}</div>
+  `;
+  stripEl.classList.remove('hidden');
 }
 
 function refreshHistoryModalDateOptionsIfNeeded() {
@@ -946,10 +1249,10 @@ function refreshHistoryModalDateOptionsIfNeeded() {
     : (currentVal === 'ALL' && selDateEl.options.length > 1 ? 'ALL' : days[0].dayKey);
 
   const dateOptsHtml = [
-    `<option value="ALL" ${selectedVal === 'ALL' ? 'selected' : ''}>${isEn ? '-- All Sessions --' : '-- Tất cả các buổi học --'}</option>`
+    `<option value="ALL" ${selectedVal === 'ALL' ? 'selected' : ''}>${isEn ? '-- All Recorded Sessions --' : '-- Tất cả các buổi đã điểm danh --'}</option>`
   ].concat(
     days.map(d => {
-      const lbl = d.label ? `${d.date} (${d.label})` : d.date;
+      const lbl = `${d.date} — Có mặt: ${d.P + d.L}/${d.total} (P:${d.P} L:${d.L} E:${d.E} V:${d.A})`;
       return `<option value="${escapeHtml(d.dayKey)}" ${d.dayKey === selectedVal ? 'selected' : ''}>${escapeHtml(lbl)}</option>`;
     })
   ).join('');
@@ -957,7 +1260,7 @@ function refreshHistoryModalDateOptionsIfNeeded() {
   selDateEl.value = selectedVal;
 }
 
-function openAttendanceHistoryManagerModal() {
+function openAttendanceHistoryManagerModal(initialDayKey) {
   const isEn = currentLang === 'en';
   const list = (teacherState && teacherState.roster) || [];
   if (!selectedTeacherClassId || list.length === 0) {
@@ -969,32 +1272,43 @@ function openAttendanceHistoryManagerModal() {
   }
 
   const days = collectClassSessionDaysFromRoster();
-  const defaultDayKey = days.length > 0 ? days[0].dayKey : 'ALL';
+  const hasInitial = initialDayKey && days.some(d => d.dayKey === initialDayKey);
+  const defaultDayKey = hasInitial ? initialDayKey : (days.length > 0 ? days[0].dayKey : 'ALL');
+
+  const refKey = defaultDayKey !== 'ALL' ? defaultDayKey : (days.length > 0 ? days[0].dayKey : getTodayDateKey());
+  const mRef = String(refKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (mRef) {
+    historyModalCalendarYear = parseInt(mRef[1], 10);
+    historyModalCalendarMonth = parseInt(mRef[2], 10);
+  } else {
+    const now = new Date();
+    historyModalCalendarYear = now.getFullYear();
+    historyModalCalendarMonth = now.getMonth() + 1;
+  }
 
   const dateOptsHtml = [
-    `<option value="ALL" ${defaultDayKey === 'ALL' ? 'selected' : ''}>${isEn ? '-- All Sessions --' : '-- Tất cả các buổi học --'}</option>`
+    `<option value="ALL" ${defaultDayKey === 'ALL' ? 'selected' : ''}>${isEn ? '-- All Recorded Sessions --' : '-- Tất cả các buổi đã điểm danh --'}</option>`
   ].concat(
     days.map(d => {
-      const lbl = d.label ? `${d.date} (${d.label})` : d.date;
+      const lbl = `${d.date} — Có mặt: ${d.P + d.L}/${d.total} (P:${d.P} L:${d.L} E:${d.E} V:${d.A})`;
       return `<option value="${escapeHtml(d.dayKey)}" ${d.dayKey === defaultDayKey ? 'selected' : ''}>${escapeHtml(lbl)}</option>`;
     })
   ).join('');
 
   const htmlBody = `
+    <div id="hist-calendar-box" class="hist-calendar-card"></div>
     <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
-      <div>
-        <label for="sel-hist-date" style="font-size:0.77rem; margin-bottom:3px;">${isEn ? 'Select Session Date:' : 'Chọn ngày điểm danh:'}</label>
-        <select id="sel-hist-date" onchange="renderHistoryModalList()" style="margin-bottom:0; padding:7px 10px;">${dateOptsHtml}</select>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <select id="sel-hist-date" onchange="onHistorySelectDateDropdownChange()" style="margin-bottom:0; padding:7px 10px; flex:1; min-width:210px;">${dateOptsHtml}</select>
+        <input type="text" id="inp-hist-search" oninput="renderHistoryModalList()" placeholder="${isEn ? 'Search student name or ID...' : 'Tìm họ tên hoặc MSSV...'}" style="margin-bottom:0; padding:7px 10px; flex:1; min-width:180px;" />
       </div>
-      <div>
-        <input type="text" id="inp-hist-search" oninput="renderHistoryModalList()" placeholder="${isEn ? 'Search student name or Student ID...' : 'Gõ họ tên hoặc mã số sinh viên...'}" style="margin-bottom:0; padding:7px 10px;" />
-      </div>
+      <div id="hist-selected-day-summary" class="hist-day-summary-bar"></div>
     </div>
     <div id="hist-modal-rows" class="past-ses-list"></div>
   `;
 
   openAppModal(
-    isEn ? 'Attendance History' : 'Lịch sử Điểm danh',
+    isEn ? `Attendance Calendar & History — ${selectedTeacherClassId}` : `Lịch Điểm Danh & Lịch Sử — ${selectedTeacherClassId}`,
     '',
     '',
     null,
@@ -1005,6 +1319,7 @@ function openAttendanceHistoryManagerModal() {
     }
   );
 
+  renderHistoryCalendarWidget();
   renderHistoryModalList();
 
   // If full attendanceStats history was not yet loaded in cache, trigger a fresh sync in the background
@@ -1013,20 +1328,250 @@ function openAttendanceHistoryManagerModal() {
   }
 }
 
+function onHistorySelectDateDropdownChange() {
+  const selDateEl = document.getElementById('sel-hist-date');
+  if (selDateEl && selDateEl.value && selDateEl.value !== 'ALL') {
+    const m = selDateEl.value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) {
+      historyModalCalendarYear = parseInt(m[1], 10);
+      historyModalCalendarMonth = parseInt(m[2], 10);
+    }
+  }
+  renderHistoryCalendarWidget();
+  renderHistoryModalList();
+}
+
+function changeHistoryCalendarMonth(delta) {
+  let m = historyModalCalendarMonth + Number(delta || 0);
+  let y = historyModalCalendarYear;
+  if (m < 1) {
+    m = 12;
+    y--;
+  } else if (m > 12) {
+    m = 1;
+    y++;
+  }
+  historyModalCalendarYear = y;
+  historyModalCalendarMonth = m;
+  renderHistoryCalendarWidget();
+}
+
+function selectHistoryCalendarDay(dayKey) {
+  const selDateEl = document.getElementById('sel-hist-date');
+  if (selDateEl) {
+    selDateEl.value = dayKey;
+  }
+  if (dayKey && dayKey !== 'ALL') {
+    const m = String(dayKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) {
+      historyModalCalendarYear = parseInt(m[1], 10);
+      historyModalCalendarMonth = parseInt(m[2], 10);
+    }
+  }
+  renderHistoryCalendarWidget();
+  renderHistoryModalList();
+}
+
+function renderHistoryCalendarWidget() {
+  const calBox = document.getElementById('hist-calendar-box');
+  if (!calBox) return;
+
+  const isEn = currentLang === 'en';
+  const selDateEl = document.getElementById('sel-hist-date');
+  const selectedDayKey = selDateEl ? selDateEl.value : 'ALL';
+
+  const days = collectClassSessionDaysFromRoster();
+  const recordedMap = {};
+  days.forEach(d => {
+    recordedMap[d.dayKey] = d;
+  });
+
+  const activeCfg = (teacherState && Array.isArray(teacherState.classes))
+    ? teacherState.classes.find(c => c && c.classId === selectedTeacherClassId)
+    : null;
+  const courseDates = typeof getClassCourseSessionDates === 'function'
+    ? getClassCourseSessionDates(selectedTeacherClassId, activeCfg ? activeCfg.scheduleInfo : null)
+    : [];
+  const scheduledMap = {};
+  courseDates.forEach(cd => {
+    scheduledMap[cd.dayKey] = cd;
+  });
+
+  const activeMeta = (teacherState && teacherState.activeSession && teacherState.activeSession.isOpen)
+    ? deriveActiveSessionDayMeta()
+    : null;
+  const openDayKey = activeMeta ? activeMeta.dayKey : '';
+  const todayKey = getTodayDateKey();
+
+  // Compute dynamic session numbers across both scheduled and make-up sessions
+  const allKeysMap = {};
+  courseDates.forEach(cd => { allKeysMap[cd.dayKey] = true; });
+  days.forEach(d => { allKeysMap[d.dayKey] = true; });
+  const sortedAllKeys = Object.keys(allKeysMap).sort((a, b) => a.localeCompare(b));
+  const dynamicSesNumByDay = {};
+  let runningSesNum = 0;
+  sortedAllKeys.forEach(k => {
+    const hasRec = Boolean(recordedMap[k]) || (k === openDayKey);
+    const isSkippedPast = !hasRec && k < todayKey;
+    if (!isSkippedPast) {
+      runningSesNum++;
+      dynamicSesNumByDay[k] = runningSesNum;
+    }
+  });
+
+  const yr = historyModalCalendarYear;
+  const mo = historyModalCalendarMonth;
+  const monthNamesVi = ['Tháng 01', 'Tháng 02', 'Tháng 03', 'Tháng 04', 'Tháng 05', 'Tháng 06', 'Tháng 07', 'Tháng 08', 'Tháng 09', 'Tháng 10', 'Tháng 11', 'Tháng 12'];
+  const monthNamesEn = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthTitle = isEn ? `${monthNamesEn[mo - 1]} ${yr}` : `${monthNamesVi[mo - 1]} / ${yr}`;
+
+  const weekdays = isEn ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] : ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+  const weekdayHeaderHtml = weekdays.map(w => `<div class="hist-cal-weekday">${w}</div>`).join('');
+
+  const firstDate = new Date(yr, mo - 1, 1);
+  const daysInMonth = new Date(yr, mo, 0).getDate();
+  // Convert Sunday (0) .. Saturday (6) to Monday-first (0..6)
+  const startOffset = (firstDate.getDay() + 6) % 7;
+
+  const cells = [];
+  for (let i = 0; i < startOffset; i++) {
+    cells.push(`<div class="hist-cal-cell cal-empty"></div>`);
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dd = String(d).padStart(2, '0');
+    const mm = String(mo).padStart(2, '0');
+    const dayKey = `${yr}-${mm}-${dd}`;
+    const rec = recordedMap[dayKey] || null;
+    const sched = scheduledMap[dayKey] || null;
+    const isSelected = (selectedDayKey === dayKey);
+    const isOpenNow = (dayKey === openDayKey);
+    const sesNum = dynamicSesNumByDay[dayKey] || (sched ? sched.sessionNumber : null);
+
+    if (rec || isOpenNow) {
+      const pPlusL = rec ? (rec.P + rec.L) : 0;
+      const tot = rec ? rec.total : 0;
+      const dotClass = isOpenNow ? 'chip-dot dot-open' : 'chip-dot dot-done';
+      const cellClass = [
+        'hist-cal-cell',
+        isOpenNow ? 'cal-day-open' : 'cal-day-done',
+        isSelected ? 'cal-day-selected' : ''
+      ].filter(Boolean).join(' ');
+      cells.push(`
+        <button type="button" class="${cellClass}" onclick="selectHistoryCalendarDay('${dayKey}')" title="${isEn ? `Session B${sesNum || ''} (${dayKey}): ${pPlusL}/${tot} Present` : `Buổi B${sesNum || ''} (${dd}/${mm}/${yr}): Có mặt ${pPlusL}/${tot}`}">
+          <div class="cal-day-top">
+            <span class="cal-day-num">${d}</span>
+            <span class="${dotClass}"></span>
+          </div>
+          <div class="cal-day-meta">${pPlusL}/${tot}</div>
+        </button>
+      `);
+    } else if (sched) {
+      const isPastOff = dayKey < todayKey;
+      if (isPastOff) {
+        cells.push(`
+          <div class="hist-cal-cell cal-day-skipped" title="${isEn ? `No session opened on ${sched.displayDate} (Holiday / Rescheduled)` : `Ngày ${sched.displayDate} không mở điểm danh (Nghỉ lễ / Đổi lịch dạy bù)`}">
+            <div class="cal-day-top">
+              <span class="cal-day-num">${d}</span>
+              <span class="chip-dot dot-skipped"></span>
+            </div>
+            <div class="cal-day-meta">${isEn ? 'Off' : 'Nghỉ'}</div>
+          </div>
+        `);
+      } else {
+        cells.push(`
+          <div class="hist-cal-cell cal-day-scheduled" title="${isEn ? `Scheduled Session #${sesNum} (${sched.displayDate})` : `Lịch học Buổi ${sesNum} (${sched.displayDate}) — Chưa mở phiên`}">
+            <div class="cal-day-top">
+              <span class="cal-day-num">${d}</span>
+              <span class="chip-dot dot-upcoming"></span>
+            </div>
+            <div class="cal-day-meta">B${sesNum}</div>
+          </div>
+        `);
+      }
+    } else {
+      cells.push(`
+        <div class="hist-cal-cell">
+          <div class="cal-day-top"><span class="cal-day-num">${d}</span></div>
+        </div>
+      `);
+    }
+  }
+
+  // Quick completed-session pills (chronological order) for 1-tap switching across months
+  const chronologicalDone = days.slice().sort((a, b) => a.dayKey.localeCompare(b.dayKey));
+  const quickPillsHtml = [
+    `<button type="button" class="hist-quick-pill ${selectedDayKey === 'ALL' ? 'active' : ''}" onclick="selectHistoryCalendarDay('ALL')">
+      ${isEn ? `All (${days.length})` : `Tất cả (${days.length} buổi)`}
+    </button>`
+  ].concat(
+    chronologicalDone.map((d, idx) => `
+      <button type="button" class="hist-quick-pill ${selectedDayKey === d.dayKey ? 'active' : ''}" onclick="selectHistoryCalendarDay('${escapeHtml(d.dayKey)}')">
+        <span class="chip-dot dot-done"></span>
+        <span>B${idx + 1} • ${escapeHtml(d.shortDate)}</span>
+      </button>
+    `)
+  ).join('');
+
+  calBox.innerHTML = `
+    <div class="hist-cal-toolbar">
+      <div class="hist-cal-nav">
+        <button type="button" class="btn btn-outline btn-sm hist-cal-nav-btn" onclick="changeHistoryCalendarMonth(-1)">◀</button>
+        <span class="hist-cal-month-title">${escapeHtml(monthTitle)}</span>
+        <button type="button" class="btn btn-outline btn-sm hist-cal-nav-btn" onclick="changeHistoryCalendarMonth(1)">▶</button>
+      </div>
+      <div class="hist-cal-legend">
+        <span><span class="chip-dot dot-done"></span>${isEn ? 'Attended' : 'Đã điểm danh'}</span>
+        <span><span class="chip-dot dot-upcoming"></span>${isEn ? 'Scheduled' : 'Lịch sắp tới'}</span>
+      </div>
+    </div>
+    <div class="hist-cal-grid">
+      ${weekdayHeaderHtml}
+      ${cells.join('')}
+    </div>
+    <div class="hist-quick-pills-row">${quickPillsHtml}</div>
+  `;
+}
+
 function renderHistoryModalList() {
   const container = document.getElementById('hist-modal-rows');
   if (!container) return;
   const isEn = currentLang === 'en';
   const selDateEl = document.getElementById('sel-hist-date');
   const searchEl = document.getElementById('inp-hist-search');
+  const summaryBar = document.getElementById('hist-selected-day-summary');
   const selectedDayKey = selDateEl ? selDateEl.value : 'ALL';
   const query = searchEl ? searchEl.value.trim().toLowerCase() : '';
 
   const list = (teacherState && teacherState.roster) || [];
   const days = collectClassSessionDaysFromRoster();
   if (days.length === 0) {
+    if (summaryBar) summaryBar.innerHTML = '';
     container.innerHTML = `<div style="padding:12px 0; color:var(--muted); font-size:0.82rem; text-align:center;">${isEn ? 'No attendance sessions recorded for this class yet.' : 'Lớp học phần này chưa có lịch sử buổi điểm danh nào.'}</div>`;
     return;
+  }
+
+  if (summaryBar) {
+    if (selectedDayKey !== 'ALL') {
+      const dObj = days.find(d => d.dayKey === selectedDayKey);
+      if (dObj) {
+        summaryBar.innerHTML = `
+          <span><strong>${escapeHtml(dObj.date)}</strong></span>
+          <span>${isEn ? 'Present' : 'Có mặt'} (P): <strong style="color:var(--ok-text);">${dObj.P}</strong></span>
+          <span>${isEn ? 'Late' : 'Đi trễ'} (L): <strong style="color:var(--warn-text);">${dObj.L}</strong></span>
+          <span>${isEn ? 'Excused' : 'Có phép'} (E): <strong style="color:#c2410c;">${dObj.E}</strong></span>
+          <span>${isEn ? 'Absent' : 'Vắng'} (-): <strong style="color:var(--err-text);">${dObj.A}</strong></span>
+        `;
+        summaryBar.classList.remove('hidden');
+      } else {
+        summaryBar.classList.add('hidden');
+      }
+    } else {
+      summaryBar.innerHTML = `
+        <span><strong>${isEn ? `Showing all ${days.length} completed sessions` : `Đang hiển thị tất cả ${days.length} buổi đã điểm danh`}</strong></span>
+      `;
+      summaryBar.classList.remove('hidden');
+    }
   }
 
   const matchedStudents = list.filter(st =>
@@ -1157,6 +1702,7 @@ async function teacherMarkPastSession(studentId, dayKey, sessionId, newStatus) {
     }
     renderTeacherRoster();
   }
+  renderHistoryCalendarWidget();
   renderHistoryModalList();
 
   if (typeof recordLocalStudentSessionMark === 'function') {
@@ -1175,6 +1721,7 @@ async function teacherMarkPastSession(studentId, dayKey, sessionId, newStatus) {
 
   if (res && res.ok) {
     await applyTeacherState(res, false);
+    renderHistoryCalendarWidget();
     renderHistoryModalList();
     showStatus(
       isEn

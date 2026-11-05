@@ -15,7 +15,7 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.6.0" />
+  <link rel="stylesheet" href="css/styles.css?v=3.6.1" />
 </head>
 <body>
 
@@ -339,6 +339,7 @@
           <div class="teacher-class-overview">
             <select id="sel-tea-class" onchange="onTeacherClassChange()" style="margin-bottom:0;"></select>
             <div id="tea-schedule-hint" class="schedule-hint-bar"></div>
+            <div id="tea-course-progress-strip" class="course-progress-strip hidden"></div>
           </div>
 
           <div class="projector-grid">
@@ -365,6 +366,12 @@
                 <div id="tea-open-confirm-bar" class="two-step-confirm-box hidden">
                   <div id="tea-open-confirm-text" class="two-step-confirm-label" data-i18n="tea_confirm_open_prompt">
                     Xác nhận mở phiên điểm danh cho lớp học phần này?
+                  </div>
+                  <div id="tea-makeup-confirm-wrap" class="makeup-confirm-wrap hidden">
+                    <label class="checkbox-row" for="chk-confirm-makeup-session" style="margin:6px 0 8px 0; font-size:0.78rem; font-weight:700; color:#b45309; cursor:pointer; align-items:flex-start;">
+                      <input type="checkbox" id="chk-confirm-makeup-session" onchange="onMakeUpConfirmCheckboxChange()" style="margin-top:2px;" />
+                      <span id="lbl-confirm-makeup-session">Tôi xác nhận mở phiên DẠY BÙ cho lớp này (Tự động thêm cột ngày vào lịch &amp; Sheet)</span>
+                    </label>
                   </div>
                   <div class="btn-row" style="margin-top:0;">
                     <button type="button" class="btn btn-outline" onclick="cancelOpenSessionConfirm()" data-i18n="tea_cancel_open_btn">
@@ -393,10 +400,11 @@
                   </div>
                 </div>
 
-                <div class="btn-row" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border-subtle);">
+                <div class="btn-row" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border-subtle); flex-wrap:wrap;">
                   <button class="btn btn-outline btn-sm" onclick="teacherControlSession('EXTEND_2M')" data-i18n="tea_extend_btn">+2 Phút</button>
                   <button class="btn btn-outline btn-sm" onclick="teacherControlSession('REOPEN_5M')" data-i18n="tea_reopen_btn">Mở lại 5 phút</button>
                   <button class="btn btn-danger btn-sm" onclick="teacherControlSession('CLOSE_NOW')" data-i18n="tea_close_btn">Đóng phiên</button>
+                  <button class="btn btn-outline btn-sm" id="btn-tea-cancel-mistaken" onclick="promptCancelMistakenSession()" style="color:var(--err-text); border-color:#fecaca;" title="Xóa bỏ phiên vừa mở nhầm hôm nay (Không tính vào lịch sử)">Hủy phiên nhầm</button>
                 </div>
 
                 <div id="tea-session-inline-status" class="inline-feedback hidden"></div>
@@ -486,8 +494,8 @@
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/schedule-config.js?v=3.6.0"></script>
-  <script src="js/student.js?v=3.6.0"></script>
-  <script src="js/teacher.js?v=3.6.0"></script>
+  <script src="js/schedule-config.js?v=3.6.1"></script>
+  <script src="js/student.js?v=3.6.1"></script>
+  <script src="js/teacher.js?v=3.6.1"></script>
 </body>
 </html>
