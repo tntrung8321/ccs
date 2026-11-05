@@ -537,6 +537,34 @@ function handlePing(ss, body) {
   });
 }
 
+function collectStudentEnrolledClasses_(ss, classes, scheduleMetaMap, studentId) {
+  const enrolledClasses = [];
+  let canonicalName = '';
+  let anyRegOpen = false;
+
+  Object.keys(classes).forEach(cid => {
+    const roster = getClassRosterMap(ss, cid, true);
+    if (roster[studentId]) {
+      enrolledClasses.push({
+        classId: cid,
+        className: classes[cid].className,
+        activeQrSecret: classes[cid].activeQrSecret,
+        sessionOpenNow: Boolean(getLatestOpenSession(ss, cid)),
+        scheduleInfo: scheduleMetaMap[cid] || parseClassScheduleInfoBackend(classes[cid].className),
+        attendanceStats: getStudentClassAttendanceStats(ss, cid, studentId, false)
+      });
+      canonicalName = roster[studentId].fullName;
+      if (classes[cid].regOpen) anyRegOpen = true;
+    }
+  });
+
+  return {
+    enrolledClasses: enrolledClasses,
+    canonicalName: canonicalName,
+    anyRegOpen: anyRegOpen
+  };
+}
+
 function handleStudentOnboard(ss, body) {
   const studentId = normalizeId(body.studentId);
   const clientCred = String(body.credential || '').trim();
@@ -568,27 +596,9 @@ function handleStudentOnboard(ss, body) {
     // Always bypass cache during onboarding so changes made by external Sync.gs are reflected immediately
     const classes = getClassesMap(ss, true);
     const scheduleMetaMap = getStoredClassSchedulesMap();
-    const enrolledClasses = [];
-    let canonicalName = '';
-    let anyRegOpen = false;
+    let match = collectStudentEnrolledClasses_(ss, classes, scheduleMetaMap, studentId);
 
-    Object.keys(classes).forEach(cid => {
-      const roster = getClassRosterMap(ss, cid, true);
-      if (roster[studentId]) {
-        enrolledClasses.push({
-          classId: cid,
-          className: classes[cid].className,
-          activeQrSecret: classes[cid].activeQrSecret,
-          sessionOpenNow: Boolean(getLatestOpenSession(ss, cid)),
-          scheduleInfo: scheduleMetaMap[cid] || parseClassScheduleInfoBackend(classes[cid].className),
-          attendanceStats: getStudentClassAttendanceStats(ss, cid, studentId, false)
-        });
-        canonicalName = roster[studentId].fullName;
-        if (classes[cid].regOpen) anyRegOpen = true;
-      }
-    });
-
-    if (enrolledClasses.length === 0 && typeof syncSingleClassRosterFromDrive_ === 'function') {
+    if (match.enrolledClasses.length === 0 && typeof syncSingleClassRosterFromDrive_ === 'function') {
       // Zero-lag fallback: if a newly added student types their MSSV right after the lecturer
       // updated the .XLSX/Sheet file on Drive, check only modified Drive files to auto-import them.
       let anyDriveUpdated = false;
@@ -605,23 +615,13 @@ function handleStudentOnboard(ss, body) {
       });
 
       if (anyDriveUpdated) {
-        Object.keys(classes).forEach(cid => {
-          const roster = getClassRosterMap(ss, cid, true);
-          if (roster[studentId]) {
-            enrolledClasses.push({
-              classId: cid,
-              className: classes[cid].className,
-              activeQrSecret: classes[cid].activeQrSecret,
-              sessionOpenNow: Boolean(getLatestOpenSession(ss, cid)),
-              scheduleInfo: scheduleMetaMap[cid] || parseClassScheduleInfoBackend(classes[cid].className),
-              attendanceStats: getStudentClassAttendanceStats(ss, cid, studentId, false)
-            });
-            canonicalName = roster[studentId].fullName;
-            if (classes[cid].regOpen) anyRegOpen = true;
-          }
-        });
+        match = collectStudentEnrolledClasses_(ss, classes, scheduleMetaMap, studentId);
       }
     }
+
+    const enrolledClasses = match.enrolledClasses;
+    const canonicalName = match.canonicalName;
+    const anyRegOpen = match.anyRegOpen;
 
     if (enrolledClasses.length === 0) {
       return jsonResponse({
@@ -1834,48 +1834,41 @@ function handleTeacherToggleReg(ss, body) {
   return handleTeacherGetState(ss, { classId: classId });
 }
 
+function syncAndRebuildClassReport_(ss, classId, className) {
+  let added = 0;
+  let names = [];
+  if (typeof syncSingleClassRosterFromDrive_ === 'function') {
+    try {
+      const syncRes = syncSingleClassRosterFromDrive_(ss, classId, className, {
+        onlyIfModified: true,
+        actor: 'TEACHER_APP'
+      });
+      if (syncRes && syncRes.newStudentsAdded > 0) {
+        added = syncRes.newStudentsAdded;
+        names = syncRes.newStudentNames || [];
+      }
+    } catch (e) {}
+  }
+  rebuildSingleClassGrid(ss, classId);
+  invalidateClassAttendanceStatsCache_(classId);
+  return { newStudentsAdded: added, newStudentNames: names };
+}
+
 function handleTeacherRebuildReport(ss, body) {
   const classId = String(body.classId || '').trim();
   invalidateSystemCache();
+  const classes = getClassesMap(ss, true);
   let newStudentsAdded = 0;
   let newStudentNames = [];
 
-  if (classId) {
-    const classes = getClassesMap(ss, true);
-    const className = classes[classId] ? classes[classId].className : classId;
-    if (typeof syncSingleClassRosterFromDrive_ === 'function') {
-      try {
-        const syncRes = syncSingleClassRosterFromDrive_(ss, classId, className, {
-          onlyIfModified: true,
-          actor: 'TEACHER_APP'
-        });
-        if (syncRes && syncRes.newStudentsAdded > 0) {
-          newStudentsAdded = syncRes.newStudentsAdded;
-          newStudentNames = syncRes.newStudentNames || [];
-        }
-      } catch (e) {}
-    }
-    rebuildSingleClassGrid(ss, classId);
-    invalidateClassAttendanceStatsCache_(classId);
-  } else {
-    const classes = getClassesMap(ss, true);
-    Object.keys(classes).forEach(cid => {
-      if (typeof syncSingleClassRosterFromDrive_ === 'function') {
-        try {
-          const syncRes = syncSingleClassRosterFromDrive_(ss, cid, classes[cid].className, {
-            onlyIfModified: true,
-            actor: 'TEACHER_APP'
-          });
-          if (syncRes && syncRes.newStudentsAdded > 0) {
-            newStudentsAdded += syncRes.newStudentsAdded;
-            newStudentNames = newStudentNames.concat(syncRes.newStudentNames || []);
-          }
-        } catch (e) {}
-      }
-      rebuildSingleClassGrid(ss, cid);
-      invalidateClassAttendanceStatsCache_(cid);
-    });
-  }
+  const targetIds = classId ? [classId] : Object.keys(classes);
+  targetIds.forEach(cid => {
+    const cName = classes[cid] ? classes[cid].className : cid;
+    const res = syncAndRebuildClassReport_(ss, cid, cName);
+    newStudentsAdded += res.newStudentsAdded;
+    newStudentNames = newStudentNames.concat(res.newStudentNames);
+  });
+
   return jsonResponse({
     ok: true,
     code: 'REPORT_REBUILT',
