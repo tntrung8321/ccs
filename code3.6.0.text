@@ -52,14 +52,20 @@ function onOpen(e) {
   } catch (err) {}
 }
 
+function normalizeDashboardFrontendUrlB5_(sheet) {
+  let rawB5 = String(sheet.getRange('B5').getValue() || '').trim();
+  if (/tntrung8321\.github\.io\/ClassCheck-GPS\/?$/i.test(rawB5)) {
+    rawB5 = 'https://tntrung8321.github.io/ccs/';
+    sheet.getRange('B5').setValue(rawB5);
+  }
+  return rawB5;
+}
+
 function syncDashboardVersionBadge_(ss) {
   if (!ss) return;
   const sheet = ss.getSheetByName(TAB_DASHBOARD);
   if (!sheet) return;
-  const currentB5 = String(sheet.getRange('B5').getValue() || '').trim();
-  if (/tntrung8321\.github\.io\/ClassCheck-GPS\/?$/i.test(currentB5)) {
-    sheet.getRange('B5').setValue('https://tntrung8321.github.io/ccs/');
-  }
+  normalizeDashboardFrontendUrlB5_(sheet);
   const apiUrl = String(sheet.getRange('B4').getValue() || '').trim();
   if (apiUrl && apiUrl.startsWith('https://script.google.com/')) {
     const expectedText = '✅ Verified & Ready (v' + SYSTEM_VERSION + ')';
@@ -176,11 +182,7 @@ function updateDashboardQRs(ss) {
   const lecturerName = String(sheet.getRange('B2').getValue()).trim();
   const installId    = String(sheet.getRange('B3').getValue()).trim();
   const apiUrl       = String(sheet.getRange('B4').getValue()).trim();
-  let rawFrontendUrl = String(sheet.getRange('B5').getValue()).trim();
-  if (/tntrung8321\.github\.io\/ClassCheck-GPS\/?$/i.test(rawFrontendUrl)) {
-    rawFrontendUrl = 'https://tntrung8321.github.io/ccs/';
-    sheet.getRange('B5').setValue(rawFrontendUrl);
-  }
+  const rawFrontendUrl = normalizeDashboardFrontendUrlB5_(sheet);
   const frontendUrl  = rawFrontendUrl.replace(/\/$/, '');
   const teacherKey   = props.getProperty('TEACHER_MASTER_KEY');
 
@@ -222,74 +224,55 @@ function updateDashboardQRs(ss) {
   sheet.getRange('C9').setValue('Temp PC Code:\n' + tempCode + '\n(Valid 2 Hours)').setFontSize(14).setFontWeight('bold');
 }
 
-function ensureClassesTab(ss) {
-  let sheet = ss.getSheetByName(TAB_CLASSES);
+function ensureSystemTabWithHeaders_(ss, tabName, headers, bgColor, options) {
+  let sheet = ss.getSheetByName(tabName);
   if (!sheet) {
-    sheet = ss.insertSheet(TAB_CLASSES);
-    const headers = [
-      'Class_ID', 'Class_Name', 'Active_QR_Secret', 'Room_Lat', 'Room_Lng',
-      'Radius_Meters', 'Present_Mins', 'Late_Mins', 'Registration_Open'
-    ];
+    sheet = ss.insertSheet(tabName);
     sheet.getRange(1, 1, 1, headers.length).setValues([headers])
-      .setBackground('#1e3a8a').setFontColor('#ffffff').setFontWeight('bold');
+      .setBackground(bgColor).setFontColor('#ffffff').setFontWeight('bold');
     sheet.setFrozenRows(1);
-    sheet.autoResizeColumns(1, headers.length);
+    if (options && options.autoResize) {
+      sheet.autoResizeColumns(1, headers.length);
+    }
+    if (options && options.textColRange) {
+      sheet.getRange(options.textColRange).setNumberFormat('@');
+    }
   }
+  return sheet;
+}
+
+function ensureClassesTab(ss) {
+  ensureSystemTabWithHeaders_(ss, TAB_CLASSES, [
+    'Class_ID', 'Class_Name', 'Active_QR_Secret', 'Room_Lat', 'Room_Lng',
+    'Radius_Meters', 'Present_Mins', 'Late_Mins', 'Registration_Open'
+  ], '#1e3a8a', { autoResize: true });
 }
 
 function ensureDevicesTab(ss) {
-  let sheet = ss.getSheetByName(TAB_DEVICES);
-  if (!sheet) {
-    sheet = ss.insertSheet(TAB_DEVICES);
-    const headers = [
-      'Student_ID', 'Canonical_Name', 'Credential_Verifier',
-      'Registered_At', 'Status', 'Reset_Count', 'Last_Reset_At'
-    ];
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
-      .setBackground('#334155').setFontColor('#ffffff').setFontWeight('bold');
-    sheet.setFrozenRows(1);
-    sheet.getRange('A:A').setNumberFormat('@');
-  }
+  ensureSystemTabWithHeaders_(ss, TAB_DEVICES, [
+    'Student_ID', 'Canonical_Name', 'Credential_Verifier',
+    'Registered_At', 'Status', 'Reset_Count', 'Last_Reset_At'
+  ], '#334155', { textColRange: 'A:A' });
 }
 
 function ensureSessionsTab(ss) {
-  let sheet = ss.getSheetByName(TAB_SESSIONS);
-  if (!sheet) {
-    sheet = ss.insertSheet(TAB_SESSIONS);
-    const headers = [
-      'Session_ID', 'Class_ID', 'Session_Label', 'Opened_At', 'Present_Until',
-      'Closes_At', 'Closed_Manually_At', 'Room_Lat', 'Room_Lng', 'Radius_m', 'QR_Mode'
-    ];
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
-      .setBackground('#334155').setFontColor('#ffffff').setFontWeight('bold');
-    sheet.setFrozenRows(1);
-  }
+  ensureSystemTabWithHeaders_(ss, TAB_SESSIONS, [
+    'Session_ID', 'Class_ID', 'Session_Label', 'Opened_At', 'Present_Until',
+    'Closes_At', 'Closed_Manually_At', 'Room_Lat', 'Room_Lng', 'Radius_m', 'QR_Mode'
+  ], '#334155');
 }
 
 function ensureAttendanceTab(ss) {
-  let sheet = ss.getSheetByName(TAB_ATTEND);
-  if (!sheet) {
-    sheet = ss.insertSheet(TAB_ATTEND);
-    const headers = [
-      'Attendance_ID', 'Request_ID', 'Session_ID', 'Class_ID', 'Student_ID',
-      'Status', 'Recorded_At', 'Distance_m', 'Accuracy_m', 'Source'
-    ];
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
-      .setBackground('#334155').setFontColor('#ffffff').setFontWeight('bold');
-    sheet.setFrozenRows(1);
-    sheet.getRange('E:E').setNumberFormat('@');
-  }
+  ensureSystemTabWithHeaders_(ss, TAB_ATTEND, [
+    'Attendance_ID', 'Request_ID', 'Session_ID', 'Class_ID', 'Student_ID',
+    'Status', 'Recorded_At', 'Distance_m', 'Accuracy_m', 'Source'
+  ], '#334155', { textColRange: 'E:E' });
 }
 
 function ensureAuditTab(ss) {
-  let sheet = ss.getSheetByName(TAB_AUDIT);
-  if (!sheet) {
-    sheet = ss.insertSheet(TAB_AUDIT);
-    const headers = ['Timestamp', 'Actor', 'Action', 'Target', 'Details'];
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
-      .setBackground('#475569').setFontColor('#ffffff').setFontWeight('bold');
-    sheet.setFrozenRows(1);
-  }
+  ensureSystemTabWithHeaders_(ss, TAB_AUDIT, [
+    'Timestamp', 'Actor', 'Action', 'Target', 'Details'
+  ], '#475569');
 }
 
 function createFormattedRosterTab(ss, classId, addSampleStudents) {
@@ -1220,6 +1203,12 @@ function requireTeacherAuth(ss, body, callback) {
   return callback();
 }
 
+function resetFailedTeacherAuthCount_(props) {
+  if (props.getProperty('FAILED_AUTH_COUNT') && props.getProperty('FAILED_AUTH_COUNT') !== '0') {
+    props.setProperty('FAILED_AUTH_COUNT', '0');
+  }
+}
+
 function verifyTeacherToken(ss, submittedToken) {
   const props = PropertiesService.getScriptProperties();
   const cache = CacheService.getScriptCache();
@@ -1231,9 +1220,7 @@ function verifyTeacherToken(ss, submittedToken) {
   // 1. Master Key ALWAYS works (bypasses and clears any 10-min lockout)
   const masterKey = props.getProperty('TEACHER_MASTER_KEY') || props.getProperty('TEACHER_MASTER_Key');
   if (masterKey && cleanToken === masterKey) {
-    if (props.getProperty('FAILED_AUTH_COUNT') && props.getProperty('FAILED_AUTH_COUNT') !== '0') {
-      props.setProperty('FAILED_AUTH_COUNT', '0');
-    }
+    resetFailedTeacherAuthCount_(props);
     if (props.getProperty('AUTH_LOCKOUT_UNTIL')) {
       props.deleteProperty('AUTH_LOCKOUT_UNTIL');
       cache.remove('AUTH_LOCKOUT_UNTIL');
@@ -1258,9 +1245,7 @@ function verifyTeacherToken(ss, submittedToken) {
   const isTempValid = !tempExp || Date.now() <= tempExp;
 
   if (isTempValid && tempCode && cleanToken === tempCode) {
-    if (props.getProperty('FAILED_AUTH_COUNT') && props.getProperty('FAILED_AUTH_COUNT') !== '0') {
-      props.setProperty('FAILED_AUTH_COUNT', '0');
-    }
+    resetFailedTeacherAuthCount_(props);
     return { ok: true, mode: 'TEMP_PC' };
   }
 
@@ -1284,9 +1269,7 @@ function verifyTeacherToken(ss, submittedToken) {
 
   // Accept if submitted token matches visible C9 code (while not expired)
   if (isTempValid && sheetCode && cleanToken === sheetCode) {
-    if (props.getProperty('FAILED_AUTH_COUNT') && props.getProperty('FAILED_AUTH_COUNT') !== '0') {
-      props.setProperty('FAILED_AUTH_COUNT', '0');
-    }
+    resetFailedTeacherAuthCount_(props);
     return { ok: true, mode: 'TEMP_PC' };
   }
 
