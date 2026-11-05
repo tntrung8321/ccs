@@ -1377,7 +1377,6 @@ function handleTeacherStartSession(ss, body) {
   const calibrateOnly = Boolean(body.calibrateOnly);
   const phoneLat      = Number(body.lat);
   const phoneLng      = Number(body.lng);
-  const gpsAcc        = Number(body.gpsAccuracy || 0);
   const anchorMode    = String(body.anchorMode || '').toUpperCase();
 
   const lock = LockService.getScriptLock();
@@ -1907,27 +1906,22 @@ function handleTeacherRebuildReport(ss, body) {
  * 7. INTERNAL HELPERS & ROW-AWARE MICRO-CACHE LAYER
  * ============================================================================
  */
+function buildBaseCacheKeysToClear_(extraKeys) {
+  const keys = ['ALL_LATEST_SES_V35'].concat(Array.isArray(extraKeys) ? extraKeys : []);
+  for (let r = 1; r <= 30; r++) keys.push('CLASSES_MAP_V32_' + r);
+  return keys;
+}
+
 function invalidateSystemCache() {
   try {
-    const cache = CacheService.getScriptCache();
-    const keys = ['CLASSES_MAP_V32', 'PING_STATE_V32', 'ALL_LATEST_SES_V35'];
-    for (let r = 1; r <= 30; r++) keys.push('CLASSES_MAP_V32_' + r);
-    cache.removeAll(keys);
+    CacheService.getScriptCache().removeAll(buildBaseCacheKeysToClear_([]));
   } catch (e) {}
 }
 
 function invalidateClassCache(classId) {
   try {
-    const cache = CacheService.getScriptCache();
-    const keys = [
-      'CLASSES_MAP_V32',
-      'PING_STATE_V32',
-      'ALL_LATEST_SES_V35',
-      'LATEST_SES_' + classId,
-      'CLASS_ATT_STATS_V36_' + classId
-    ];
-    for (let r = 1; r <= 30; r++) keys.push('CLASSES_MAP_V32_' + r);
-    cache.removeAll(keys);
+    const extra = classId ? ['CLASS_ATT_STATS_V36_' + classId] : [];
+    CacheService.getScriptCache().removeAll(buildBaseCacheKeysToClear_(extra));
   } catch (e) {}
 }
 
@@ -2450,7 +2444,6 @@ function getAllLatestSessionsMap(ss, bypassCache) {
     };
 
     map[cid] = sesObj;
-    try { cache.put('LATEST_SES_' + cid, JSON.stringify(sesObj), 15); } catch (e) {}
   }
 
   try {
