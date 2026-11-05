@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.6.0)
+ * LECTURER CONTROLLER (js/teacher.js — v3.6.2)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -1051,6 +1051,7 @@ function getEffectiveStudentHistory(st) {
 
 let historyModalCalendarYear = new Date().getFullYear();
 let historyModalCalendarMonth = new Date().getMonth() + 1;
+let historyModalSelectedDayKey = '';
 
 function collectClassSessionDaysFromRoster() {
   const list = (teacherState && teacherState.roster) || [];
@@ -1167,53 +1168,6 @@ function renderTeacherCourseProgressStrip(activeCfg, ses) {
   const totalSessions = Math.max(completedCount, activeOrUpcomingCount);
   const pct = totalSessions > 0 ? Math.min(100, Math.round((completedCount / totalSessions) * 100)) : 0;
 
-  const chipsHtml = allSessionItems.map(item => {
-    const safeDayKey = escapeHtml(item.dayKey);
-    const shortLbl = escapeHtml(item.shortDate);
-    const sesNum = item.sessionNumber;
-    const makeUpTag = item.isMakeUp ? (isEn ? ' (Make-up)' : ' (Bù)') : '';
-
-    if (item.isOpenNow) {
-      const rec = item.recorded;
-      const countBadge = rec ? `<span class="chip-count">${rec.P + rec.L}/${rec.total}</span>` : '';
-      return `
-        <button type="button" class="session-chip chip-open" onclick="openAttendanceHistoryManagerModal('${safeDayKey}')" title="${isEn ? 'Session currently open — Click to view/edit' : 'Phiên đang mở — Bấm để xem chi tiết'}">
-          <span class="chip-dot dot-open"></span>
-          <span class="chip-label">B${sesNum} • ${shortLbl}${escapeHtml(makeUpTag)}</span>
-          ${countBadge}
-        </button>
-      `;
-    }
-
-    if (item.isDone) {
-      const rec = item.recorded;
-      const countBadge = rec ? `<span class="chip-count">${rec.P + rec.L}/${rec.total}</span>` : '';
-      return `
-        <button type="button" class="session-chip chip-done" onclick="openAttendanceHistoryManagerModal('${safeDayKey}')" title="${isEn ? `Completed (${item.displayDate}${makeUpTag}) — Click to view/edit` : `Đã điểm danh (${item.displayDate}${makeUpTag}) — Bấm để xem/sửa`}">
-          <span class="chip-dot dot-done"></span>
-          <span class="chip-label">B${sesNum} • ${shortLbl}${escapeHtml(makeUpTag)}</span>
-          ${countBadge}
-        </button>
-      `;
-    }
-
-    if (item.isSkippedPast) {
-      return `
-        <span class="session-chip chip-skipped" title="${isEn ? `No session opened on ${item.displayDate} (Holiday / Rescheduled)` : `Ngày ${item.displayDate} không mở điểm danh (Nghỉ lễ / Đổi lịch dạy bù)`}">
-          <span class="chip-dot dot-skipped"></span>
-          <span class="chip-label">${isEn ? 'Off' : 'Nghỉ'} • ${shortLbl}</span>
-        </span>
-      `;
-    }
-
-    return `
-      <span class="session-chip chip-upcoming" title="${isEn ? `Upcoming scheduled session #${sesNum} (${item.displayDate})` : `Buổi học sắp tới B${sesNum} (${item.displayDate})`}">
-        <span class="chip-dot dot-upcoming"></span>
-        <span class="chip-label">B${sesNum} • ${shortLbl}</span>
-      </span>
-    `;
-  }).join('');
-
   stripEl.innerHTML = `
     <div class="course-progress-header">
       <div class="course-progress-title">
@@ -1222,42 +1176,19 @@ function renderTeacherCourseProgressStrip(activeCfg, ses) {
           <div class="course-progress-bar-fill" style="width:${pct}%;"></div>
         </div>
       </div>
-      <div class="course-progress-legend">
-        <span class="strip-legend-item"><span class="chip-dot dot-done"></span>${isEn ? 'Completed' : 'Đã điểm danh'}</span>
-        <span class="strip-legend-item"><span class="chip-dot dot-upcoming"></span>${isEn ? 'Upcoming' : 'Chưa mở'}</span>
-        <button type="button" class="btn-strip-cal" onclick="openAttendanceHistoryManagerModal()">
-          ${isEn ? 'Month Calendar' : 'Lịch tháng'}
-        </button>
-      </div>
     </div>
-    <div class="course-progress-chips">${chipsHtml}</div>
   `;
   stripEl.classList.remove('hidden');
 }
 
 function refreshHistoryModalDateOptionsIfNeeded() {
-  const selDateEl = document.getElementById('sel-hist-date');
-  if (!selDateEl) return;
-  const isEn = currentLang === 'en';
-  const currentVal = selDateEl.value;
   const days = collectClassSessionDaysFromRoster();
   if (days.length === 0) return;
 
-  const hasCurrent = days.some(d => d.dayKey === currentVal);
-  const selectedVal = (currentVal && currentVal !== 'ALL' && hasCurrent)
-    ? currentVal
-    : (currentVal === 'ALL' && selDateEl.options.length > 1 ? 'ALL' : days[0].dayKey);
-
-  const dateOptsHtml = [
-    `<option value="ALL" ${selectedVal === 'ALL' ? 'selected' : ''}>${isEn ? '-- All Recorded Sessions --' : '-- Tất cả các buổi đã điểm danh --'}</option>`
-  ].concat(
-    days.map(d => {
-      const lbl = `${d.date} — Có mặt: ${d.P + d.L}/${d.total} (P:${d.P} L:${d.L} E:${d.E} V:${d.A})`;
-      return `<option value="${escapeHtml(d.dayKey)}" ${d.dayKey === selectedVal ? 'selected' : ''}>${escapeHtml(lbl)}</option>`;
-    })
-  ).join('');
-  selDateEl.innerHTML = dateOptsHtml;
-  selDateEl.value = selectedVal;
+  const hasCurrent = Boolean(historyModalSelectedDayKey) && days.some(d => d.dayKey === historyModalSelectedDayKey);
+  if (!hasCurrent) {
+    historyModalSelectedDayKey = days[0].dayKey;
+  }
 }
 
 function openAttendanceHistoryManagerModal(initialDayKey) {
@@ -1274,6 +1205,7 @@ function openAttendanceHistoryManagerModal(initialDayKey) {
   const days = collectClassSessionDaysFromRoster();
   const hasInitial = initialDayKey && days.some(d => d.dayKey === initialDayKey);
   const defaultDayKey = hasInitial ? initialDayKey : (days.length > 0 ? days[0].dayKey : 'ALL');
+  historyModalSelectedDayKey = defaultDayKey;
 
   const refKey = defaultDayKey !== 'ALL' ? defaultDayKey : (days.length > 0 ? days[0].dayKey : getTodayDateKey());
   const mRef = String(refKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -1286,20 +1218,10 @@ function openAttendanceHistoryManagerModal(initialDayKey) {
     historyModalCalendarMonth = now.getMonth() + 1;
   }
 
-  const dateOptsHtml = [
-    `<option value="ALL" ${defaultDayKey === 'ALL' ? 'selected' : ''}>${isEn ? '-- All Recorded Sessions --' : '-- Tất cả các buổi đã điểm danh --'}</option>`
-  ].concat(
-    days.map(d => {
-      const lbl = `${d.date} — Có mặt: ${d.P + d.L}/${d.total} (P:${d.P} L:${d.L} E:${d.E} V:${d.A})`;
-      return `<option value="${escapeHtml(d.dayKey)}" ${d.dayKey === defaultDayKey ? 'selected' : ''}>${escapeHtml(lbl)}</option>`;
-    })
-  ).join('');
-
   const htmlBody = `
     <div id="hist-calendar-box" class="hist-calendar-card"></div>
     <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-        <select id="sel-hist-date" onchange="onHistorySelectDateDropdownChange()" style="margin-bottom:0; padding:7px 10px; flex:1; min-width:210px;">${dateOptsHtml}</select>
         <input type="text" id="inp-hist-search" oninput="renderHistoryModalList()" placeholder="${isEn ? 'Search student name or ID...' : 'Tìm họ tên hoặc MSSV...'}" style="margin-bottom:0; padding:7px 10px; flex:1; min-width:180px;" />
       </div>
       <div id="hist-selected-day-summary" class="hist-day-summary-bar"></div>
@@ -1329,9 +1251,8 @@ function openAttendanceHistoryManagerModal(initialDayKey) {
 }
 
 function onHistorySelectDateDropdownChange() {
-  const selDateEl = document.getElementById('sel-hist-date');
-  if (selDateEl && selDateEl.value && selDateEl.value !== 'ALL') {
-    const m = selDateEl.value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (historyModalSelectedDayKey && historyModalSelectedDayKey !== 'ALL') {
+    const m = String(historyModalSelectedDayKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (m) {
       historyModalCalendarYear = parseInt(m[1], 10);
       historyModalCalendarMonth = parseInt(m[2], 10);
@@ -1357,10 +1278,7 @@ function changeHistoryCalendarMonth(delta) {
 }
 
 function selectHistoryCalendarDay(dayKey) {
-  const selDateEl = document.getElementById('sel-hist-date');
-  if (selDateEl) {
-    selDateEl.value = dayKey;
-  }
+  historyModalSelectedDayKey = dayKey || 'ALL';
   if (dayKey && dayKey !== 'ALL') {
     const m = String(dayKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (m) {
@@ -1377,8 +1295,7 @@ function renderHistoryCalendarWidget() {
   if (!calBox) return;
 
   const isEn = currentLang === 'en';
-  const selDateEl = document.getElementById('sel-hist-date');
-  const selectedDayKey = selDateEl ? selDateEl.value : 'ALL';
+  const selectedDayKey = historyModalSelectedDayKey || 'ALL';
 
   const days = collectClassSessionDaysFromRoster();
   const recordedMap = {};
@@ -1498,21 +1415,6 @@ function renderHistoryCalendarWidget() {
     }
   }
 
-  // Quick completed-session pills (chronological order) for 1-tap switching across months
-  const chronologicalDone = days.slice().sort((a, b) => a.dayKey.localeCompare(b.dayKey));
-  const quickPillsHtml = [
-    `<button type="button" class="hist-quick-pill ${selectedDayKey === 'ALL' ? 'active' : ''}" onclick="selectHistoryCalendarDay('ALL')">
-      ${isEn ? `All (${days.length})` : `Tất cả (${days.length} buổi)`}
-    </button>`
-  ].concat(
-    chronologicalDone.map((d, idx) => `
-      <button type="button" class="hist-quick-pill ${selectedDayKey === d.dayKey ? 'active' : ''}" onclick="selectHistoryCalendarDay('${escapeHtml(d.dayKey)}')">
-        <span class="chip-dot dot-done"></span>
-        <span>B${idx + 1} • ${escapeHtml(d.shortDate)}</span>
-      </button>
-    `)
-  ).join('');
-
   calBox.innerHTML = `
     <div class="hist-cal-toolbar">
       <div class="hist-cal-nav">
@@ -1529,7 +1431,6 @@ function renderHistoryCalendarWidget() {
       ${weekdayHeaderHtml}
       ${cells.join('')}
     </div>
-    <div class="hist-quick-pills-row">${quickPillsHtml}</div>
   `;
 }
 
@@ -1537,10 +1438,9 @@ function renderHistoryModalList() {
   const container = document.getElementById('hist-modal-rows');
   if (!container) return;
   const isEn = currentLang === 'en';
-  const selDateEl = document.getElementById('sel-hist-date');
   const searchEl = document.getElementById('inp-hist-search');
   const summaryBar = document.getElementById('hist-selected-day-summary');
-  const selectedDayKey = selDateEl ? selDateEl.value : 'ALL';
+  const selectedDayKey = historyModalSelectedDayKey || 'ALL';
   const query = searchEl ? searchEl.value.trim().toLowerCase() : '';
 
   const list = (teacherState && teacherState.roster) || [];

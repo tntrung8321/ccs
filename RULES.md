@@ -1,11 +1,11 @@
 # QUY TẮC HỆ THỐNG CCS (CLASSCHECK SYSTEM RULES)
 
-> **Phiên bản đối chiếu hiện tại:** `v3.6.0`  
+> **Phiên bản đối chiếu hiện tại:** `v3.6.2` (Frontend UI) / `v3.6.0` (Backend Apps Script)  
 > **Các tệp nguồn đối chiếu:**
 > - Backend Apps Script: [`code3.6.0.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.0.text)
 > - Script Đồng bộ Sổ Điểm danh & Master Sheet: [`sync.txt`](file:///d:/CCS%20-%20ClassCheck%20System/sync.txt)
 > - Frontend Sinh viên / Giảng viên / Lịch học: [`js/student.js`](file:///d:/CCS%20-%20ClassCheck%20System/js/student.js), [`js/teacher.js`](file:///d:/CCS%20-%20ClassCheck%20System/js/teacher.js), [`js/schedule-config.js`](file:///d:/CCS%20-%20ClassCheck%20System/js/schedule-config.js)
-> - Quy tắc Quản lý Phiên bản: [`.agent/rules/changelog-and-versioning.md`](file:///d:/CCS%20-%20ClassCheck%20System/.agent/rules/changelog-and-versioning.md)
+> - Quy tắc Quản lý Phiên bản & Demo Giao diện: [`.agent/rules/changelog-and-versioning.md`](file:///d:/CCS%20-%20ClassCheck%20System/.agent/rules/changelog-and-versioning.md), [`.agent/rules/ui-demo-preview.md`](file:///d:/CCS%20-%20ClassCheck%20System/.agent/rules/ui-demo-preview.md)
 
 ---
 
@@ -161,4 +161,6 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
    - **Tuyệt đối không sử dụng Emoji / AI Icons** (`🎲`, `🎉`, `⚠️`, `🚨`, `✅`, `❌`, v.v.) trên toàn bộ giao diện Web của Giảng viên và Sinh viên.
    - Sử dụng Typography rõ ràng (`Be Vietnam Pro` + `JetBrains Mono` cho số liệu/MSSV/đồng hồ) và chấm tròn màu `7px` cho trạng thái `P / L / E / A`.
 2. **Quy tắc Đánh số Phiên bản & Đồng bộ (`changelog-and-versioning.md`)**:
-   - Mỗi lần cập nhật tính năng hoặc sửa lỗi: tăng `SYSTEM_VERSION` (`X.Y.Z`), đổi tên file [`code<X.Y.Z>.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.0.text) ở cả thư mục máy và trên Google Drive (`14mEoxJJ1_USzlYorIvnZBHJwzzK1KDOj`), cập nhật [`sync.txt`](file:///d:/CCS%20-%20ClassCheck%20System/sync.txt) (`1TA3scTqHwz8btQYJbzDSPiP6K3QCsxyA`), [`changelog.md`](file:///d:/CCS%20-%20ClassCheck%20System/changelog.md) (`18y2_402KSn4KfRZ0LExDlnCmB6UsqGPz`) song ngữ Anh–Việt, và query string `?v=<X.Y.Z>` ở các file frontend.
+   - Mỗi lần cập nhật tính năng hoặc sửa lỗi: tăng `SYSTEM_VERSION` (`X.Y.Z`), đổi tên file [`code<X.Y.Z>.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.0.text) ở cả thư mục máy và trên Google Drive (`14mEoxJJ1_USzlYorIvnZBHJwzzK1KDOj`) khi có thay đổi backend, cập nhật [`sync.txt`](file:///d:/CCS%20-%20ClassCheck%20System/sync.txt) (`1TA3scTqHwz8btQYJbzDSPiP6K3QCsxyA`), [`changelog.md`](file:///d:/CCS%20-%20ClassCheck%20System/changelog.md) (`18y2_402KSn4KfRZ0LExDlnCmB6UsqGPz`) song ngữ Anh–Việt, và query string `?v=<X.Y.Z>` ở các file frontend.
+3. **Quy tắc Demo Bằng Ảnh Sản Phẩm Trước Khi Sửa Giao Diện (`ui-demo-preview.md`)**:
+   - Khi lập kế hoạch hoặc chỉnh sửa giao diện (UI/UX), luôn chạy bản nháp cô lập (`/tmp/ccs-demo`), nạp dữ liệu mẫu thực tế và chụp ảnh sản phẩm độ phân giải cao (`2x Retina` qua Headless Chromium) gửi người dùng duyệt trực quan trước khi áp dụng vào mã nguồn chính.

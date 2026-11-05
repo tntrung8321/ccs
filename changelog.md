@@ -2,6 +2,20 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### ✨ Version `v3.6.2` — *Streamlined Lecturer Progress Strip, Calendar-Only Session Selection & Swapped Session Action Buttons*
+* **Swapped `"Hủy phiên nhầm"` and `"Đóng phiên"` Button Positions (`index.html`)**:
+  * Placed **`"Hủy phiên nhầm"`** (`Cancel Mistaken Session`, `#btn-tea-cancel-mistaken`) before **`"Đóng phiên"`** (`Close Session`) at the right edge of the session control row (`+2 Phút` $\rightarrow$ `Mở lại 5 phút` $\rightarrow$ `Hủy phiên nhầm` $\rightarrow$ `Đóng phiên`), keeping 100% of each button's handler (`promptCancelMistakenSession()` / `teacherControlSession('CLOSE_NOW')`), color styling, and confirmation dialog intact.
+* **Streamlined Single-Row Course Progress Bar (`js/teacher.js` & `css/styles.css`)**:
+  * Removed the redundant **`"Lịch tháng"`** (`Month Calendar`, `.btn-strip-cal`) button and the horizontal scrolling session chips (`.course-progress-chips`) from `#tea-course-progress-strip` in Panel 1, displaying a clean, single-row course progress bar (`Tiến độ học phần: X / Y buổi`).
+* **Calendar-Only Session Selection in the `"Lịch sử"` Modal (`js/teacher.js`)**:
+  * Removed the redundant session date dropdown (`#sel-hist-date`) and bottom horizontal session pill bar (`.hist-quick-pills-row`) inside `openAttendanceHistoryManagerModal()`, storing the active date in `historyModalSelectedDayKey` so lecturers select sessions directly on the interactive **Month Calendar** (`.hist-cal-grid`).
+* **Visual Product Screenshot Demo Rule (`.agent/rules/ui-demo-preview.md` & `RULES.md`)**:
+  * Standardized the isolated `/tmp/ccs-demo` + headless Chromium `2x` Retina screenshot preview workflow prior to applying UI modifications to production files.
+
+### ✨ Version `v3.6.1` — *Interactive Attendance Month Calendar, Course Progress Strip, Make-Up Session Confirmation & Cancel Mistaken Session*
+* **Interactive Month Calendar & Past Attendance Sync (`js/teacher.js`, `sync.txt`, `code3.6.0.text`)**:
+  * Added an interactive Month Calendar widget (`renderHistoryCalendarWidget`) inside the Lecturer **`"Lịch sử"`** modal, course progress tracking (`#tea-course-progress-strip`), 2-step confirmation for out-of-schedule make-up sessions (`#chk-confirm-makeup-session`), and 1-click **`"Hủy phiên nhầm"`** (`CANCEL_MISTAKEN_SESSION`) to delete accidental same-day sessions without penalizing students.
+
 ### ✨ Version `v3.6.0` — *Official Attendance Score & Exam Ban (`CẤM THI`) on Student UI, Same-Day Session Merging & Ghost Filtering, Customizable `Excused (E)` + Smart Color-Family Detection (`sync.txt`), Past-Session Excuse Approval, Shuffle-Bag Random Caller & Instant Classroom Group Maker*
 * **Official Attendance Score (`10.0` Base), Near-Limit Warning & `CẤM THI` Banner on Student UI (`code3.6.0.text`, `js/student.js`, `css/styles.css`)**:
   * Implemented the official attendance scoring and exam eligibility rules (displayed exclusively on the **Student UI** to keep the Lecturer UI clean):
@@ -165,6 +179,20 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### ✨ Version `v3.6.2` — *Tinh Gọn Thanh Tiến Độ Học Phần, Chọn Buổi Thuần Bằng Lịch Tháng & Đổi Vị Trí Nút Đóng Phiên / Hủy Phiên Nhầm*
+* **Hoán Đổi Vị Trí 2 Nút `"Hủy phiên nhầm"` và `"Đóng phiên"` (`index.html`)**:
+  * Đổi vị trí hiển thị để nút **`"Hủy phiên nhầm"`** (`#btn-tea-cancel-mistaken`) đứng trước và nút **`"Đóng phiên"`** nằm ở ngoài cùng bên phải (`+2 Phút` $\rightarrow$ `Mở lại 5 phút` $\rightarrow$ `Hủy phiên nhầm` $\rightarrow$ `Đóng phiên`). Giữ nguyên 100% chức năng, hàm xử lý (`promptCancelMistakenSession()` / `teacherControlSession('CLOSE_NOW')`), màu sắc và hộp thoại xác nhận của từng nút.
+* **Tinh Gọn Thanh Tiến Độ Học Phần Phía Trên (`js/teacher.js` & `css/styles.css`)**:
+  * Bỏ nút **`"Lịch tháng"`** (`.btn-strip-cal`, trùng chức năng với nút `"Lịch sử"` ở dưới) và bỏ thanh cuộn ngang các buổi (`.course-progress-chips`) ở Panel 1; chỉ hiển thị gọn duy nhất thanh tiến độ học phần (`Tiến độ học phần: X / Y buổi`) trên 1 dòng.
+* **Chọn Buổi Học Trực Tiếp Bằng Lịch Tháng Trong Hộp Thoại `"Lịch sử"` (`js/teacher.js`)**:
+  * Bỏ thanh dropdown chọn buổi (`#sel-hist-date`) và thanh ngang chọn buổi (`.hist-quick-pills-row`) trong hộp thoại `openAttendanceHistoryManagerModal()`; chuyển sang lưu trạng thái ngày đang chọn qua biến `historyModalSelectedDayKey` để Giảng viên chọn buổi trực tiếp bằng cách bấm vào các ô ngày trên **Lịch tháng** (`.hist-cal-grid`).
+* **Bổ Sung Quy Tắc Demo Giao Diện Bằng Ảnh Sản Phẩm (`.agent/rules/ui-demo-preview.md` & `RULES.md`)**:
+  * Chuẩn hóa quy trình chạy bản sao cô lập `/tmp/ccs-demo` và chụp ảnh sản phẩm độ phân giải cao (`2x Retina` qua Headless Chromium) gửi duyệt trực quan trước khi sửa mã nguồn chính.
+
+### ✨ Version `v3.6.1` — *Lịch Điểm Danh Tháng Trực Quan, Thanh Tiến Độ Học Phần, Xác Nhận Mở Phiên Dạy Bù & Hủy Phiên Mở Nhầm*
+* **Lịch Tháng Điểm Danh Trực Quan & Đồng Bộ Lịch Sử (`js/teacher.js`, `sync.txt`, `code3.6.0.text`)**:
+  * Tích hợp lịch tháng trực quan (`renderHistoryCalendarWidget`) trong hộp thoại **`"Lịch sử"`**, thanh tiến độ học phần (`#tea-course-progress-strip`), hộp kiểm xác nhận mở phiên dạy bù ngoài lịch thường kỳ (`#chk-confirm-makeup-session`) và nút **`"Hủy phiên nhầm"`** (`CANCEL_MISTAKEN_SESSION`) giúp xóa phiên vừa mở nhầm trong ngày mà không tính vắng sinh viên.
+
 ### ✨ Version `v3.6.0` — *Tính Điểm Chuyên Cần Chuẩn & Cảnh Báo `CẤM THI` Trên Giao Diện Sinh Viên, Gộp Phiên Trùng Ngày & Lọc Phiên Nháp, Tùy Biến `Có Phép (E)` + Nhận Diện Mọi Sắc Cam/Vàng/Đỏ (`sync.txt`), Duyệt Phép Buổi Cũ, Gọi Ngẫu Nhiên Không Lặp & Chia Nhóm Thảo Luận Tức Thì*
 * **Tính Điểm Chuyên Cần Chính Thức (Thang `10.0`), Cảnh Báo Sát Nút & Hiển Thị `CẤM THI` Trên Giao Diện Sinh Viên (`code3.6.0.text`, `js/student.js`, `css/styles.css`)**:
   * Áp dụng chính thức bộ quy tắc tính điểm chuyên cần và xét cấm thi (chỉ tô màu và hiển thị trên **Giao diện Sinh viên**, giữ nguyên sự gọn gàng cho giao diện Giảng viên):
@@ -326,17 +354,17 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.6.0`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.6.2`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.6.0` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.6.2` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.6.0`) on `tntrung8321.github.io/ccs/`** |
-| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI (Zero AI Icons), Official Attendance Score (`10.0` Base), Light-Red Warning & Solid-Red `CẤM THI` on Student UI** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.6.2`) on `tntrung8321.github.io/ccs/`** |
+| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI (Zero AI Icons), Clean Single-Row Course Progress Bar, Interactive Month Calendar, Official Attendance Score & `CẤM THI` on Student UI** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Synchronous `getCurrentPosition` Prompt + Live `watchPosition` Warm-Up (`cachedGPS = null`, `maximumAge: 0`) + Same-Day Session Merging** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Backend Open-Session Auto-Fallback)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + Legacy URL Auto-Migration** |
-| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **`0.01s` Optimistic Manual Marking (`P/L/E/-`) + Past-Session Excuse (`E`) Approval + Shuffle-Bag Random Caller & Instant Group Maker** |
+| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **`0.01s` Optimistic Manual Marking (`P/L/E/-`) + Calendar-Based Past-Session History (`Lịch sử`) + Cancel Mistaken Session + Random Caller & Group Maker** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-Extra-Load RAM `CacheService` (`ALL_LATEST_SES_V35`, `SES_ATT_MAP_V35_`, `CLASS_ATT_STATS_V35_`, `GROUP_SPLIT_`)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Multi-Browser (`Safari+Chrome`), F12, Fresh GPS Timestamp & Spot-Check Lock** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Customizable `P/L/E/-` Marks + Smart Color-Family Detection (All Shades of Orange/Yellow/Red) + Ghost Session Filtering** |

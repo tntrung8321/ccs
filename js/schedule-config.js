@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.6.0)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.6.2)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';

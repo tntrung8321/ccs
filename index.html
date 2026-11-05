@@ -15,7 +15,7 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.6.1" />
+  <link rel="stylesheet" href="css/styles.css?v=3.6.2" />
 </head>
 <body>
 
@@ -403,8 +403,8 @@
                 <div class="btn-row" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border-subtle); flex-wrap:wrap;">
                   <button class="btn btn-outline btn-sm" onclick="teacherControlSession('EXTEND_2M')" data-i18n="tea_extend_btn">+2 Phút</button>
                   <button class="btn btn-outline btn-sm" onclick="teacherControlSession('REOPEN_5M')" data-i18n="tea_reopen_btn">Mở lại 5 phút</button>
-                  <button class="btn btn-danger btn-sm" onclick="teacherControlSession('CLOSE_NOW')" data-i18n="tea_close_btn">Đóng phiên</button>
                   <button class="btn btn-outline btn-sm" id="btn-tea-cancel-mistaken" onclick="promptCancelMistakenSession()" style="color:var(--err-text); border-color:#fecaca;" title="Xóa bỏ phiên vừa mở nhầm hôm nay (Không tính vào lịch sử)">Hủy phiên nhầm</button>
+                  <button class="btn btn-danger btn-sm" onclick="teacherControlSession('CLOSE_NOW')" data-i18n="tea_close_btn">Đóng phiên</button>
                 </div>
 
                 <div id="tea-session-inline-status" class="inline-feedback hidden"></div>
@@ -494,8 +494,8 @@
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/schedule-config.js?v=3.6.1"></script>
-  <script src="js/student.js?v=3.6.1"></script>
-  <script src="js/teacher.js?v=3.6.1"></script>
+  <script src="js/schedule-config.js?v=3.6.2"></script>
+  <script src="js/student.js?v=3.6.2"></script>
+  <script src="js/teacher.js?v=3.6.2"></script>
 </body>
 </html>

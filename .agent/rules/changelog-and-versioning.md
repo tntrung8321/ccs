@@ -17,3 +17,6 @@ Whenever you fix bugs, add features, or modify system behavior in `d:\CCS - Clas
      - **Rename** the local backend file `code<old>.text` to `code<X.Y.Z>.text` (`d:\CCS - ClassCheck System\code<X.Y.Z>.text`) so the filename always matches the current `SYSTEM_VERSION = '<X.Y.Z>'`, and **rename** the corresponding Google Drive file (`14mEoxJJ1_USzlYorIvnZBHJwzzK1KDOj`) via `gdrive mutate rename 14mEoxJJ1_USzlYorIvnZBHJwzzK1KDOj "code<X.Y.Z>.text"`.
      - Update `SYSTEM_VERSION` and header comments in `code<X.Y.Z>.text` and `sync.txt` (`d:\CCS - ClassCheck System\sync.txt`, Drive ID: `1TA3scTqHwz8btQYJbzDSPiP6K3QCsxyA`).
      - Update release version badges / query-string cache busters (`?v=<X.Y.Z>`) / comments in frontend modules (`index.html`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `css/styles.css`).
+
+3. **Visual Product Screenshot Demo Before Coding UI Changes (`ui-demo-preview.md`)**:
+   - When planning or modifying UI/interface elements, run an isolated demo in `/tmp/ccs-demo`, render high-DPI (`2x`) product screenshots via headless Chromium, and present the screenshots for user approval before modifying the main repository files.
