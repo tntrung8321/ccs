@@ -40,6 +40,15 @@
   * **Upgraded Random Caller (`Gọi ngẫu nhiên`)**: Uses a per-session `Shuffle Bag` so already-called students are not repeated until every present student has been called, hides full Student IDs on the projector modal (showing `(***123)` only if two students share the exact same full name), and adds a **`"Gọi tiếp"`** (`Call Next`) button directly inside the modal alongside **`"Hủy & Khóa (-)"`**.
   * **Instant Classroom Group Maker (`Chia nhóm`)**: Splits present students (`P` + `L`, or full roster if no session is open) into groups of `2, 3, 4, 5` in `0ms` with instant reshuffling, and broadcasts the groups (`TEACHER_PUBLISH_GROUPS` via `CacheService`) to students' phones (`#stu-group-card`) so students immediately see their Group # and teammates.
 * **Exported Complete System Rules (`RULES.md`)**: Documented all time windows, GPS radius/allowance rules, 1-1 device lock & anti-cheat rules, attendance score/exam-ban formulas, and customization settings in [`RULES.md`](file:///d:/CCS%20-%20ClassCheck%20System/RULES.md).
+* **Backend Key Upgrades Summary (Moved from `code3.6.0.text` Header)**:
+  * Unified Same-Day Session Merging & Ghost/Test Session Filtering (`0`-present closed sessions ignored).
+  * Official Attendance Score (`Base 10.0`, `A=-1.0/1.0x`, `L=-0.5/0x`, `E=-0.5/0.5x`) & Exam Ban (`>6.0x` or `<0.0pt` or Red Row).
+  * Past-Session Excuse (`E`) Approval by Lecturer (`targetSessionId` / `targetDayKey` override).
+  * Instant Classroom Group Maker Broadcast via `CacheService` (`GROUP_SPLIT_<classId>`).
+  * Unified GitHub Pages URL (`https://tntrung8321.github.io/ccs/`) + Auto-Migration in Cell `B5`.
+  * Zero-Read RAM Cache Layer for `Sessions_Log` & `Attendance_Log` (`0.01s` manual mark & `2.5s` polling) + Piggybacked Student Attendance Summary.
+  * Strict Live GPS Evaluation (`50m` max accuracy allowance, `100m` radius, zero coordinate caching) + Default `TEACHER_GPS` / Advanced `STUDENT_AVG_3` Anchor.
+  * Auto-Rebind on Check-In after Lecturer Device Reset (`REVOKED` -> `ACTIVE` seamlessly) + Precision Anti-Cheat Soft-Flagging (`deviceFp`, 6-decimal coords, F12/Mock GPS).
 
 ### 🔧 Version `v3.5.1` — *Unified GitHub Repository & GitHub Pages URL (`tntrung8321/ccs` & `https://tntrung8321.github.io/ccs/`) + Seamless Legacy Redirect*
 * **Unified GitHub Repository & GitHub Pages Endpoint (`tntrung8321/ccs`)**:

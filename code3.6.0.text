@@ -1,28 +1,10 @@
 /**
  * ============================================================================
- * BILINGUAL (EN/VI) QR + GPS + DEVICE-LOCK ATTENDANCE SYSTEM — BACKEND (v3.6.0)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.6.0)
  * ============================================================================
- * Architecture: Lecturer-Owned Google Sheet + Bound Google Apps Script
- * Key Upgrades & Verified Fixes in v3.6.0:
- *  - Unified Same-Day Session Merging & Ghost/Test Session Filtering (0-present closed sessions ignored)
- *  - Official Attendance Score (Base 10.0, A=-1.0/1.0x, L=-0.5/0x, E=-0.5/0.5x) & Exam Ban (>6.0x or <0.0pt or Red Row)
- *  - Past-Session Excuse (E) Approval by Lecturer (supports targetSessionId / targetDayKey override)
- *  - Instant Classroom Group Maker Broadcast via CacheService (GROUP_SPLIT_<classId>)
- *  - Unified GitHub Pages URL (https://tntrung8321.github.io/ccs/) + Auto-Migration in Cell B5
- *  - Compatible 100% with modular index.html UI & external Sync.gs menu/functions
- *  - Zero-Read RAM Cache Layer for Sessions_Log & Attendance_Log (instant 0.01s manual mark & 2.5s polling)
- *  - Zero-Request Piggybacked Student Attendance Summary (Present / Late / Excused / Absent counts per class)
- *  - Strict Live GPS Evaluation (50m max accuracy allowance, 100m radius, zero coordinate caching)
- *  - Auto-Rebind on Check-In after Lecturer Device Reset (REVOKED -> ACTIVE seamlessly when MSSV input is locked)
- *  - Smart Open-Session Class Fallback on Check-In & Retry-Safe Pre-Lock Rate Limiting
- *  - Default Lecturer-Proximity GPS Evaluation (TEACHER_GPS) + Advanced 3-Student Centroid Anchor (STUDENT_AVG_3)
- *  - Fixed Lecturer 6-digit password & Master Key verification (zero redundant PropertiesService writes on poll)
- *  - High-Concurrency CacheService layer (absorbs 60+ simultaneous check-ins & fast 2.5s live roster polling)
- *  - Blocks re-check-in if Lecturer revoked attendance via Spot-Check (TEACHER_MANUAL '-')
- *  - Accepts 1-Tap GPS tokens & rotated static secrets without false ERR_INVALID_QR
- *  - Precision Anti-Cheat Soft-Flagging (Hardware Fingerprint Safari+Chrome, Exact 6-Decimal Coords, F12/Mock GPS)
- *  - Multi-day class schedule & period auto-detection (T2&6, T2&T6, T3&T5, 10-12, 13-15)
- *  - Universal Content-Aware Drive Roster Sync (auto-detects modified .XLSX/Sheet rosters by Class_ID + MSSV/Name)
+ * Architecture : Master Google Sheet + Bound Apps Script Web App
+ * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
+ * Release Notes: See changelog.md and RULES.md for version history & rules.
  * ============================================================================
  */
 
@@ -154,9 +136,6 @@ function initializeAndVerifySystem() {
   );
 }
 
-/**
- * TAB BUILDERS (Safe & Non-Destructive)
- */
 function ensureDashboardTab(ss, installId, teacherKey) {
   let sheet = ss.getSheetByName(TAB_DASHBOARD);
   if (!sheet) {
@@ -485,7 +464,6 @@ function doPost(e) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
 
     switch (action) {
-      // --- PUBLIC / STUDENT ACTIONS ---
       case 'PING':
         return handlePing(ss, body);
       case 'STUDENT_ONBOARD':
@@ -495,7 +473,6 @@ function doPost(e) {
       case 'CHECK_RECEIPT':
         return handleCheckReceipt(ss, body);
 
-      // --- PROTECTED TEACHER ACTIONS ---
       case 'TEACHER_AUTH':
         return handleTeacherAuth(ss, body);
       case 'TEACHER_GET_STATE':
@@ -845,7 +822,6 @@ function handleStudentCheckIn(ss, body) {
   }
   const canonicalName = roster[studentId].fullName;
 
-  // 2. Find Active Open Session
   if (!activeSession) {
     cache.remove(spamKey);
     return jsonResponse({ ok: false, code: 'ERR_SESSION_CLOSED' });
@@ -877,7 +853,6 @@ function handleStudentCheckIn(ss, body) {
     } catch (e) {}
   }
 
-  // 3. Verify QR Code / 1-Tap GPS Token
   const qrValid = verifyClassroomQr(qrPayload, classConfig, activeSession);
   if (!qrValid) {
     return jsonResponse({ ok: false, code: 'ERR_INVALID_QR' });
@@ -1120,12 +1095,10 @@ function handleStudentCheckIn(ss, body) {
     if (recentList.length > 40) recentList = recentList.slice(-40);
     try { cache.put(recentKey, JSON.stringify(recentList), 600); } catch (e) {}
 
-    // 7. Determine Status (P = Present, L = Late) from authoritative server clock
     const status = nowMs <= activeSession.presentUntilMs ? 'P' : 'L';
     const timeStr = Utilities.formatDate(new Date(nowMs), TIMEZONE, 'HH:mm:ss');
     const attendanceId = 'ATT_' + generateRandomToken(10);
 
-    // 8. Append Authoritative Record to Attendance_Log
     const attSheet = ss.getSheetByName(TAB_ATTEND);
     attSheet.appendRow([
       attendanceId,
@@ -2174,7 +2147,6 @@ function buildGroupedClassDayRecords_(ss, classId) {
     }
   } catch (e) {}
 
-  // 2. Merge sessions from Sessions_Log
   sesData.forEach(r => {
     if (String(r[1]).trim() !== classId) return;
     const sesId = String(r[0]).trim();
@@ -2224,7 +2196,6 @@ function buildGroupedClassDayRecords_(ss, classId) {
 
   if (dayOrder.length === 0) return [];
 
-  // 3. Merge Attendance_Log records (including HIST_ manual overrides)
   const attSheet = ss.getSheetByName(TAB_ATTEND);
   if (attSheet && attSheet.getLastRow() > 1) {
     const attData = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 10).getValues();
@@ -2744,7 +2715,6 @@ function getClassAttendanceStatsMap_(ss, classId, bypassCache) {
     });
   });
 
-  // Compute Official Attendance Score (base 10.0) & Exam Eligibility Status per student
   studentIds.forEach(sid => {
     const st = statsMap[sid];
     const equivAbsences = Math.round((st.A + (st.E * 0.5)) * 10) / 10;
