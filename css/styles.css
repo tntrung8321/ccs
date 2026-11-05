@@ -1057,29 +1057,17 @@ select.unselected-warning {
   line-height: 1.45;
 }
 
-/* Lecturer Roster Clickable Student Name & Past-Session / Group Maker Modals */
-.stu-name-clickable {
-  cursor: pointer;
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-underline-offset: 3px;
-}
-
-.stu-name-clickable:hover {
-  color: var(--primary);
-}
-
-.stu-past-excuse-badge {
-  display: inline-block;
-  font-size: 0.69rem;
-  font-weight: 600;
-  color: var(--primary);
+/* Lecturer History Action Button in Filter Bar & Past-Session / Group Maker Modals */
+.filter-tab.filter-tab-history {
   background: var(--primary-subtle);
-  border: 1px solid #bfdbfe;
-  padding: 1px 6px;
-  border-radius: 4px;
-  margin-left: 6px;
-  cursor: pointer;
+  color: var(--primary);
+  border: 1px solid #93c5fd;
+  font-weight: 700;
+}
+
+.filter-tab.filter-tab-history:hover {
+  background: #dbeafe;
+  border-color: #60a5fa;
 }
 
 .modal-card.modal-wide {
@@ -1104,14 +1092,36 @@ select.unselected-warning {
 
 .past-ses-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 7px 10px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
   background: var(--surface);
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
   font-size: 0.8rem;
+}
+
+.past-ses-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.past-ses-confirm-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  border-radius: 5px;
+  font-size: 0.77rem;
+  font-weight: 600;
+  color: var(--primary);
 }
 
 .group-maker-toolbar {

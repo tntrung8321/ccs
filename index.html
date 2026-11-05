@@ -436,6 +436,7 @@
               <button type="button" id="tab-filter-present" class="filter-tab" data-roster-filter="PRESENT" onclick="setRosterFilter('PRESENT')">Có mặt (0)</button>
               <button type="button" id="tab-filter-absent" class="filter-tab" data-roster-filter="ABSENT" onclick="setRosterFilter('ABSENT')">Vắng (0)</button>
               <button type="button" id="tab-filter-suspect" class="filter-tab" data-roster-filter="SUSPECT" onclick="setRosterFilter('SUSPECT')">Nghi vấn (0)</button>
+              <button type="button" id="btn-open-history-modal" class="filter-tab filter-tab-history" onclick="openAttendanceHistoryManagerModal()" data-i18n="tea_history_btn">Lịch sử</button>
             </div>
             <input type="text" id="inp-roster-search" data-i18n-placeholder="tea_search_placeholder" placeholder="Tìm họ tên hoặc mã số sinh viên (Nhấn Enter để đánh dấu Có mặt)..." oninput="renderTeacherRoster()" onkeydown="handleRosterSearchKeydown(event)" style="margin-bottom:0;" />
           </div>

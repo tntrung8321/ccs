@@ -690,21 +690,25 @@ function renderTeacherRoster() {
     nameCounts[key] = (nameCounts[key] || 0) + 1;
   });
 
+  function cleanRosterTimeStr(rawTime) {
+    const s = String(rawTime || '').trim();
+    if (!s) return '';
+    if (/^\d{4}\s+\d{1,2}:$/.test(s)) return '';
+    const m = s.match(/\b(\d{2}:\d{2}(?::\d{2})?)\b/);
+    return m ? m[1] : s;
+  }
+
   container.innerHTML = filtered.map(st => {
     const suspectNote = suspectMap[st.studentId];
     const isDuplicateName = (nameCounts[String(st.fullName || '').trim().toLowerCase()] || 0) > 1;
     const maskedTail = isDuplicateName && st.studentId ? ` (***${String(st.studentId).slice(-3)})` : '';
-    const eCount = st.attendanceStats && Number(st.attendanceStats.E || 0) > 0 ? Number(st.attendanceStats.E) : 0;
-    const pastBadgeLabel = isEn
-      ? (eCount > 0 ? `History / Excused (${eCount}E)` : 'History / Excuse')
-      : (eCount > 0 ? `Lịch sử / Phép (${eCount}E)` : 'Lịch sử / Phép');
+    const cleanTime = cleanRosterTimeStr(st.time);
     return `
       <div class="roster-item ${suspectNote ? 'suspect-row' : ''}">
         <div class="roster-student-info">
-          <strong class="stu-name-clickable" onclick="openStudentPastAttendanceModal('${escapeHtml(st.studentId)}')" title="${isEn ? 'Click to view past sessions & approve Excused (E)' : 'Bấm để xem lịch sử các buổi trước và duyệt Vắng có phép (E)'} — MSSV: ${escapeHtml(st.studentId)}">${escapeHtml(st.fullName)}${escapeHtml(maskedTail)}</strong>
+          <strong title="MSSV: ${escapeHtml(st.studentId)}">${escapeHtml(st.fullName)}${escapeHtml(maskedTail)}</strong>
           <span class="status-pill st-${st.status}">${escapeHtml(st.status)}</span>
-          <span class="stu-past-excuse-badge" onclick="openStudentPastAttendanceModal('${escapeHtml(st.studentId)}')" title="${isEn ? 'Approve Excused (E) for past sessions' : 'Duyệt phép (E) cho các buổi học trước'}">${escapeHtml(pastBadgeLabel)}</span>
-          ${st.time ? `<span style="font-size:0.75rem; color:var(--muted); font-family:var(--font-mono);">${escapeHtml(st.time)}</span>` : ''}
+          ${cleanTime ? `<span style="font-size:0.75rem; color:var(--muted); font-family:var(--font-mono);">${escapeHtml(cleanTime)}</span>` : ''}
           ${st.distance !== '' && st.distance !== undefined ? `<span style="font-size:0.74rem; color:#0f766e; font-weight:600; font-family:var(--font-mono);">(${escapeHtml(st.distance)}m)</span>` : ''}
           ${suspectNote ? `<span class="suspect-tag">[${isEn ? 'SUSPECT' : 'NGHI VẤN'}] ${escapeHtml(suspectNote)}</span>` : ''}
         </div>
@@ -825,53 +829,65 @@ function triggerRandomSpotCheck() {
   );
 }
 
-function openStudentPastAttendanceModal(studentId) {
+function collectClassSessionDaysFromRoster() {
   const list = (teacherState && teacherState.roster) || [];
-  const st = list.find(r => r && r.studentId === studentId);
+  const dayMap = {};
+  list.forEach(st => {
+    const hist = st && st.attendanceStats && Array.isArray(st.attendanceStats.history)
+      ? st.attendanceStats.history
+      : [];
+    hist.forEach(h => {
+      if (h && h.dayKey && !dayMap[h.dayKey]) {
+        dayMap[h.dayKey] = {
+          dayKey: h.dayKey,
+          date: h.date || h.dayKey,
+          label: h.label || '',
+          sessionId: h.sessionId || ''
+        };
+      }
+    });
+  });
+  return Object.values(dayMap).sort((a, b) => b.dayKey.localeCompare(a.dayKey));
+}
+
+function openAttendanceHistoryManagerModal() {
   const isEn = currentLang === 'en';
-  if (!st) return;
+  const list = (teacherState && teacherState.roster) || [];
+  if (!selectedTeacherClassId || list.length === 0) {
+    showStatus(
+      isEn ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.',
+      'warn'
+    );
+    return;
+  }
 
-  const stats = st.attendanceStats || { P: 0, L: 0, E: 0, A: 0, history: [] };
-  const history = Array.isArray(stats.history) ? stats.history.slice().reverse() : [];
+  const days = collectClassSessionDaysFromRoster();
+  const defaultDayKey = days.length > 0 ? days[0].dayKey : 'ALL';
 
-  const rowsHtml = history.length > 0
-    ? history.map(h => {
-        const curSt = h.status === 'OPEN' ? '-' : (h.status || '-');
-        const safeDayKey = escapeHtml(h.dayKey || '');
-        const safeSesId = escapeHtml(h.sessionId || '');
-        const safeSid = escapeHtml(st.studentId);
-        return `
-          <div class="past-ses-row" id="past-row-${safeDayKey}">
-            <div>
-              <strong>${escapeHtml(h.date || h.dayKey)}</strong>
-              <span style="font-size:0.74rem; color:var(--muted); margin-left:6px;">(${escapeHtml(h.label || '')})</span>
-              <span id="past-pill-${safeDayKey}" class="status-pill st-${curSt}" style="margin-left:6px;">${escapeHtml(curSt)}</span>
-            </div>
-            <div style="display:flex; gap:4px;">
-              <button type="button" class="btn btn-outline btn-sm ${curSt === 'P' ? 'btn-mark-active-P' : ''}" onclick="teacherMarkPastSession('${safeSid}','${safeDayKey}','${safeSesId}','P')">P</button>
-              <button type="button" class="btn btn-outline btn-sm ${curSt === 'L' ? 'btn-mark-active-L' : ''}" onclick="teacherMarkPastSession('${safeSid}','${safeDayKey}','${safeSesId}','L')">L</button>
-              <button type="button" class="btn btn-outline btn-sm ${curSt === 'E' ? 'btn-mark-active-E' : ''}" onclick="teacherMarkPastSession('${safeSid}','${safeDayKey}','${safeSesId}','E')">E</button>
-              <button type="button" class="btn btn-outline btn-sm ${curSt === '-' ? 'btn-mark-active--' : ''}" onclick="teacherMarkPastSession('${safeSid}','${safeDayKey}','${safeSesId}','-')">-</button>
-            </div>
-          </div>
-        `;
-      }).join('')
-    : `<div style="padding:12px 0; color:var(--muted); font-size:0.82rem;">${isEn ? 'No attendance sessions recorded for this class yet.' : 'Lớp học phần này chưa có lịch sử buổi điểm danh nào.'}</div>`;
+  const dateOptsHtml = [
+    `<option value="ALL" ${defaultDayKey === 'ALL' ? 'selected' : ''}>${isEn ? '-- All Sessions --' : '-- Tất cả các buổi học --'}</option>`
+  ].concat(
+    days.map(d => {
+      const lbl = d.label ? `${d.date} (${d.label})` : d.date;
+      return `<option value="${escapeHtml(d.dayKey)}" ${d.dayKey === defaultDayKey ? 'selected' : ''}>${escapeHtml(lbl)}</option>`;
+    })
+  ).join('');
 
   const htmlBody = `
-    <div style="font-size:0.82rem; color:var(--text-secondary); margin-bottom:8px;">
-      <div><strong>${escapeHtml(st.fullName)}</strong> — MSSV: <span style="font-family:var(--font-mono);">${escapeHtml(st.studentId)}</span></div>
-      <div style="margin-top:4px; font-size:0.77rem; color:var(--muted);">
-        ${isEn
-          ? 'Select any past date below to approve an Excused absence (E) after verifying student documentation:'
-          : 'Chọn buổi học bên dưới để duyệt Vắng có phép (E) hoặc điều chỉnh chuyên cần khi sinh viên bổ sung minh chứng:'}
+    <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
+      <div>
+        <label for="sel-hist-date" style="font-size:0.77rem; margin-bottom:3px;">${isEn ? 'Select Session Date:' : 'Chọn ngày điểm danh:'}</label>
+        <select id="sel-hist-date" onchange="renderHistoryModalList()" style="margin-bottom:0; padding:7px 10px;">${dateOptsHtml}</select>
+      </div>
+      <div>
+        <input type="text" id="inp-hist-search" oninput="renderHistoryModalList()" placeholder="${isEn ? 'Search student name or Student ID...' : 'Gõ họ tên hoặc mã số sinh viên...'}" style="margin-bottom:0; padding:7px 10px;" />
       </div>
     </div>
-    <div class="past-ses-list">${rowsHtml}</div>
+    <div id="hist-modal-rows" class="past-ses-list"></div>
   `;
 
   openAppModal(
-    isEn ? 'Attendance History & Excuse Approval (E)' : 'Lịch sử Điểm danh & Duyệt phép (E)',
+    isEn ? 'Attendance History' : 'Lịch sử Điểm danh',
     '',
     '',
     null,
@@ -881,6 +897,116 @@ function openStudentPastAttendanceModal(studentId) {
       hideConfirm: true
     }
   );
+
+  renderHistoryModalList();
+}
+
+function renderHistoryModalList() {
+  const container = document.getElementById('hist-modal-rows');
+  if (!container) return;
+  const isEn = currentLang === 'en';
+  const selDateEl = document.getElementById('sel-hist-date');
+  const searchEl = document.getElementById('inp-hist-search');
+  const selectedDayKey = selDateEl ? selDateEl.value : 'ALL';
+  const query = searchEl ? searchEl.value.trim().toLowerCase() : '';
+
+  const list = (teacherState && teacherState.roster) || [];
+  const days = collectClassSessionDaysFromRoster();
+  if (days.length === 0) {
+    container.innerHTML = `<div style="padding:12px 0; color:var(--muted); font-size:0.82rem; text-align:center;">${isEn ? 'No attendance sessions recorded for this class yet.' : 'Lớp học phần này chưa có lịch sử buổi điểm danh nào.'}</div>`;
+    return;
+  }
+
+  const matchedStudents = list.filter(st =>
+    !query || st.fullName.toLowerCase().includes(query) || st.studentId.toLowerCase().includes(query)
+  );
+
+  const items = [];
+  matchedStudents.forEach(st => {
+    const hist = (st.attendanceStats && Array.isArray(st.attendanceStats.history))
+      ? st.attendanceStats.history.slice().reverse()
+      : [];
+    hist.forEach(h => {
+      if (!h || !h.dayKey) return;
+      if (selectedDayKey !== 'ALL' && h.dayKey !== selectedDayKey) return;
+      const curSt = h.status === 'OPEN' ? '-' : (h.status || '-');
+      // If viewing ALL dates with no search query, prioritize showing rows with -, E, or L so the list stays focused
+      if (selectedDayKey === 'ALL' && !query && curSt === 'P') return;
+      items.push({
+        studentId: st.studentId,
+        fullName: formatProjectorDisplayName(st, list),
+        dayKey: h.dayKey,
+        date: h.date || h.dayKey,
+        label: h.label || '',
+        sessionId: h.sessionId || '',
+        status: curSt
+      });
+    });
+  });
+
+  if (items.length === 0) {
+    container.innerHTML = `<div style="padding:12px 0; color:var(--muted); font-size:0.82rem; text-align:center;">${isEn ? 'No matching attendance records found.' : 'Không có bản ghi nào khớp điều kiện lọc.'}</div>`;
+    return;
+  }
+
+  container.innerHTML = items.map(item => {
+    const rowDomId = `${escapeHtml(item.studentId)}_${escapeHtml(item.dayKey)}`;
+    const safeSid = escapeHtml(item.studentId);
+    const safeName = escapeHtml(item.fullName);
+    const safeDayKey = escapeHtml(item.dayKey);
+    const safeDate = escapeHtml(item.date);
+    const safeSesId = escapeHtml(item.sessionId);
+    const curSt = item.status;
+
+    return `
+      <div class="past-ses-row" id="past-row-${rowDomId}">
+        <div class="past-ses-row-main">
+          <div>
+            <strong>${safeName}</strong>
+            <span style="font-size:0.75rem; color:var(--muted); margin-left:6px; font-family:var(--font-mono);">${safeDate}</span>
+            <span id="past-pill-${rowDomId}" class="status-pill st-${curSt}" style="margin-left:6px;">${escapeHtml(curSt)}</span>
+          </div>
+          <div style="display:flex; gap:4px;">
+            <button type="button" class="btn btn-outline btn-sm ${curSt === 'P' ? 'btn-mark-active-P' : ''}" onclick="promptPastSessionConfirm('${safeSid}','${safeName}','${safeDayKey}','${safeDate}','${safeSesId}','${curSt}','P')">P</button>
+            <button type="button" class="btn btn-outline btn-sm ${curSt === 'L' ? 'btn-mark-active-L' : ''}" onclick="promptPastSessionConfirm('${safeSid}','${safeName}','${safeDayKey}','${safeDate}','${safeSesId}','${curSt}','L')">L</button>
+            <button type="button" class="btn btn-outline btn-sm ${curSt === 'E' ? 'btn-mark-active-E' : ''}" onclick="promptPastSessionConfirm('${safeSid}','${safeName}','${safeDayKey}','${safeDate}','${safeSesId}','${curSt}','E')">E</button>
+            <button type="button" class="btn btn-outline btn-sm ${curSt === '-' ? 'btn-mark-active--' : ''}" onclick="promptPastSessionConfirm('${safeSid}','${safeName}','${safeDayKey}','${safeDate}','${safeSesId}','${curSt}','-')">-</button>
+          </div>
+        </div>
+        <div id="past-confirm-${rowDomId}" class="past-ses-confirm-box hidden"></div>
+      </div>
+    `;
+  }).join('');
+}
+
+function promptPastSessionConfirm(studentId, fullName, dayKey, dateLabel, sessionId, oldStatus, newStatus) {
+  const rowDomId = `${studentId}_${dayKey}`;
+  const confirmEl = document.getElementById(`past-confirm-${rowDomId}`);
+  if (!confirmEl) return;
+  if (oldStatus === newStatus) {
+    confirmEl.classList.add('hidden');
+    return;
+  }
+
+  const isEn = currentLang === 'en';
+  const safeSid = escapeHtml(studentId);
+  const safeDayKey = escapeHtml(dayKey);
+  const safeSesId = escapeHtml(sessionId);
+  const safeNew = escapeHtml(newStatus);
+
+  confirmEl.innerHTML = `
+    <span>${isEn ? `Confirm changing ${dateLabel} for ${fullName}: ${oldStatus} -> ${newStatus}?` : `Xác nhận đổi ngày ${escapeHtml(dateLabel)} của ${escapeHtml(fullName)}: ${escapeHtml(oldStatus)} -> ${safeNew}?`}</span>
+    <div style="display:flex; gap:6px;">
+      <button type="button" class="btn btn-outline btn-sm" onclick="cancelPastSessionConfirm('${safeSid}','${safeDayKey}')">${isEn ? 'Cancel' : 'Hủy'}</button>
+      <button type="button" class="btn btn-primary btn-sm" onclick="teacherMarkPastSession('${safeSid}','${safeDayKey}','${safeSesId}','${safeNew}')">${isEn ? 'Confirm' : 'Xác nhận'}</button>
+    </div>
+  `;
+  confirmEl.classList.remove('hidden');
+}
+
+function cancelPastSessionConfirm(studentId, dayKey) {
+  const confirmEl = document.getElementById(`past-confirm-${studentId}_${dayKey}`);
+  if (confirmEl) confirmEl.classList.add('hidden');
 }
 
 async function teacherMarkPastSession(studentId, dayKey, sessionId, newStatus) {
@@ -889,19 +1015,14 @@ async function teacherMarkPastSession(studentId, dayKey, sessionId, newStatus) {
   const isEn = currentLang === 'en';
   if (!auth || !classId || !studentId) return;
 
+  const rowDomId = `${studentId}_${dayKey}`;
+  cancelPastSessionConfirm(studentId, dayKey);
+
   // Instant 0.01s visual update inside the modal & local teacherState
-  const pillEl = document.getElementById(`past-pill-${dayKey}`);
+  const pillEl = document.getElementById(`past-pill-${rowDomId}`);
   if (pillEl) {
     pillEl.className = `status-pill st-${newStatus}`;
     pillEl.textContent = newStatus;
-  }
-  const rowEl = document.getElementById(`past-row-${dayKey}`);
-  if (rowEl) {
-    rowEl.querySelectorAll('button').forEach(btn => {
-      const bTxt = btn.textContent.trim();
-      btn.classList.remove('btn-mark-active-P', 'btn-mark-active-L', 'btn-mark-active-E', 'btn-mark-active--');
-      if (bTxt === newStatus) btn.classList.add(`btn-mark-active-${newStatus}`);
-    });
   }
 
   if (teacherState && Array.isArray(teacherState.roster)) {
@@ -911,6 +1032,7 @@ async function teacherMarkPastSession(studentId, dayKey, sessionId, newStatus) {
       if (hItem) hItem.status = newStatus;
     }
   }
+  renderHistoryModalList();
 
   if (typeof recordLocalStudentSessionMark === 'function') {
     recordLocalStudentSessionMark(studentId, classId, dayKey, newStatus === '-' ? 'A' : newStatus, '');
@@ -928,6 +1050,7 @@ async function teacherMarkPastSession(studentId, dayKey, sessionId, newStatus) {
 
   if (res && res.ok) {
     await applyTeacherState(res, false);
+    renderHistoryModalList();
     showStatus(
       isEn
         ? `Updated session ${dayKey} -> ${newStatus} for ${studentId}.`
