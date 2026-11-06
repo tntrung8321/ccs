@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.6.2)
+ * LECTURER CONTROLLER (js/teacher.js — v3.6.3)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -437,15 +437,23 @@ async function confirmAndStartSession() {
   }
   const isMakeUpConfirmed = Boolean(requiresMakeUpConfirm && makeUpChk && makeUpChk.checked);
   if (typeof pulseButtonConfirm === 'function') {
-    await pulseButtonConfirm(
+    pulseButtonConfirm(
       'btn-tea-confirm-open',
       currentLang === 'en' ? 'OPENING SESSION...' : 'ĐANG MỞ PHIÊN...',
       'success',
-      380
+      1500
     );
   }
-  cancelOpenSessionConfirm();
   await teacherStartSession(isMakeUpConfirmed);
+  cancelOpenSessionConfirm();
+  if (typeof pulseButtonConfirm === 'function') {
+    pulseButtonConfirm(
+      'btn-tea-open-trigger',
+      currentLang === 'en' ? 'SESSION OPENED' : 'ĐÃ MỞ PHIÊN ĐIỂM DANH',
+      'success',
+      1400
+    );
+  }
 }
 
 async function onTeacherClassChange() {
@@ -670,8 +678,9 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
 async function teacherControlSession(subAction, extra = {}) {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
+  const isEn = currentLang === 'en';
   if (!auth || !classId) {
-    showStatus(currentLang === 'en' ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.', 'warn');
+    showStatus(isEn ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.', 'warn');
     return;
   }
   cancelOpenSessionConfirm();
@@ -683,9 +692,18 @@ async function teacherControlSession(subAction, extra = {}) {
   }, extra));
   if (res && res.ok) {
     await applyTeacherState(res, false);
+    if (typeof pulseButtonConfirm === 'function') {
+      if (subAction === 'EXTEND_2M') {
+        pulseButtonConfirm('btn-tea-extend', isEn ? '+2 MINS ADDED' : 'ĐÃ +2 PHÚT', 'success', 1200);
+      } else if (subAction === 'REOPEN_5M') {
+        pulseButtonConfirm('btn-tea-reopen', isEn ? 'REOPENED 5M' : 'ĐÃ MỞ LẠI 5 PHÚT', 'success', 1200);
+      } else if (subAction === 'CLOSE_NOW') {
+        pulseButtonConfirm('btn-tea-close', isEn ? 'CLOSED' : 'ĐÃ ĐÓNG PHIÊN', 'success', 1200);
+      }
+    }
     if (subAction === 'CANCEL_MISTAKEN_SESSION') {
       showStatus(
-        currentLang === 'en'
+        isEn
           ? `Cancelled and removed the mistaken session for ${classId}.`
           : `Đã hủy và xóa bỏ phiên mở nhầm của lớp ${classId}.`,
         'success',

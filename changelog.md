@@ -2,6 +2,19 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### ✨ Version `v3.6.3` — *Tactile `Pulse to Confirm` Feedback (Student `P` Green / `L` Yellow + Lecturer Open Session & Manual Marks `P/L/E/-`), Always-Visible Compact Mobile Browser Walkthrough (`Zalo` & iOS Code Scanner Guard) & Behavior-Preserving Backend Cleanup*
+* **Tactile `Pulse to Confirm` Micro-Interactions Across Student & Lecturer Buttons (`css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)**:
+  * Added `pulseButtonConfirm(btnOrId, confirmLabel, variant, durationMs)` with a crisp single-ring border glow (`3px–5px` `@keyframes ccsPulseGreen`, `ccsPulseAmber`, `ccsPulseOrange`, `ccsPulseSlate`) and inline animated SVG icons (`@keyframes ccsCheckDraw`):
+    * **Student Check-In (`#btn-start-checkin`)**: Flashes **Emerald Green (`#16a34a`, `.btn-pulse-success` + checkmark SVG)** when recorded **Present (`P` — `ĐÃ ĐIỂM DANH CÓ MẶT`)**, and **Amber/Yellow (`#eab308`, `.btn-pulse-warn` + clock SVG)** when recorded **Late (`L` — `ĐÃ GHI NHẬN ĐI TRỄ`)**.
+    * **Student Pre-Check GPS (`#btn-check-gps`), Device Binding (`#btn-submit-onboard`), and Copy Browser Link (`#btn-copy-browser-url`)**: Instant green confirmation pulse (`GPS TỐT (±Xm)`, `ĐÃ LIÊN KẾT THIẾT BỊ`, `ĐÃ CHÉP LINK — DÁN VÀO SAFARI / CHROME`) or yellow warning pulse (`SAI SỐ (±Xm)`) when accuracy exceeds `100m`.
+    * **Lecturer Open Session (`#btn-tea-confirm-open` & `#btn-tea-open-trigger`), Session Controls (`+2 Phút`, `Mở lại 5 phút`, `Đóng phiên`), Login (`#btn-tea-login`), and Rebuild Sheet (`#btn-tea-rebuild-sheet`)**: Green confirmation pulse on session launch (`ĐÃ MỞ PHIÊN ĐIỂM DANH`) and control actions.
+    * **Lecturer Manual Attendance (`P / L / E / -` in Live Roster & Past-Session History Modal)**: Instant `0.01s` Optimistic UI ring pulse matching the semantic status color (`.mark-pulse-P` Green, `.mark-pulse-L` Yellow, `.mark-pulse-E` Orange, `.mark-pulse-dash` Slate) preserved across live DOM re-renders via `lastPulsedManualMark`.
+* **Ultra-Compact Mobile Walkthrough & Detection for Zalo/Messenger & Apple iOS Code Scanner (`index.html`, `js/schedule-config.js`, `js/student.js`, `css/styles.css`)**:
+  * Upgraded `evaluateStudentAntiCheat()` to distinguish **Zalo / Social In-App WebViews (`ZALO_SOCIAL`)** from **iPhone Control Center "Scan Code" (`APPLE_CODE_SCANNER` — ephemeral `SFSafariViewController` lacking `Version/... Safari/` that wipes `localStorage` on close)**.
+  * Placed the ultra-compact 2-bullet reminder (`#onboard-compact-rules`) directly in the main Student Information card so both new and already-linked students see it immediately, and kept the blocked-browser banner (`#ios-install-banner` `.compact-webview-guard`) to 1 title + 2 short steps + `Copy Link` / `Open Safari/Chrome` buttons.
+* **Behavior-Preserving Backend Cleanup (`code3.6.3.text`)**:
+  * Deduplicated helper functions (`invalidateSessionCaches_`, `ensureSheetWithHeaders_`, `normalizeDashboardBaseUrl_`, `resetFailedAuthCounterIfNeeded_`, `getEnrolledStudentsMap_`) and removed dead cache keys with 100% identical runtime behavior.
+
 ### ✨ Version `v3.6.2` — *Streamlined Lecturer Progress Strip, Calendar-Only Session Selection & Swapped Session Action Buttons*
 * **Swapped `"Hủy phiên nhầm"` and `"Đóng phiên"` Button Positions (`index.html`)**:
   * Placed **`"Hủy phiên nhầm"`** (`Cancel Mistaken Session`, `#btn-tea-cancel-mistaken`) before **`"Đóng phiên"`** (`Close Session`) at the right edge of the session control row (`+2 Phút` $\rightarrow$ `Mở lại 5 phút` $\rightarrow$ `Hủy phiên nhầm` $\rightarrow$ `Đóng phiên`), keeping 100% of each button's handler (`promptCancelMistakenSession()` / `teacherControlSession('CLOSE_NOW')`), color styling, and confirmation dialog intact.
@@ -198,6 +211,19 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### ✨ Version `v3.6.3` — *Hiệu Ứng `Pulse to Confirm` (Điểm Danh `P` Xanh / `L` Vàng + Mở Phiên & Điểm Danh Thủ Công `P/L/E/-` Của Giảng Viên), Walkthrough Cảnh Báo Gọn Chặn Zalo & Trình Quét Mã Apple + Dọn Dẹp Backend*
+* **Hiệu Ứng Xung Nhịp Xác Nhận (`Pulse to Confirm`) Cho Các Nút Quan Trọng Của Sinh Viên & Giảng Viên (`css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)**:
+  * Bổ sung hàm `pulseButtonConfirm` với viền sáng mảnh sát nút (`3px–5px` `@keyframes ccsPulseGreen`, `ccsPulseAmber`, `ccsPulseOrange`, `ccsPulseSlate`) và nét vẽ SVG tự động (`@keyframes ccsCheckDraw`):
+    * **Nút Điểm danh Sinh viên (`#btn-start-checkin`)**: Phát xung **Xanh lá (`#16a34a`, `.btn-pulse-success` + dấu tích SVG)** khi điểm danh **Có mặt đúng giờ (`P` — `ĐÃ ĐIỂM DANH CÓ MẶT`)**, và phát xung **Màu Vàng (`#eab308`, `.btn-pulse-warn` + đồng hồ SVG)** khi điểm danh **Đi trễ (`L` — `ĐÃ GHI NHẬN ĐI TRỄ`)**.
+    * **Nút Kiểm tra GPS (`#btn-check-gps`), Liên kết MSSV (`#btn-submit-onboard`) & Sao chép link (`#btn-copy-browser-url`)**: Phát xung xanh xác nhận tức thì (`GPS TỐT (±Xm)`, `ĐÃ LIÊN KẾT THIẾT BỊ`, `ĐÃ CHÉP LINK — DÁN VÀO SAFARI / CHROME`) hoặc phát xung vàng (`SAI SỐ (±Xm)`) khi sai số lớn hơn `100m`.
+    * **Nút Mở phiên điểm danh (`#btn-tea-confirm-open` & `#btn-tea-open-trigger`), Điều khiển phiên (`+2 Phút`, `Mở lại 5 phút`, `Đóng phiên`), Đăng nhập (`#btn-tea-login`) & Đồng bộ bảng điểm (`#btn-tea-rebuild-sheet`)**: Phát xung xanh xác nhận khi mở phiên thành công (`ĐÃ MỞ PHIÊN ĐIỂM DANH`).
+    * **Các nút Điểm danh Thủ công của Giảng viên (`P / L / E / -` trên cả Danh sách lớp trực tiếp & Hộp thoại Lịch sử buổi cũ)**: Phát xung viền `0.01s` theo đúng màu trạng thái (`P` Xanh lá `.mark-pulse-P`, `L` Vàng `.mark-pulse-L`, `E` Cam `.mark-pulse-E`, `-` Xám `.mark-pulse-dash`) thông qua `lastPulsedManualMark`.
+* **Walkthrough Cảnh Báo Siêu Gọn Cho Điện Thoại Chặn Zalo/Messenger & Trình Quét Mã Của Apple (`index.html`, `js/schedule-config.js`, `js/student.js`, `css/styles.css`)**:
+  * Nâng cấp `evaluateStudentAntiCheat()` nhận diện riêng **Trình duyệt nhúng Zalo/Messenger (`ZALO_SOCIAL`)** và **Trình quét mã QR trong Control Center của iPhone (`APPLE_CODE_SCANNER` — tự xóa trắng `localStorage` ngay khi đóng làm sinh viên bị khóa thiết bị ở buổi học sau)**.
+  * Đặt khung nhắc 2 dòng siêu gọn (`#onboard-compact-rules`) ngay trên thẻ Thông tin Sinh viên để cả sinh viên mới lẫn sinh viên đã liên kết máy đều nhìn thấy ngay, và tinh giản hộp cảnh báo `#ios-install-banner` xuống 1 dòng tiêu đề + 2 bước ngắn + nút `Chép link` / `Mở trình duyệt`.
+* **Dọn Dẹp & Tối Ưu Mã Nguồn Backend Giữ Nguyên 100% Hành Vi (`code3.6.3.text`)**:
+  * Rút gọn header, xóa các khóa cache dư thừa (`ROSTER_MAP_`, `SES_OPEN_`, biến `gpsAcc`), và gộp các đoạn code lặp thành hàm dùng chung (`invalidateSessionCaches_`, `ensureSheetWithHeaders_`, `normalizeDashboardBaseUrl_`, `resetFailedAuthCounterIfNeeded_`, `getEnrolledStudentsMap_`).
+
 ### ✨ Version `v3.6.2` — *Tinh Gọn Thanh Tiến Độ Học Phần, Chọn Buổi Thuần Bằng Lịch Tháng & Đổi Vị Trí Nút Đóng Phiên / Hủy Phiên Nhầm*
 * **Hoán Đổi Vị Trí 2 Nút `"Hủy phiên nhầm"` và `"Đóng phiên"` (`index.html`)**:
   * Đổi vị trí hiển thị để nút **`"Hủy phiên nhầm"`** (`#btn-tea-cancel-mistaken`) đứng trước và nút **`"Đóng phiên"`** nằm ở ngoài cùng bên phải (`+2 Phút` $\rightarrow$ `Mở lại 5 phút` $\rightarrow$ `Hủy phiên nhầm` $\rightarrow$ `Đóng phiên`). Giữ nguyên 100% chức năng, hàm xử lý (`promptCancelMistakenSession()` / `teacherControlSession('CLOSE_NOW')`), màu sắc và hộp thoại xác nhận của từng nút.
@@ -373,18 +399,18 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.6.2`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.6.3`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.6.2` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.6.3` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.6.2`) on `tntrung8321.github.io/ccs/`** |
-| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI (Zero AI Icons), Clean Single-Row Course Progress Bar, Interactive Month Calendar, Official Attendance Score & `CẤM THI` on Student UI** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.6.3`) on `tntrung8321.github.io/ccs/`** |
+| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI (Zero AI Icons), `Pulse to Confirm` (`P` Green / `L` Yellow / Manual Marks), Compact Anti-Zalo & iOS Code Scanner Walkthrough, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Synchronous `getCurrentPosition` Prompt + Live `watchPosition` Warm-Up (`cachedGPS = null`, `maximumAge: 0`) + Same-Day Session Merging** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Backend Open-Session Auto-Fallback)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + Legacy URL Auto-Migration** |
-| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **`0.01s` Optimistic Manual Marking (`P/L/E/-`) + Calendar-Based Past-Session History (`Lịch sử`) + Cancel Mistaken Session + Random Caller & Group Maker** |
+| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **`0.01s` Optimistic Manual Marking (`P/L/E/-`) with Status-Colored Pulse + Calendar-Based Past-Session History (`Lịch sử`) + Cancel Mistaken Session + Random Caller & Group Maker** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-Extra-Load RAM `CacheService` (`ALL_LATEST_SES_V35`, `SES_ATT_MAP_V35_`, `CLASS_ATT_STATS_V35_`, `GROUP_SPLIT_`)** |
-| **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Multi-Browser (`Safari+Chrome`), F12, Fresh GPS Timestamp & Spot-Check Lock** |
+| **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Zalo/Social WebView & iPhone Code Scanner Block + Multi-Browser (`Safari+Chrome`), F12, Fresh GPS Timestamp & Spot-Check Lock** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Customizable `P/L/E/-` Marks + Smart Color-Family Detection (All Shades of Orange/Yellow/Red) + Ghost Session Filtering** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload / Luôn tải bản mới tức thì** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.6.3`) / Luôn tải bản mới tức thì** |

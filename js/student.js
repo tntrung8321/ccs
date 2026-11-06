@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.6.2)
+ * STUDENT CONTROLLER (js/student.js — v3.6.3)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Official Attendance Score (Base 10.0), Same-Day Session Merging, Near-Limit Warning & Exam Ban (CẤM THI)
  *  - Live Classroom Group Assignment Card (#stu-group-card)
@@ -785,6 +785,14 @@ async function handleStudentPreCheckGps() {
           'warn',
           'checkin-inline-status'
         );
+        if (typeof pulseButtonConfirm === 'function') {
+          pulseButtonConfirm(
+            'btn-check-gps',
+            currentLang === 'en' ? `LOW ACC (±${accVal}m)` : `SAI SỐ (±${accVal}m)`,
+            'warn',
+            1300
+          );
+        }
       } else {
         if (dot) dot.className = 'status-dot dot-ok';
         if (readout) {
