@@ -12,8 +12,8 @@
 * **Ultra-Compact Mobile Walkthrough & Detection for Zalo/Messenger & Apple iOS Code Scanner (`index.html`, `js/schedule-config.js`, `js/student.js`, `css/styles.css`)**:
   * Upgraded `evaluateStudentAntiCheat()` to distinguish **Zalo / Social In-App WebViews (`ZALO_SOCIAL`)** from **iPhone Control Center "Scan Code" (`APPLE_CODE_SCANNER` — ephemeral `SFSafariViewController` lacking `Version/... Safari/` that wipes `localStorage` on close)**.
   * Placed the ultra-compact 2-bullet reminder (`#onboard-compact-rules`) directly in the main Student Information card so both new and already-linked students see it immediately, and kept the blocked-browser banner (`#ios-install-banner` `.compact-webview-guard`) to 1 title + 2 short steps + `Copy Link` / `Open Safari/Chrome` buttons.
-* **Behavior-Preserving Backend Cleanup (`code3.6.3.text`)**:
-  * Deduplicated helper functions (`invalidateSessionCaches_`, `ensureSheetWithHeaders_`, `normalizeDashboardBaseUrl_`, `resetFailedAuthCounterIfNeeded_`, `getEnrolledStudentsMap_`) and removed dead cache keys with 100% identical runtime behavior.
+* **Behavior-Preserving Backend Cleanup (`code3.6.0.text` & `sync.txt`)**:
+  * Deduplicated helper functions across `code3.6.0.text` (`invalidateSessionCaches_`, `ensureSheetWithHeaders_`, `normalizeDashboardBaseUrl_`, `resetFailedAuthCounterIfNeeded_`, `getEnrolledStudentsMap_`) and `sync.txt` (`collectMasterClassStudentIds_`, `partitionAndRewriteSheetByClassCol_`, `extractRowStudentIdAndName_`, `isStudentRowHighlightedRed_`, `buildAttendanceUndoEntry_`, `scanSheetDateColumns_`, `mergeAndSaveClassSessionDates_`), unified `CLASS_ATT_STATS_V36_` cache invalidation, and removed dead cache keys with 100% identical runtime behavior.
 
 ### ✨ Version `v3.6.2` — *Streamlined Lecturer Progress Strip, Calendar-Only Session Selection & Swapped Session Action Buttons*
 * **Swapped `"Hủy phiên nhầm"` and `"Đóng phiên"` Button Positions (`index.html`)**:
@@ -221,8 +221,8 @@
 * **Walkthrough Cảnh Báo Siêu Gọn Cho Điện Thoại Chặn Zalo/Messenger & Trình Quét Mã Của Apple (`index.html`, `js/schedule-config.js`, `js/student.js`, `css/styles.css`)**:
   * Nâng cấp `evaluateStudentAntiCheat()` nhận diện riêng **Trình duyệt nhúng Zalo/Messenger (`ZALO_SOCIAL`)** và **Trình quét mã QR trong Control Center của iPhone (`APPLE_CODE_SCANNER` — tự xóa trắng `localStorage` ngay khi đóng làm sinh viên bị khóa thiết bị ở buổi học sau)**.
   * Đặt khung nhắc 2 dòng siêu gọn (`#onboard-compact-rules`) ngay trên thẻ Thông tin Sinh viên để cả sinh viên mới lẫn sinh viên đã liên kết máy đều nhìn thấy ngay, và tinh giản hộp cảnh báo `#ios-install-banner` xuống 1 dòng tiêu đề + 2 bước ngắn + nút `Chép link` / `Mở trình duyệt`.
-* **Dọn Dẹp & Tối Ưu Mã Nguồn Backend Giữ Nguyên 100% Hành Vi (`code3.6.3.text`)**:
-  * Rút gọn header, xóa các khóa cache dư thừa (`ROSTER_MAP_`, `SES_OPEN_`, biến `gpsAcc`), và gộp các đoạn code lặp thành hàm dùng chung (`invalidateSessionCaches_`, `ensureSheetWithHeaders_`, `normalizeDashboardBaseUrl_`, `resetFailedAuthCounterIfNeeded_`, `getEnrolledStudentsMap_`).
+* **Dọn Dẹp & Tối Ưu Mã Nguồn Backend Giữ Nguyên 100% Hành Vi (`code3.6.0.text` & `sync.txt`)**:
+  * Rút gọn header, xóa các khóa cache dư thừa (`ROSTER_MAP_`, `SES_OPEN_`, biến `gpsAcc`), đồng bộ khóa cache `CLASS_ATT_STATS_V36_`, và gộp các đoạn code lặp thành hàm dùng chung trong `code3.6.0.text` (`invalidateSessionCaches_`, `ensureSheetWithHeaders_`, `normalizeDashboardBaseUrl_`, `resetFailedAuthCounterIfNeeded_`, `getEnrolledStudentsMap_`) và `sync.txt` (`collectMasterClassStudentIds_`, `partitionAndRewriteSheetByClassCol_`, `extractRowStudentIdAndName_`, `isStudentRowHighlightedRed_`, `buildAttendanceUndoEntry_`, `scanSheetDateColumns_`, `mergeAndSaveClassSessionDates_`).
 
 ### ✨ Version `v3.6.2` — *Tinh Gọn Thanh Tiến Độ Học Phần, Chọn Buổi Thuần Bằng Lịch Tháng & Đổi Vị Trí Nút Đóng Phiên / Hủy Phiên Nhầm*
 * **Hoán Đổi Vị Trí 2 Nút `"Hủy phiên nhầm"` và `"Đóng phiên"` (`index.html`)**:

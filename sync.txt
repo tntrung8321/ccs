@@ -2421,7 +2421,7 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
     }
 
     const totalCols = Math.min(sheet.getLastColumn(), 100);
-    const detectedDateCols = []; // [{ colIdx0, day, month, year, dayKey, displayDate, label }]
+    let detectedDateCols = []; // [{ colIdx0, colNumber, day, month, year, dayKey, displayDate, label }]
 
     // Extract period & session date schedule metadata from top rows (rows 1..dateRow)
     try {
@@ -2435,40 +2435,12 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
           if (cellStr && cellStr.length <= 120) headerTexts.push(cellStr);
         }
       }
-      const sessionDates = [];
+      let sessionDates = [];
       const dRowIdx = layout.dateRow - 1;
-      const fallbackYear = new Date().getFullYear();
-      let prevMonth = null;
-      let runningYear = fallbackYear;
       if (dRowIdx >= 0 && dRowIdx < metaRows) {
-        for (let c = layout.dateStartCol - 1; c < totalCols; c++) {
-          const parsedDate = parseDateCell_(rawTop[dRowIdx][c], dispTop[dRowIdx][c]);
-          if (parsedDate) {
-            let yr = parsedDate.year;
-            if (!yr) {
-              if (prevMonth !== null && parsedDate.month < prevMonth && (prevMonth - parsedDate.month) >= 6) {
-                runningYear++;
-              }
-              yr = runningYear;
-            } else {
-              runningYear = yr;
-            }
-            prevMonth = parsedDate.month;
-            const dd = ('0' + parsedDate.day).slice(-2);
-            const mm = ('0' + parsedDate.month).slice(-2);
-            const dayKey = yr + '-' + mm + '-' + dd;
-            sessionDates.push(dayKey);
-            detectedDateCols.push({
-              colIdx0: c,
-              day: parsedDate.day,
-              month: parsedDate.month,
-              year: yr,
-              dayKey: dayKey,
-              displayDate: dd + '/' + mm + '/' + yr,
-              label: dd + '/' + mm
-            });
-          }
-        }
+        const scannedDates = scanSheetDateColumns_(rawTop[dRowIdx], dispTop[dRowIdx], layout.dateStartCol - 1, totalCols, layout.dateStartCol);
+        sessionDates = scannedDates.sessionDates;
+        detectedDateCols = scannedDates.columns;
       }
       saveClassScheduleMetaFromSheet_(classId, headerTexts.join(' | '), sessionDates);
     } catch (metaErr) {}
@@ -2633,7 +2605,54 @@ function saveClassScheduleMetaFromSheet_(classId, combinedHeaderText, sessionDat
   if (/\b(saturday|sat)\b/i.test(s)) addDay(6);
 
   const dayOfWeek = daysOfWeek.length > 0 ? daysOfWeek[0] : null;
+  mergeAndSaveClassSessionDates_(classId, sessionDates, {
+    startPeriod: startPeriod,
+    endPeriod: endPeriod,
+    dayOfWeek: dayOfWeek,
+    daysOfWeek: daysOfWeek
+  });
+}
 
+function scanSheetDateColumns_(rawRow, dispRow, startIdx0, endIdx0, baseColNumber) {
+  const sessionDates = [];
+  const columns = [];
+  let runningYear = new Date().getFullYear();
+  let prevMonth = null;
+  for (let idx = startIdx0; idx < endIdx0; idx++) {
+    const parsed = parseDateCell_(rawRow[idx], dispRow[idx]);
+    if (parsed) {
+      let yr = parsed.year;
+      if (!yr) {
+        if (prevMonth !== null && parsed.month < prevMonth && (prevMonth - parsed.month) >= 6) {
+          runningYear++;
+        }
+        yr = runningYear;
+      } else {
+        runningYear = yr;
+      }
+      prevMonth = parsed.month;
+      const dd = ('0' + parsed.day).slice(-2);
+      const mm = ('0' + parsed.month).slice(-2);
+      const dayKey = yr + '-' + mm + '-' + dd;
+      const colNumber = baseColNumber + (idx - startIdx0);
+      sessionDates.push(dayKey);
+      columns.push({
+        colIdx0: colNumber - 1,
+        colNumber: colNumber,
+        day: parsed.day,
+        month: parsed.month,
+        year: yr,
+        dayKey: dayKey,
+        displayDate: dd + '/' + mm + '/' + yr,
+        label: dd + '/' + mm
+      });
+    }
+  }
+  return { sessionDates: sessionDates, columns: columns };
+}
+
+function mergeAndSaveClassSessionDates_(classId, sessionDates, extraMetaFields) {
+  if (!classId) return;
   const props = PropertiesService.getScriptProperties();
   const existingMap = JSON.parse(props.getProperty('QR_CLASS_SCHEDULE_META_MAP') || '{}');
   const prevEntry = existingMap[classId] || {};
@@ -2646,14 +2665,19 @@ function saveClassScheduleMetaFromSheet_(classId, combinedHeaderText, sessionDat
   });
   mergedDates.sort(function(a, b) { return String(a).localeCompare(String(b)); });
 
-  existingMap[classId] = {
-    startPeriod: startPeriod,
-    endPeriod: endPeriod,
-    dayOfWeek: dayOfWeek,
-    daysOfWeek: daysOfWeek,
-    sessionDates: mergedDates,
-    makeUpDates: makeUpDates
-  };
+  if (extraMetaFields) {
+    existingMap[classId] = {
+      startPeriod: extraMetaFields.startPeriod,
+      endPeriod: extraMetaFields.endPeriod,
+      dayOfWeek: extraMetaFields.dayOfWeek,
+      daysOfWeek: extraMetaFields.daysOfWeek,
+      sessionDates: mergedDates,
+      makeUpDates: makeUpDates
+    };
+  } else {
+    prevEntry.sessionDates = mergedDates;
+    existingMap[classId] = prevEntry;
+  }
   props.setProperty('QR_CLASS_SCHEDULE_META_MAP', JSON.stringify(existingMap));
 }
 
@@ -2670,36 +2694,15 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
 
     const dateRowValues = sheet.getRange(layout.dateRow, layout.dateStartCol, 1, numCols).getValues()[0];
     const dateRowDisplay = sheet.getRange(layout.dateRow, layout.dateStartCol, 1, numCols).getDisplayValues()[0];
+    const scannedDates = scanSheetDateColumns_(dateRowValues, dateRowDisplay, 0, numCols, layout.dateStartCol);
+    const refreshedSessionDates = scannedDates.sessionDates;
+    const dateColPositions = scannedDates.columns;
     let targetCol = -1;
 
-    const refreshedSessionDates = [];
-    const dateColPositions = []; // [{ colNumber, dayKey }]
-    let runningYear = new Date().getFullYear();
-    let prevMonth = null;
-
-    for (let i = 0; i < numCols; i++) {
-      const parsed = parseDateCell_(dateRowValues[i], dateRowDisplay[i]);
-      if (parsed) {
-        let yr = parsed.year;
-        if (!yr) {
-          if (prevMonth !== null && parsed.month < prevMonth && (prevMonth - parsed.month) >= 6) {
-            runningYear++;
-          }
-          yr = runningYear;
-        } else {
-          runningYear = yr;
-        }
-        prevMonth = parsed.month;
-        const dd = ('0' + parsed.day).slice(-2);
-        const mm = ('0' + parsed.month).slice(-2);
-        const dayKey = yr + '-' + mm + '-' + dd;
-        const colNumber = layout.dateStartCol + i;
-        refreshedSessionDates.push(dayKey);
-        dateColPositions.push({ colNumber: colNumber, dayKey: dayKey });
-
-        if (targetCol === -1 && parsed.day === targetDay && parsed.month === targetMonth) {
-          targetCol = colNumber;
-        }
+    for (let i = 0; i < dateColPositions.length; i++) {
+      if (dateColPositions[i].day === targetDay && dateColPositions[i].month === targetMonth) {
+        targetCol = dateColPositions[i].colNumber;
+        break;
       }
     }
 
@@ -2752,19 +2755,7 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
 
     if (refreshedSessionDates.length > 0) {
       try {
-        const props = PropertiesService.getScriptProperties();
-        const existingMap = JSON.parse(props.getProperty('QR_CLASS_SCHEDULE_META_MAP') || '{}');
-        const curEntry = existingMap[classId] || {};
-        const makeUpDates = Array.isArray(curEntry.makeUpDates) ? curEntry.makeUpDates : [];
-        makeUpDates.forEach(function(md) {
-          if (md && refreshedSessionDates.indexOf(md) === -1) {
-            refreshedSessionDates.push(md);
-          }
-        });
-        refreshedSessionDates.sort(function(a, b) { return String(a).localeCompare(String(b)); });
-        curEntry.sessionDates = refreshedSessionDates;
-        existingMap[classId] = curEntry;
-        props.setProperty('QR_CLASS_SCHEDULE_META_MAP', JSON.stringify(existingMap));
+        mergeAndSaveClassSessionDates_(classId, refreshedSessionDates, null);
       } catch (e) {}
     }
 
