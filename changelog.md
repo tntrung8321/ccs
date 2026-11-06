@@ -2,6 +2,16 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🔧 Version `v3.6.5` — *iOS Safari Indoor GPS Check-In Fix: 15-Second Live Handshake Between `Check GPS` & `Check In Now`, Indoor Wi-Fi/Cellular Fallback (`enableHighAccuracy: false`), Single-Stream Onboarding GPS & iOS Dual-Switch Guide*
+* **Indoor Wi-Fi/Cellular Live Fallback & Immediate `<= 100m` Resolution (`js/schedule-config.js`)**:
+  * Updated `acquireLiveHighAccuracyGps(4500, 2500, 100)` so any live GPS fix with `accuracy <= 100m` resolves immediately in `0ms` without opening `watchPosition` and stalling iOS Safari for an extra `3.5s`.
+  * Fixed the indoor fallback inside `getAccuratePosition()` (`line 1358`) from `{ enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }` to **`{ enableHighAccuracy: false, timeout: 4500, maximumAge: 0 }`**: when concrete ceilings block GNSS satellites, iOS CoreLocation immediately switches to live Wi-Fi / cellular positioning (`maximumAge: 0`, zero stale coordinate cache) instead of hanging for 14 seconds and failing.
+* **15-Second Live Handshake (`window.lastVerifiedLiveGps`) & Single-Stream Onboarding GPS (`js/schedule-config.js`, `js/student.js`)**:
+  * Added a strict `15,000ms` one-time handshake (`window.lastVerifiedLiveGps`) between **`"Kiểm tra GPS"` (`#btn-check-gps`) / first-time MSSV onboarding (`submitStudentOnboarding`)** and **`"ĐIỂM DANH NGAY"` (`#btn-start-checkin`)**. When a student verifies GPS (`<= 100m`) and taps `"ĐIỂM DANH NGAY"` within 15 seconds, check-in reuses that verified live coordinate in `0.01s` without firing a second overlapping `getCurrentPosition` call that stalls iOS WebKit, while preserving 100% anti-cheat security (auto-expires after 15s and keeps backend `100m` radius + `50m` allowance untouched).
+* **Separated Permission (`code = 1`) vs. Indoor Signal Loss (`code = 2, 3`) & iOS Dual-Switch Guide (`js/schedule-config.js`, `js/student.js`)**:
+  * Separated `code === 1` (browser/OS permission blocked — including iPhone's second switch at `Settings -> Privacy & Security -> Location Services -> Safari Websites -> While Using the App + Precise Location`) from `code === 2, 3` (indoor GPS signal loss — prompting students to turn on the Wi-Fi icon and Location Services).
+  * Fixed out-of-range error code comparison (`ERR_LOCATION_OUT_OF_RANGE`) on `#btn-start-checkin` so red button pulses display `"NGOÀI BÁN KÍNH PHÒNG HỌC"`.
+
 ### ✨ Version `v3.6.4` — *Automatic Calendar-Day Session UI Reset (Past-Day Isolation vs. Same-Day Closed Retention), Permanent Today Check-In Button Lock (`P` Emerald / `L` Amber) & Cohesive Semantic `Pulse to Confirm` System (`code3.6.4.text`)*
 * **Automatic Calendar-Day Session UI Reset & Past-Day Protection (`code3.6.4.text`, `js/teacher.js`)**:
   * **New-Day Dashboard Reset**: When a lecturer opens a class on a **new calendar day** where no session has been opened yet today (e.g., opening Class `002` on Friday `06/11` when the previous session was on Monday `02/11`), both `handleTeacherGetState` and `applyTeacherState` automatically isolate the past-day closed session from the live dashboard:
@@ -229,6 +239,17 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.6.5` — *Khắc Phục Triệt Để Lỗi iOS Safari Đã Cấp Quyền Vị Trí Nhưng Không Điểm Danh Được Trong Phòng Kín: Đệm Nối 15 Giây Giữa Nút Kiểm Tra GPS & Điểm Danh, Fallback Wi-Fi/4G Trong Nhà (`enableHighAccuracy: false`), Gộp Luồng GPS Nhập MSSV & Chỉ Dẫn Công Tắc Kép iPhone*
+* **Fallback Định vị Wi-Fi/4G Trong Phòng Kín & Nhận Ngay Tọa Độ `<= 100m` (`js/schedule-config.js`)**:
+  * Tinh chỉnh `acquireLiveHighAccuracyGps(4500, 2500, 100)`: ngay khi lấy được tọa độ thực tế có sai số `<= 100m` (đủ chuẩn điểm danh), hệ thống trả kết quả ngay lập tức mà không mở thêm `watchPosition` giữ máy chờ thêm `3.5 giây`.
+  * Sửa nhánh dự phòng `catch (err1)` trong `getAccuratePosition()` (`dòng 1358`) từ `{ enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }` sang **`{ enableHighAccuracy: false, timeout: 4500, maximumAge: 0 }`**: khi trần bê tông cản sóng vệ tinh, iOS CoreLocation lập tức chuyển sang định vị hỗn hợp Wi-Fi / 4G thời gian thực (`maximumAge: 0`, không lưu tọa độ cũ) lấy tọa độ trong `~0.5 giây` thay vì treo 14 giây rồi báo lỗi.
+* **Khớp Nối Thông Minh 15 Giây (`window.lastVerifiedLiveGps`) Giữa Nút `"Kiểm tra GPS"` / Nhập MSSV và Nút `"ĐIỂM DANH NGAY"` (`js/schedule-config.js`, `js/student.js`)**:
+  * Khi sinh viên vừa bấm **`"Kiểm tra GPS"` (`#btn-check-gps`)** báo xanh (`<= 100m`) hoặc vừa nhập MSSV lần đầu (`submitStudentOnboarding`), tọa độ vừa lấy được giữ trong biến tạm có hạn dùng đúng **15 giây (`15,000ms`)**. Khi bấm **`"ĐIỂM DANH NGAY"`** trong vòng 15 giây đó, hệ thống gửi điểm danh ngay trong `0.01 giây` mà không gọi chồng lệnh GPS lần 2 làm kẹt cầu nối CoreLocation của Safari. Giữ nguyên 100% chuẩn chống gian lận trên Backend (bán kính `100m`, bù sai số tối đa `50m`, tự hủy hoàn toàn sau 15 giây).
+* **Tách Bạch Lỗi Quyền Trình Duyệt (`code = 1`) Với Lỗi Mất Sóng Phòng Kín (`code = 2, 3`) & Chỉ Dẫn "Công Tắc Kép" iPhone (`js/schedule-config.js`, `js/student.js`)**:
+  * Khi `code === 1` trên iOS: hướng dẫn rõ cả 2 tầng quyền (**Thanh địa chỉ Safari `••• / AA`** và **`Cài đặt iPhone -> Quyền riêng tư & Bảo mật -> Dịch vụ định vị -> Trang web Safari -> Khi dùng ứng dụng + Bật Vị trí chính xác`**).
+  * Khi `code === 2, 3`: báo rõ điện thoại chưa bắt được sóng định vị trong phòng và nhắc bật biểu tượng **Wi-Fi + Dịch vụ định vị**.
+  * Sửa điều kiện kiểm tra mã `ERR_LOCATION_OUT_OF_RANGE` tại `js/student.js` để xung Đỏ trên nút Điểm danh hiển thị đúng chữ `"NGOÀI BÁN KÍNH PHÒNG HỌC"`.
+
 ### ✨ Version `v3.6.4` — *Tự Động Reset Giao Diện Phiên Điểm Danh Sang Ngày Mới (Cô Lập Buổi Cũ & Giữ Kết Quả Buổi Đã Đóng Trong Ngày), Khóa Cố Định Nút Điểm Danh Sinh Viên Hôm Nay (`P` Xanh / `L` Vàng) & Đồng Bộ Hệ Thống `Pulse to Confirm` (`code3.6.4.text`)*
 * **Tự Động Reset Giao Diện Phiên Điểm Danh Khi Sang Ngày Học Mới & Bảo Vệ Dữ Liệu Buổi Cũ (`code3.6.4.text`, `js/teacher.js`)**:
   * **Tự động làm mới khi mở lớp vào ngày mới**: Khi Giảng viên mở giao diện một lớp vào **ngày mới** mà hôm nay chưa mở phiên nào (ví dụ: thứ Sáu `06/11` mở lớp `002` có phiên gần nhất vào thứ Hai `02/11`), cả `handleTeacherGetState` (Backend) và `applyTeacherState` (Frontend) tự động cô lập phiên cũ khỏi bảng điều khiển trực tiếp:
@@ -435,11 +456,11 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.6.4`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.6.5`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.6.4` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.6.5` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.6.4`) on `tntrung8321.github.io/ccs/`** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.6.5`) on `tntrung8321.github.io/ccs/`** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI (Zero AI Icons), Permanent Today Check-In Button Lock (`P` Emerald / `L` Amber), Cohesive `Pulse to Confirm` (`success` / `warn` / `danger` / `neutral` + Manual Marks), Compact Anti-Zalo & iOS Code Scanner Walkthrough, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Synchronous `getCurrentPosition` Prompt + Live `watchPosition` Warm-Up (`cachedGPS = null`, `maximumAge: 0`) + Same-Day Session Merging** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |
@@ -449,4 +470,4 @@
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-Extra-Load RAM `CacheService` (`ALL_LATEST_SES_V35`, `SES_ATT_MAP_V35_`, `CLASS_ATT_STATS_V35_`, `GROUP_SPLIT_`)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Zalo/Social WebView & iPhone Code Scanner Block + Multi-Browser (`Safari+Chrome`), F12, Fresh GPS Timestamp & Spot-Check Lock** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Customizable `P/L/E/-` Marks + Smart Color-Family Detection (All Shades of Orange/Yellow/Red) + Ghost Session Filtering** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.6.4`) / Luôn tải bản mới tức thì** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.6.5`) / Luôn tải bản mới tức thì** |

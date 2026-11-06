@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.6.4)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.6.5)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -624,7 +624,7 @@ const I18N = {
     ERR_SESSION_CLOSED: "[ĐANG ĐÓNG] Cổng điểm danh của lớp này hiện đang đóng.",
     ERR_INVALID_QR: "[LỖI] Mã phiên điểm danh không hợp lệ.",
     ERR_LOCATION_OUT_OF_RANGE: "[NGOÀI PHẠM VI] Bạn đang cách tâm phòng học {dist}m (Cho phép tối đa {max}m). Vui lòng di chuyển vào lớp và thử lại.",
-    ERR_GPS_UNAVAILABLE: "[LỖI ĐỊNH VỊ] Chưa lấy được tín hiệu GPS. Vui lòng bật quyền Vị trí (Location) cho trình duyệt rồi thử lại.",
+    ERR_GPS_UNAVAILABLE: "[LỖI TÍN HIỆU GPS] Trình duyệt đã có quyền Vị trí nhưng điện thoại chưa bắt được sóng định vị trong phòng. Vui lòng bật biểu tượng Wi-Fi (để hỗ trợ định vị trong nhà) và bật Dịch vụ định vị trên điện thoại rồi bấm lại.",
     ERR_SERVER_BUSY: "Hệ thống đang xử lý, vui lòng chờ giây lát...",
     ERR_UNAUTHORIZED: "[TỪ CHỐI] Mật khẩu phiên không đúng hoặc đã hết hạn. Hãy kiểm tra lại ô C9 trên Google Sheet.",
     DEVICE_RESET_OK: "[ĐÃ MỞ KHÓA] Đã đặt lại khóa thiết bị cho sinh viên {id}.",
@@ -710,7 +710,7 @@ const I18N = {
     ERR_SESSION_CLOSED: "[CLOSED] Attendance session is currently closed.",
     ERR_INVALID_QR: "[INVALID] Invalid session token.",
     ERR_LOCATION_OUT_OF_RANGE: "[OUT OF RANGE] You are {dist}m away from classroom center (Maximum allowed: {max}m). Please move into the classroom and try again.",
-    ERR_GPS_UNAVAILABLE: "[GPS ERROR] Unable to acquire GPS coordinates. Please enable Location permission in your browser and try again.",
+    ERR_GPS_UNAVAILABLE: "[GPS SIGNAL ERROR] Browser has Location permission, but your phone could not lock onto an indoor GPS signal. Please turn on Wi-Fi (for indoor positioning) and Location Services on your phone, then try again.",
     ERR_SERVER_BUSY: "System is processing requests, please wait a moment...",
     ERR_UNAUTHORIZED: "[UNAUTHORIZED] Invalid or expired session code. Please check Cell C9 in your Google Sheet.",
     DEVICE_RESET_OK: "[UNLOCKED] Device lock has been reset for Student ID {id}.",
@@ -1177,6 +1177,7 @@ function closeAppModal() {
 
 window.cachedGPS = null;
 window.activeGpsPromise = null;
+window.lastVerifiedLiveGps = null; // { pos, verifiedAtMs } — 15s live handshake between Check GPS / Onboard and Check-In
 
 function isValidGpsPos(pos) {
   return Boolean(
@@ -1202,7 +1203,7 @@ function isValidGpsPos(pos) {
  *    If the initial fix is a coarse cell-tower seed (`> 65m`), starts `watchPosition` (`enableHighAccuracy: true, maximumAge: 0`)
  *    for up to 3.5s so the GPS chip can lock onto satellites without colliding with Step 1.
  */
-function acquireLiveHighAccuracyGps(maxWaitMs = 8000, settleAfterFirstFixMs = 3500, targetAccuracyMeters = 65) {
+function acquireLiveHighAccuracyGps(maxWaitMs = 4500, settleAfterFirstFixMs = 2500, targetAccuracyMeters = 100) {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
       return reject({ code: 2, message: 'No Geolocation API' });
@@ -1323,13 +1324,26 @@ function acquireLiveHighAccuracyGps(maxWaitMs = 8000, settleAfterFirstFixMs = 35
 function getAccuratePosition() {
   window.cachedGPS = null;
 
+  if (
+    window.lastVerifiedLiveGps &&
+    window.lastVerifiedLiveGps.pos &&
+    (Date.now() - Number(window.lastVerifiedLiveGps.verifiedAtMs || 0)) <= 15000 &&
+    isValidGpsPos(window.lastVerifiedLiveGps.pos)
+  ) {
+    const freshVerifiedPos = window.lastVerifiedLiveGps.pos;
+    window.lastVerifiedLiveGps = null;
+    hideGpsPermissionGuideBox();
+    return Promise.resolve(freshVerifiedPos);
+  }
+  window.lastVerifiedLiveGps = null;
+
   if (window.activeGpsPromise) {
     return window.activeGpsPromise;
   }
 
   window.activeGpsPromise = (async () => {
     try {
-      const pos = await acquireLiveHighAccuracyGps(8000, 3500, 65);
+      const pos = await acquireLiveHighAccuracyGps(4500, 2500, 100);
       window.cachedGPS = null;
       hideGpsPermissionGuideBox();
       return pos;
@@ -1338,7 +1352,7 @@ function getAccuratePosition() {
         showGpsPermissionGuideBox(err1);
         throw err1;
       }
-      // Single live fallback attempt (still maximumAge: 0, zero cache) if high-accuracy timed out
+      // Indoor live fallback: switch to Wi-Fi / cellular positioning (enableHighAccuracy: false) while keeping maximumAge: 0
       return await new Promise((resolve, reject) => {
         if (!navigator.geolocation) return reject(err1);
         navigator.geolocation.getCurrentPosition(
@@ -1355,7 +1369,7 @@ function getAccuratePosition() {
             if (err2 && err2.code === 1) showGpsPermissionGuideBox(err2);
             reject(err2 || err1);
           },
-          { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
+          { enableHighAccuracy: false, timeout: 4500, maximumAge: 0 }
         );
       });
     } finally {
@@ -1385,8 +1399,8 @@ function formatGpsErrorGuide(err) {
   }
 
   return isEn
-    ? '[GPS ERROR] Unable to acquire location. Please turn on Location (GPS) on your phone and allow Location permission in your browser.'
-    : '[LỖI ĐỊNH VỊ] Chưa lấy được tín hiệu GPS. Vui lòng bật nút Vị trí (GPS) trên điện thoại và cho phép quyền Vị trí trên trình duyệt rồi bấm lại.';
+    ? '[GPS SIGNAL ERROR] Browser has Location permission, but your phone could not lock onto an indoor GPS signal. Please turn on Wi-Fi (for indoor positioning) and Location Services on your phone, then try again.'
+    : '[LỖI TÍN HIỆU GPS] Trình duyệt đã có quyền Vị trí nhưng điện thoại chưa bắt được sóng định vị trong phòng. Vui lòng bật biểu tượng Wi-Fi (để hỗ trợ định vị trong nhà) và bật Dịch vụ định vị trên điện thoại rồi bấm lại.';
 }
 
 function showGpsPermissionGuideBox() {
@@ -1407,13 +1421,13 @@ function showGpsPermissionGuideBox() {
   if (isIos) {
     if (step1El) {
       step1El.textContent = isEn
-        ? 'Tap the ••• button or Page Menu icon (or "AA") on the Safari address bar.'
-        : 'Bấm nút ••• hoặc biểu tượng Menu (hoặc chữ AA) trên thanh địa chỉ Safari.';
+        ? 'On Safari address bar: Tap ••• (or "AA") -> "Website Settings" -> "Location" -> "Allow".'
+        : 'Trên Safari: Bấm ••• (hoặc chữ AA) trên thanh địa chỉ -> "Cài đặt trang web" -> "Vị trí" -> "Cho phép".';
     }
     if (step2El) {
       step2El.textContent = isEn
-        ? 'Select "Website Settings" -> "Location" -> "Allow".'
-        : 'Chọn "Cài đặt trang web" (Website Settings) -> "Vị trí" -> "Cho phép".';
+        ? 'If still blocked: Open iPhone Settings -> Privacy & Security -> Location Services -> Safari Websites -> Select "While Using the App" & turn ON "Precise Location".'
+        : 'Nếu đã Cho phép mà vẫn lỗi: Vào Cài đặt iPhone -> Quyền riêng tư & Bảo mật -> Dịch vụ định vị -> Trang web Safari -> Chọn "Khi dùng ứng dụng" & bật "Vị trí chính xác".';
     }
   } else {
     if (step1El) {

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.6.4)
+ * STUDENT CONTROLLER (js/student.js — v3.6.5)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Official Attendance Score (Base 10.0), Same-Day Session Merging, Near-Limit Warning & Exam Ban (CẤM THI)
  *  - Live Classroom Group Assignment Card (#stu-group-card)
@@ -795,6 +795,7 @@ async function handleStudentPreCheckGps() {
           );
         }
       } else {
+        window.lastVerifiedLiveGps = { pos: pos, verifiedAtMs: Date.now() };
         if (dot) dot.className = 'status-dot dot-ok';
         if (readout) {
           readout.textContent = currentLang === 'en'
@@ -828,8 +829,8 @@ async function handleStudentPreCheckGps() {
     } else {
       if (readout) {
         readout.textContent = currentLang === 'en'
-          ? 'GPS unavailable'
-          : 'Chưa lấy được định vị GPS';
+          ? 'Weak GPS signal — Turn on Wi-Fi & Location'
+          : 'Sóng GPS yếu — Hãy bật Wi-Fi & Vị trí';
       }
       if (typeof formatGpsErrorGuide === 'function') {
         showStatus(formatGpsErrorGuide(err), 'err', 'checkin-inline-status');
@@ -886,22 +887,16 @@ async function submitStudentOnboarding() {
   const btnSubmit = document.getElementById('btn-submit-onboard');
   if (btnSubmit) btnSubmit.disabled = true;
 
-  // Trigger native browser location permission prompt synchronously while user click gesture (userActivation) is active
-  if (navigator.geolocation && typeof navigator.geolocation.getCurrentPosition === 'function') {
-    try {
-      navigator.geolocation.getCurrentPosition(
-        () => {
-          window.cachedGPS = null;
-          if (typeof hideGpsPermissionGuideBox === 'function') hideGpsPermissionGuideBox();
-        },
-        (err) => {
-          if (err && err.code === 1 && typeof showGpsPermissionGuideBox === 'function') {
-            showGpsPermissionGuideBox();
-          }
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
-    } catch (e) {}
+  // Start getAccuratePosition() synchronously on click stack and retain in window.lastVerifiedLiveGps (15s max)
+  // so if student tapped "ĐIỂM DANH NGAY" directly, line 1100 reuses this exact fix without firing a 2nd GPS call
+  if (typeof getAccuratePosition === 'function') {
+    getAccuratePosition()
+      .then((pos) => {
+        if (pos && pos.coords && pos.coords.accuracy <= 100) {
+          window.lastVerifiedLiveGps = { pos: pos, verifiedAtMs: Date.now() };
+        }
+      })
+      .catch(() => {});
   }
 
   showStatus(
@@ -1114,8 +1109,8 @@ async function executeStudentCheckIn(qrString) {
       } else {
         if (readout) {
           readout.textContent = currentLang === 'en'
-            ? 'GPS unavailable'
-            : 'Chưa lấy được định vị GPS';
+            ? 'Weak GPS signal — Turn on Wi-Fi & Location'
+            : 'Sóng GPS yếu — Hãy bật Wi-Fi & Vị trí';
         }
         const errMsg = typeof formatGpsErrorGuide === 'function'
           ? formatGpsErrorGuide(gpsErr)
@@ -1224,7 +1219,7 @@ async function executeStudentCheckIn(qrString) {
       const errCode = res ? res.code : 'ERR_UNKNOWN';
       const shortErrBtnLabel = errCode === 'ERR_SESSION_CLOSED'
         ? (currentLang === 'en' ? 'SESSION IS CLOSED' : 'PHIÊN ĐIỂM DANH ĐANG ĐÓNG')
-        : errCode === 'ERR_OUT_OF_RANGE'
+        : (errCode === 'ERR_LOCATION_OUT_OF_RANGE' || errCode === 'ERR_OUT_OF_RANGE')
           ? (currentLang === 'en' ? 'OUTSIDE CLASSROOM RADIUS' : 'NGOÀI BÁN KÍNH PHÒNG HỌC')
           : (currentLang === 'en' ? 'CHECK-IN NOT COMPLETED' : 'CHƯA ĐIỂM DANH ĐƯỢC');
       if (typeof pulseButtonConfirm === 'function') {
