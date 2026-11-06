@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.6.0)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.6.3)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.6.0';
+const SYSTEM_VERSION = '3.6.3';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -1320,8 +1320,26 @@ function handleTeacherGetState(ss, body) {
   if (selectedId) {
     sessionInfo = allLatestSes[selectedId] || getLatestSessionForDashboard(ss, selectedId, false);
     const rosterMap = getClassRosterMap(ss, selectedId, false);
-    const sessionChecks = sessionInfo ? getSessionAttendanceMap(ss, sessionInfo.sessionId, false) : {};
     const classStatsMap = getClassAttendanceStatsMap_(ss, selectedId, false);
+
+    let isSessionDayValid = false;
+    if (sessionInfo) {
+      if (sessionInfo.isOpen) {
+        isSessionDayValid = true;
+      } else {
+        const sesDayKey = sessionInfo.openedAtMs > 0
+          ? Utilities.formatDate(new Date(sessionInfo.openedAtMs), TIMEZONE, 'yyyy-MM-dd')
+          : '';
+        const sampleSt = Object.values(classStatsMap)[0];
+        if (sesDayKey && sampleSt && Array.isArray(sampleSt.history)) {
+          isSessionDayValid = sampleSt.history.some(h => h && h.dayKey === sesDayKey);
+        }
+      }
+    }
+
+    const sessionChecks = (sessionInfo && isSessionDayValid)
+      ? getSessionAttendanceMap(ss, sessionInfo.sessionId, false)
+      : {};
 
     rosterSummary = Object.values(rosterMap).map(st => {
       const rec = sessionChecks[st.studentId];
@@ -1521,7 +1539,7 @@ function handleTeacherControlSession(ss, body) {
 
   let targetRow = -1;
   for (let i = data.length - 1; i >= 0; i--) {
-    if (String(data[i][1]) === classId) {
+    if (String(data[i][1]).trim() === classId) {
       targetRow = i + 2;
       break;
     }
@@ -1537,27 +1555,56 @@ function handleTeacherControlSession(ss, body) {
   const nowMs = Date.now();
 
   if (subAction === 'CANCEL_MISTAKEN_SESSION') {
-    sesSheet.deleteRow(targetRow);
+    const deletedSesIds = {};
+    if (targetSesId) deletedSesIds[targetSesId] = true;
+
+    for (let i = data.length - 1; i >= 0; i--) {
+      if (String(data[i][1]).trim() !== classId) continue;
+      const rSesId = String(data[i][0] || '').trim();
+      const rOpenedMs = parseSheetTimeMs(data[i][3]);
+      const rDayKey = rOpenedMs > 0
+        ? Utilities.formatDate(new Date(rOpenedMs), TIMEZONE, 'yyyy-MM-dd')
+        : '';
+      if (rSesId === targetSesId || (sesDayKey && rDayKey === sesDayKey)) {
+        if (rSesId) deletedSesIds[rSesId] = true;
+        sesSheet.deleteRow(i + 2);
+      }
+    }
+
     const attSheet = ss.getSheetByName(TAB_ATTEND);
-    if (attSheet && attSheet.getLastRow() >= 2 && targetSesId) {
+    if (attSheet && attSheet.getLastRow() >= 2) {
       const attVals = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 4).getValues();
       for (let r = attVals.length - 1; r >= 0; r--) {
-        if (String(attVals[r][2]).trim() === targetSesId) {
+        const aSesId = String(attVals[r][2] || '').trim();
+        if (deletedSesIds[aSesId]) {
           attSheet.deleteRow(r + 2);
         }
       }
     }
+
+    try {
+      const cache = CacheService.getScriptCache();
+      const cacheKeysToClear = [];
+      Object.keys(deletedSesIds).forEach(sid => {
+        cacheKeysToClear.push('SES_ATT_MAP_V36_' + sid);
+        cacheKeysToClear.push('SES_ANCHOR_' + sid);
+      });
+      if (cacheKeysToClear.length > 0) cache.removeAll(cacheKeysToClear);
+    } catch (e) {}
+
     if (sesDayKey) {
       removeMakeUpDateFromScheduleMeta_(classId, sesDayKey);
     }
     invalidateClassCache(classId);
     rebuildSingleClassGrid(ss, classId);
-    logAudit(ss, 'TEACHER', 'CANCEL_MISTAKEN_SESSION', classId, 'Deleted mistaken session ' + targetSesId);
+    SpreadsheetApp.flush();
+    logAudit(ss, 'TEACHER', 'CANCEL_MISTAKEN_SESSION', classId, 'Deleted mistaken session(s): ' + Object.keys(deletedSesIds).join(', '));
   } else if (subAction === 'CLOSE_NOW') {
     sesSheet.getRange(targetRow, 7).setValue(formatIso(nowMs));
     if (sesDayKey && targetSesId) {
       const checks = getSessionAttendanceMap(ss, targetSesId, true);
-      if (Object.keys(checks).length === 0) {
+      const hasRealMark = Object.values(checks).some(rec => rec && (rec.status === 'P' || rec.status === 'L' || rec.status === 'E'));
+      if (!hasRealMark) {
         removeMakeUpDateFromScheduleMeta_(classId, sesDayKey);
       }
     }
@@ -1741,9 +1788,7 @@ function handleTeacherManualMark(ss, body) {
     });
 
     invalidateClassAttendanceStatsCache_(classId);
-    if (isPastSessionOverride) {
-      try { rebuildSingleClassGrid(ss, classId); } catch (e) {}
-    }
+    try { rebuildSingleClassGrid(ss, classId); } catch (e) {}
 
     logAudit(ss, 'TEACHER_APP', 'MANUAL_MARK', studentId, classId + ' [' + (targetDayKey || primarySessionId) + '] -> ' + status);
     return handleTeacherGetState(ss, { classId: classId });
@@ -2187,10 +2232,6 @@ function buildGroupedClassDayRecords_(ss, classId) {
       if (!sid) return;
 
       const isManual = (src === 'TEACHER_MANUAL');
-      if (st === 'P' || st === 'L' || st === 'E' || isManual) {
-        grp.hasValidCheckIn = true;
-      }
-
       if (isManual) {
         grp.marks[sid] = (st === '-') ? 'A_MANUAL' : st;
         grp.manualLocked[sid] = true;
@@ -2203,6 +2244,16 @@ function buildGroupedClassDayRecords_(ss, classId) {
         } else if (st === 'L' && cur !== 'P' && cur !== 'E') {
           grp.marks[sid] = 'L';
         }
+      }
+    });
+
+    Object.keys(dayGroups).forEach(dk => {
+      const grp = dayGroups[dk];
+      if (!grp.hasValidCheckIn) {
+        grp.hasValidCheckIn = Object.keys(grp.marks).some(sid => {
+          const m = grp.marks[sid];
+          return m === 'P' || m === 'L' || m === 'E';
+        });
       }
     });
   }

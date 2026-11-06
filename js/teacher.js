@@ -683,14 +683,72 @@ async function teacherControlSession(subAction, extra = {}) {
     showStatus(isEn ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.', 'warn');
     return;
   }
+  const prevSesId = (teacherState && teacherState.activeSession && teacherState.activeSession.sessionId)
+    ? String(teacherState.activeSession.sessionId)
+    : '';
   cancelOpenSessionConfirm();
-  const res = await callBackend(auth.apiUrl, Object.assign({
+  let res = await callBackend(auth.apiUrl, Object.assign({
     action: 'TEACHER_CONTROL_SESSION',
     teacherToken: auth.token,
     classId: classId,
     subAction: subAction
   }, extra));
   if (res && res.ok) {
+    // Fallback if the deployed Google Apps Script Web App is still on an older Code.gs (< v3.6.1) that ignored CANCEL_MISTAKEN_SESSION
+    if (
+      subAction === 'CANCEL_MISTAKEN_SESSION' &&
+      prevSesId &&
+      res.activeSession &&
+      String(res.activeSession.sessionId) === prevSesId
+    ) {
+      const markedStudents = Array.isArray(res.roster)
+        ? res.roster.filter(s => s && s.studentId && s.status && s.status !== '-')
+        : [];
+      for (let i = 0; i < markedStudents.length; i++) {
+        await callBackend(auth.apiUrl, {
+          action: 'TEACHER_MANUAL_MARK',
+          teacherToken: auth.token,
+          classId: classId,
+          studentId: markedStudents[i].studentId,
+          status: '-',
+          targetSessionId: prevSesId
+        });
+      }
+      if (res.activeSession.isOpen) {
+        res = await callBackend(auth.apiUrl, {
+          action: 'TEACHER_CONTROL_SESSION',
+          teacherToken: auth.token,
+          classId: classId,
+          subAction: 'CLOSE_NOW'
+        }) || res;
+      } else {
+        await callBackend(auth.apiUrl, {
+          action: 'TEACHER_REBUILD_SHEET',
+          teacherToken: auth.token,
+          classId: classId
+        });
+      }
+      if (res && Array.isArray(res.roster)) {
+        res.roster.forEach(s => {
+          s.status = '-';
+          s.time = '';
+          s.distance = '';
+        });
+      }
+      if (res && res.activeSession) {
+        res.activeSession.isOpen = false;
+      }
+      await applyTeacherState(res, false);
+      showStatus(
+        isEn
+          ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.6.0.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+          : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.6.0.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+        'warn',
+        'tea-session-inline-status'
+      );
+      return;
+    }
+
     await applyTeacherState(res, false);
     if (typeof pulseButtonConfirm === 'function') {
       if (subAction === 'EXTEND_2M') {
@@ -699,13 +757,15 @@ async function teacherControlSession(subAction, extra = {}) {
         pulseButtonConfirm('btn-tea-reopen', isEn ? 'REOPENED 5M' : 'ĐÃ MỞ LẠI 5 PHÚT', 'success', 1200);
       } else if (subAction === 'CLOSE_NOW') {
         pulseButtonConfirm('btn-tea-close', isEn ? 'CLOSED' : 'ĐÃ ĐÓNG PHIÊN', 'success', 1200);
+      } else if (subAction === 'CANCEL_MISTAKEN_SESSION') {
+        pulseButtonConfirm('btn-tea-cancel-mistaken', isEn ? 'CANCELLED' : 'ĐÃ HỦY PHIÊN NHẦM', 'success', 1300);
       }
     }
     if (subAction === 'CANCEL_MISTAKEN_SESSION') {
       showStatus(
         isEn
           ? `Cancelled and removed the mistaken session for ${classId}.`
-          : `Đã hủy và xóa bỏ phiên mở nhầm của lớp ${classId}.`,
+          : `Đã hủy và xóa bỏ hoàn toàn phiên mở nhầm của lớp ${classId}.`,
         'success',
         'tea-session-inline-status'
       );
