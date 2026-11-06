@@ -699,18 +699,7 @@ function syncTodayAttendance() {
       updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap);
       const result = updateTargetAttendanceFile_(targetInfo, classId, className, sessionGroup.day, sessionGroup.month, statusMap, null);
 
-      undoBatch.push({
-        classId: classId,
-        className: className,
-        xlsxFileId: targetInfo.fileId,
-        isGoogleSheet: targetInfo.isGoogleSheet,
-        sheetName: result.sheetName,
-        day: sessionGroup.day,
-        month: sessionGroup.month,
-        groupKey: sessionGroup.groupKey,
-        previousSyncedSig: syncedMap[sessionGroup.groupKey] || null,
-        previousCells: result.previousCells
-      });
+      undoBatch.push(buildAttendanceUndoEntry_(classId, className, targetInfo, result, sessionGroup, syncedMap[sessionGroup.groupKey]));
 
       syncedMap[sessionGroup.groupKey] = JSON.stringify(statusMap);
 
@@ -1468,18 +1457,7 @@ function autoSyncTodayAttendanceAfterClass() {
       updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap);
       const result = updateTargetAttendanceFile_(targetInfo, classId, className, sessionGroup.day, sessionGroup.month, statusMap, null);
 
-      undoBatch.push({
-        classId: classId,
-        className: className,
-        xlsxFileId: targetInfo.fileId,
-        isGoogleSheet: targetInfo.isGoogleSheet,
-        sheetName: result.sheetName,
-        day: sessionGroup.day,
-        month: sessionGroup.month,
-        groupKey: sessionGroup.groupKey,
-        previousSyncedSig: syncedMap[sessionGroup.groupKey] || null,
-        previousCells: result.previousCells
-      });
+      undoBatch.push(buildAttendanceUndoEntry_(classId, className, targetInfo, result, sessionGroup, syncedMap[sessionGroup.groupKey]));
 
       syncedMap[sessionGroup.groupKey] = statusSignature;
       anySynced = true;
@@ -1520,6 +1498,21 @@ function autoSyncTodayAttendanceAfterClass() {
       }
     }
   }
+}
+
+function buildAttendanceUndoEntry_(classId, className, targetInfo, result, sessionGroup, prevSig) {
+  return {
+    classId: classId,
+    className: className,
+    xlsxFileId: targetInfo.fileId,
+    isGoogleSheet: targetInfo.isGoogleSheet,
+    sheetName: result.sheetName,
+    day: sessionGroup.day,
+    month: sessionGroup.month,
+    groupKey: sessionGroup.groupKey,
+    previousSyncedSig: prevSig || null,
+    previousCells: result.previousCells
+  };
 }
 
 
@@ -1708,11 +1701,7 @@ function probeSheetHasStudentRoster_(sheet) {
     if (maxColNeeded > lastCol) return false;
     const sample = sheet.getRange(layout.dataStartRow, 1, scanRows, maxColNeeded).getValues();
     for (let i = 0; i < sample.length; i++) {
-      const rawId = sample[i][layout.idCol - 1];
-      const name1 = String(sample[i][layout.nameCol - 1] || '').trim();
-      const name2 = layout.isTwoColName ? String(sample[i][layout.nameCol] || '').trim() : '';
-      const fullName = (layout.isTwoColName ? (name1 + ' ' + name2) : name1).replace(/\s+/g, ' ').trim();
-      if (normalizeStudentId_(rawId, fullName)) {
+      if (extractRowStudentIdAndName_(sample[i], layout).sid) {
         return true;
       }
     }
@@ -2397,6 +2386,27 @@ function saveManualExamBanForClass_(classId, bannedStudentMap) {
   } catch (e) {}
 }
 
+function extractRowStudentIdAndName_(row, layout) {
+  const rawId = row[layout.idCol - 1];
+  const namePart1 = String(row[layout.nameCol - 1] || '').trim();
+  const namePart2 = layout.isTwoColName ? String(row[layout.nameCol] || '').trim() : '';
+  const fullName = (layout.isTwoColName ? (namePart1 + ' ' + namePart2) : namePart1)
+    .replace(/\s+/g, ' ')
+    .trim();
+  const sid = normalizeStudentId_(rawId, fullName);
+  return { sid: sid, fullName: fullName };
+}
+
+function isStudentRowHighlightedRed_(infoBgs, infoFontColors, rowIdx, maxCols) {
+  if (!infoBgs && !infoFontColors) return false;
+  for (let c = 0; c < maxCols; c++) {
+    const bgType = infoBgs && infoBgs[rowIdx] ? classifySheetCellColor_(infoBgs[rowIdx][c]) : 'EMPTY';
+    const fcType = infoFontColors && infoFontColors[rowIdx] ? classifySheetCellColor_(infoFontColors[rowIdx][c]) : 'EMPTY';
+    if (bgType === 'RED' || fcType === 'RED') return true;
+  }
+  return false;
+}
+
 /**
  * Extract student roster (No., Student_ID, Full_Name) from either a Google Sheet or .XLSX file.
  * Also scans student identity cells (STT, MSSV, Họ tên) for manual Red Exam-Ban highlights (#ff0000, #e06666...)
@@ -2464,7 +2474,8 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
     } catch (metaErr) {}
 
     const numRows = lastRow - layout.dataStartRow + 1;
-    const maxColNeeded = Math.max(layout.idCol, layout.nameCol + (layout.isTwoColName ? 1 : 0), totalCols);
+    const identityCols = Math.max(layout.idCol, layout.nameCol + (layout.isTwoColName ? 1 : 0));
+    const maxColNeeded = Math.max(identityCols, totalCols);
     const infoRange = sheet.getRange(layout.dataStartRow, 1, numRows, maxColNeeded);
     const rows = infoRange.getValues();
     let infoBgs = null;
@@ -2479,14 +2490,9 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
     const validRowStudentIds = [];
 
     for (let i = 0; i < rows.length; i++) {
-      const rawId = rows[i][layout.idCol - 1];
-      const namePart1 = String(rows[i][layout.nameCol - 1] || '').trim();
-      const namePart2 = layout.isTwoColName ? String(rows[i][layout.nameCol] || '').trim() : '';
-      const fullName = (layout.isTwoColName ? (namePart1 + ' ' + namePart2) : namePart1)
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      const sid = normalizeStudentId_(rawId, fullName);
+      const parsedRow = extractRowStudentIdAndName_(rows[i], layout);
+      const sid = parsedRow.sid;
+      const fullName = parsedRow.fullName;
       if (!sid || !fullName) {
         validRowStudentIds.push('');
         continue;
@@ -2496,20 +2502,8 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
       validRowStudentIds.push(sidUpper);
 
       // Check if STT, MSSV, or Full Name cell is highlighted in Red (Manual Exam Ban on Sheet)
-      const identityCols = Math.max(layout.idCol, layout.nameCol + (layout.isTwoColName ? 1 : 0));
-      if (infoBgs || infoFontColors) {
-        let isRedRow = false;
-        for (let c = 0; c < identityCols; c++) {
-          const bgType = infoBgs && infoBgs[i] ? classifySheetCellColor_(infoBgs[i][c]) : 'EMPTY';
-          const fcType = infoFontColors && infoFontColors[i] ? classifySheetCellColor_(infoFontColors[i][c]) : 'EMPTY';
-          if (bgType === 'RED' || fcType === 'RED') {
-            isRedRow = true;
-            break;
-          }
-        }
-        if (isRedRow) {
-          manualBans[sidUpper] = true;
-        }
+      if (isStudentRowHighlightedRed_(infoBgs, infoFontColors, i, identityCols)) {
+        manualBans[sidUpper] = true;
       }
 
       const stt = roster.length + 1;
@@ -2833,12 +2827,7 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
 
     for (let idx = 0; idx < numRows; idx++) {
       const rowNumber = layout.dataStartRow + idx;
-      const rawId = idAndNameRows[idx][layout.idCol - 1];
-      const namePart1 = String(idAndNameRows[idx][layout.nameCol - 1] || '').trim();
-      const namePart2 = layout.isTwoColName ? String(idAndNameRows[idx][layout.nameCol] || '').trim() : '';
-      const fullName = (layout.isTwoColName ? (namePart1 + ' ' + namePart2) : namePart1).trim();
-
-      const sid = normalizeStudentId_(rawId, fullName);
+      const sid = extractRowStudentIdAndName_(idAndNameRows[idx], layout).sid;
       if (!sid) {
         outColValues.push([oldColValues[idx][0]]);
         outColBgs.push([oldColBgs[idx][0] || null]);
@@ -2846,15 +2835,8 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
       }
 
       const sidKey = sid.toUpperCase();
-      if (infoBgs || infoFontColors) {
-        for (let c = 0; c < maxColNeeded; c++) {
-          const bgType = infoBgs && infoBgs[idx] ? classifySheetCellColor_(infoBgs[idx][c]) : 'EMPTY';
-          const fcType = infoFontColors && infoFontColors[idx] ? classifySheetCellColor_(infoFontColors[idx][c]) : 'EMPTY';
-          if (bgType === 'RED' || fcType === 'RED') {
-            manualBans[sidKey] = true;
-            break;
-          }
-        }
+      if (isStudentRowHighlightedRed_(infoBgs, infoFontColors, idx, maxColNeeded)) {
+        manualBans[sidKey] = true;
       }
 
       const oldBg = oldColBgs[idx][0];
