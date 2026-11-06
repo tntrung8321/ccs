@@ -162,5 +162,8 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
    - Sử dụng Typography rõ ràng (`Be Vietnam Pro` + `JetBrains Mono` cho số liệu/MSSV/đồng hồ) và chấm tròn màu `7px` cho trạng thái `P / L / E / A`.
 2. **Quy tắc Đánh số Phiên bản & Đồng bộ (`changelog-and-versioning.md`)**:
    - Mỗi lần cập nhật tính năng hoặc sửa lỗi: tăng `SYSTEM_VERSION` (`X.Y.Z`), đổi tên file [`code<X.Y.Z>.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.5.text) ở cả thư mục máy và trên Google Drive (`14mEoxJJ1_USzlYorIvnZBHJwzzK1KDOj`) khi có thay đổi backend, cập nhật [`sync.txt`](file:///d:/CCS%20-%20ClassCheck%20System/sync.txt) (`1TA3scTqHwz8btQYJbzDSPiP6K3QCsxyA`), [`changelog.md`](file:///d:/CCS%20-%20ClassCheck%20System/changelog.md) (`18y2_402KSn4KfRZ0LExDlnCmB6UsqGPz`) song ngữ Anh–Việt, và query string `?v=<X.Y.Z>` ở các file frontend.
-3. **Quy tắc Demo Bằng Ảnh Sản Phẩm Trước Khi Sửa Giao Diện (`ui-demo-preview.md`)**:
-   - Khi lập kế hoạch hoặc chỉnh sửa giao diện (UI/UX), luôn chạy bản nháp cô lập (`/tmp/ccs-demo`), nạp dữ liệu mẫu thực tế và chụp ảnh sản phẩm độ phân giải cao (`2x Retina` qua Headless Chromium) gửi người dùng duyệt trực quan trước khi áp dụng vào mã nguồn chính.
+3. **Quy tắc Sửa Code Tối Thiểu & Kiểm Thử Thực Tế (`ui-demo-preview.md`)**:
+   - **Chỉ sửa đúng chỗ cần sửa**: Can thiệp đúng dòng/hàm cần thay đổi, hạn chế viết lại toàn bộ hàm/file; tuyệt đối không tự ý thêm các dòng comment giới thiệu đầu file/hàm hoặc chèn thêm chữ lên giao diện ngoài yêu cầu.
+   - **Phân tách Preview Giao diện & Test Chức năng**:
+     - Chỉ khi thay đổi **Giao diện (UI/UX, bố cục, màu sắc)** mới dựng bản nháp `/tmp/ccs-demo` và chụp ảnh màn hình (`2x Retina` qua Headless Chromium).
+     - Khi thay đổi **Code / Logic / Chức năng** (GPS, tính điểm, phiên điểm danh, đồng bộ Sheet...), không chụp ảnh giao diện mà phải **chạy test thực tế** (script kiểm thử luồng hàm và các tình huống biên) để xác nhận kết quả.

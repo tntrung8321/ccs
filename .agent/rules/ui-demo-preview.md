@@ -1,16 +1,17 @@
 ---
 trigger: always_on
-description: When making UI/UX changes, render an isolated demo in /tmp and show product screenshots of the updated interface for user approval before modifying main repository files when requested.
+description: Enforce surgical code edits (modify only what is needed, no full rewrites or unsolicited introductory comments/text), use screenshot previews ONLY for UI/layout changes, and run real functional tests for code/logic changes.
 ---
 
-# Visual Product Screenshot Demo Rule (`CCS - ClassCheck System`)
+# Surgical Code Edits & Context-Appropriate Verification Rule (`CCS - ClassCheck System`)
 
-Whenever the user asks to plan or preview UI/interface changes before coding (or when proposing noticeable layout changes on the Lecturer / Student screens):
+1. **Surgical Edits Only — No Unnecessary Rewrites or Boilerplate Comments**:
+   - **Modify Only What Is Needed**: Edit only the exact lines/functions required by the task. Avoid rewriting entire functions, sections, or files when a targeted change suffices.
+   - **No Unsolicited Introductory Comments or UI Text**: Never add multi-line introductory banner comments, docstrings, or extra instructional UI text that the user did not explicitly request.
+   - **Concise, Direct Responses**: State exact file names, line numbers, and technical outcomes directly without rambling explanations.
 
-1. **Isolated Demo First (`/tmp/ccs-demo`)**:
-   - Copy the frontend files (`index.html`, `css/`, `js/`) into an isolated temporary directory (`/tmp/ccs-demo`) while keeping the main repository (`tntrung8321/ccs`) untouched.
-   - Apply the proposed UI changes in `/tmp/ccs-demo` and inject realistic mock state (`applyTeacherState` / student profile state).
-
-2. **High-DPI Product Screenshots via Headless Chromium**:
-   - Render `/tmp/ccs-demo` in headless Chromium (`--force-device-scale-factor=2`) and capture full product screenshots of all affected views/modals (e.g., Lecturer Main Dashboard, Attendance Calendar & History Modal, Student Check-In Card).
-   - Present the screenshots in a visual Artifact carousel (`demo_*.png`) so the user can inspect the exact product appearance before approving code changes in the main repository.
+2. **Verification & Preview Strategy (UI Screenshots vs. Functional Code Tests)**:
+   - **UI / Layout / Styling Changes ONLY $\rightarrow$ Visual Screenshot Preview (`/tmp/ccs-demo`)**:
+     - Use the isolated `/tmp/ccs-demo` + headless Chromium (`2x`) screenshot workflow **only** when the task modifies visual layout, styling, or UI components that need visual inspection.
+   - **Code / Logic / Functional Changes $\rightarrow$ Real Functional Testing (No Unnecessary Screenshots)**:
+     - When fixing bugs or updating logic/functionality (e.g., GPS acquisition, session state, scoring formulas, API handling, Sheet sync), do **not** generate UI screenshots. Instead, run **actual functional tests** (automated Node.js / headless browser test scripts exercising the exact code paths and edge cases) and verify the runtime output.
