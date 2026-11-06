@@ -145,19 +145,10 @@ function syncStudentRosters() {
     if (!classId) continue;
 
     // Count existing students and collect existing IDs in the Master QR class tab
-    let existingStudentCount = 0;
-    const existingIdsMap = {};
     const classSheet = masterSs.getSheetByName(classId);
-    if (classSheet && classSheet.getLastRow() > 1) {
-      const sVals = classSheet.getRange(2, 2, classSheet.getLastRow() - 1, 2).getValues();
-      for (let r = 0; r < sVals.length; r++) {
-        const normSid = normalizeStudentId_(sVals[r][0], sVals[r][1]);
-        if (normSid) {
-          existingIdsMap[normSid.toUpperCase()] = true;
-          existingStudentCount++;
-        }
-      }
-    }
+    const existingInfo = collectMasterClassStudentIds_(classSheet);
+    const existingStudentCount = existingInfo.count;
+    const existingIdsMap = existingInfo.upperMap;
 
     const alreadySynced = existingStudentCount > 0;
     const targetInfo = resolveClassTargetFile_(masterSs, classId, className);
@@ -450,17 +441,9 @@ function syncSingleClassRosterFromDrive_(masterSs, classId, className, options) 
     classSheet.getRange(1, 1, 1, 5).setValues([['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']]);
   }
 
-  const existingData = classSheet.getDataRange().getValues();
-  const existingIds = {};
-  let existingStudentCount = 0;
-
-  for (let r = 1; r < existingData.length; r++) {
-    const sid = normalizeStudentId_(existingData[r][1], existingData[r][2]);
-    if (sid) {
-      existingIds[sid.toUpperCase()] = true;
-      existingStudentCount++;
-    }
-  }
+  const existingInfo = collectMasterClassStudentIds_(classSheet);
+  const existingIds = existingInfo.upperMap;
+  const existingStudentCount = existingInfo.count;
 
   const props = PropertiesService.getScriptProperties();
   const syncMetaMap = JSON.parse(props.getProperty(ROSTER_SYNC_META_PROP_KEY) || '{}');
@@ -954,14 +937,8 @@ function openDeleteClassesDialog() {
     const cname = String(cfgData[i][1] || '').trim();
     if (!cid) continue;
 
-    let studentCount = 0;
     const cSheet = masterSs.getSheetByName(cid);
-    if (cSheet && cSheet.getLastRow() > 1) {
-      const vals = cSheet.getRange(2, 2, cSheet.getLastRow() - 1, 2).getValues();
-      for (let r = 0; r < vals.length; r++) {
-        if (normalizeStudentId_(vals[r][0], vals[r][1])) studentCount++;
-      }
-    }
+    const studentCount = collectMasterClassStudentIds_(cSheet).count;
 
     classes.push({
       classId: cid,
@@ -1084,17 +1061,10 @@ function deleteSelectedClasses(selectedClassIds) {
       const cid = String(cfgData[i][0] || '').trim();
       if (!cid) continue;
       const cSheet = masterSs.getSheetByName(cid);
-      if (cSheet && cSheet.getLastRow() > 1) {
-        const sVals = cSheet.getRange(2, 2, cSheet.getLastRow() - 1, 2).getValues();
-        for (let r = 0; r < sVals.length; r++) {
-          const sid = normalizeStudentId_(sVals[r][0], sVals[r][1]);
-          if (!sid) continue;
-          if (targetMap[cid]) {
-            deletedClassStudents[sid] = true;
-          } else {
-            remainingClassStudents[sid] = true;
-          }
-        }
+      const rawMap = collectMasterClassStudentIds_(cSheet).rawMap;
+      const targetBucket = targetMap[cid] ? deletedClassStudents : remainingClassStudents;
+      for (const sid in rawMap) {
+        if (Object.prototype.hasOwnProperty.call(rawMap, sid)) targetBucket[sid] = true;
       }
     }
   }
@@ -1108,49 +1078,9 @@ function deleteSelectedClasses(selectedClassIds) {
     }
   }
 
-  if (cfgSheet) {
-    const cfgData = cfgSheet.getDataRange().getValues();
-    const keepCfg = [cfgData[0]];
-    for (let i = 1; i < cfgData.length; i++) {
-      const cid = String(cfgData[i][0] || '').trim();
-      if (targetMap[cid]) {
-        snapshot.configRows.push(cfgData[i]);
-      } else {
-        keepCfg.push(cfgData[i]);
-      }
-    }
-    rewriteSheetRows_(cfgSheet, keepCfg);
-  }
-
-  const sessSheet = masterSs.getSheetByName('Sessions_Log');
-  if (sessSheet) {
-    const sessData = sessSheet.getDataRange().getValues();
-    const keepSess = [sessData[0]];
-    for (let i = 1; i < sessData.length; i++) {
-      const cid = String(sessData[i][1] || '').trim();
-      if (targetMap[cid]) {
-        snapshot.sessionRows.push(sessData[i]);
-      } else {
-        keepSess.push(sessData[i]);
-      }
-    }
-    rewriteSheetRows_(sessSheet, keepSess);
-  }
-
-  const attSheet = masterSs.getSheetByName('Attendance_Log');
-  if (attSheet) {
-    const attData = attSheet.getDataRange().getValues();
-    const keepAtt = [attData[0]];
-    for (let i = 1; i < attData.length; i++) {
-      const cid = String(attData[i][3] || '').trim();
-      if (targetMap[cid]) {
-        snapshot.attendanceRows.push(attData[i]);
-      } else {
-        keepAtt.push(attData[i]);
-      }
-    }
-    rewriteSheetRows_(attSheet, keepAtt);
-  }
+  partitionAndRewriteSheetByClassCol_(cfgSheet, 0, targetMap, snapshot.configRows);
+  partitionAndRewriteSheetByClassCol_(masterSs.getSheetByName('Sessions_Log'), 1, targetMap, snapshot.sessionRows);
+  partitionAndRewriteSheetByClassCol_(masterSs.getSheetByName('Attendance_Log'), 3, targetMap, snapshot.attendanceRows);
 
   const devSheet = masterSs.getSheetByName('Device_Registry');
   if (devSheet) {
@@ -1189,6 +1119,39 @@ function deleteSelectedClasses(selectedClassIds) {
   );
 
   return { cancelled: false };
+}
+
+function collectMasterClassStudentIds_(classSheet) {
+  let count = 0;
+  const upperMap = {};
+  const rawMap = {};
+  if (classSheet && classSheet.getLastRow() > 1) {
+    const sVals = classSheet.getRange(2, 2, classSheet.getLastRow() - 1, 2).getValues();
+    for (let r = 0; r < sVals.length; r++) {
+      const sid = normalizeStudentId_(sVals[r][0], sVals[r][1]);
+      if (sid) {
+        upperMap[sid.toUpperCase()] = true;
+        rawMap[sid] = true;
+        count++;
+      }
+    }
+  }
+  return { count: count, upperMap: upperMap, rawMap: rawMap };
+}
+
+function partitionAndRewriteSheetByClassCol_(sheet, classColIdx, targetMap, snapshotList) {
+  if (!sheet) return;
+  const data = sheet.getDataRange().getValues();
+  const keepRows = [data[0]];
+  for (let i = 1; i < data.length; i++) {
+    const cid = String(data[i][classColIdx] || '').trim();
+    if (targetMap[cid]) {
+      snapshotList.push(data[i]);
+    } else {
+      keepRows.push(data[i]);
+    }
+  }
+  rewriteSheetRows_(sheet, keepRows);
 }
 
 function rewriteSheetRows_(sheet, rows) {
