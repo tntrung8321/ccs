@@ -2,6 +2,24 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### ✨ Version `v3.6.4` — *Automatic Calendar-Day Session UI Reset (Past-Day Isolation vs. Same-Day Closed Retention), Permanent Today Check-In Button Lock (`P` Emerald / `L` Amber) & Cohesive Semantic `Pulse to Confirm` System (`code3.6.4.text`)*
+* **Automatic Calendar-Day Session UI Reset & Past-Day Protection (`code3.6.4.text`, `js/teacher.js`)**:
+  * **New-Day Dashboard Reset**: When a lecturer opens a class on a **new calendar day** where no session has been opened yet today (e.g., opening Class `002` on Friday `06/11` when the previous session was on Monday `02/11`), both `handleTeacherGetState` and `applyTeacherState` automatically isolate the past-day closed session from the live dashboard:
+    * Displays badge **`CHƯA MỞ PHIÊN HÔM NAY`** (`NO SESSION TODAY`), resets live counters to `0 / N Có mặt` (`P: 0 | L: 0 | A: N | E: 0`), and clears past-day `P / L / E` button states, timestamps, and distances from the live student roster so the lecturer starts with a clean slate for the new class day.
+    * Disables the 4 session control buttons (`+2 Phút`, `Mở lại 5 phút`, `Hủy phiên nhầm`, `Đóng phiên`) and guards `handleTeacherControlSession` and `handleTeacherManualMark` on the backend so accidental clicks on a new day can **never** mutate or delete Monday's completed session.
+    * Preserves **100%** of past-day attendance records inside the **Course Progress Strip (`Tiến độ học phần`)** and the **`"Lịch sử"` (History Month Calendar)** modal.
+  * **Same-Day Closed Session Retention**: When **today's** session finishes or is closed (`!ses.isOpen && sesDayKey === getTodayDateKey()`), displays badge **`ĐÃ ĐÓNG PHIÊN HÔM NAY`** (`CLOSED TODAY'S SESSION`), disables only `#btn-tea-close` (`Đóng phiên`), and **retains today's `P / L / E` marks on screen** for the rest of the day so the lecturer can still use `Gọi ngẫu nhiên`, `Chia nhóm`, `Mở lại 5 phút`, or mark a late student `L`.
+* **Permanent Today Check-In Button Lock on Student UI (`#btn-start-checkin` in `js/student.js`, `css/styles.css`)**:
+  * Once a student checks in (**`P`** or **`L`**) for a class today (`cc_receipt_<classId>_<todayKey>` or today's `P`/`L` in local attendance history), `syncStudentCheckInButtonState(classId, animatePulse)` **permanently locks `#btn-start-checkin` (`disabled = true`) in its confirmed state for that class today** instead of reverting to `"ĐIỂM DANH NGAY"`:
+    * **Present (`P`)**: Solid Emerald Green (`.btn-checkin-done-P`), checkmark SVG, and label **`ĐÃ ĐIỂM DANH CÓ MẶT (P) • HH:mm`** (`CHECKED IN PRESENT (P) • HH:mm`).
+    * **Late (`L`)**: Solid Amber/Yellow (`.btn-checkin-done-L`), clock SVG, and label **`ĐÃ GHI NHẬN ĐI TRỄ (L) • HH:mm`** (`RECORDED LATE (L) • HH:mm`).
+  * Switching the course dropdown (`#sel-student-class`) to another class that has not been checked in today automatically unlocks `#btn-start-checkin` back to `"ĐIỂM DANH NGAY"` for that class.
+  * Removed the redundant standalone receipt box (`#student-today-receipt`) below the button since the locked hero button itself displays the full confirmed status and timestamp.
+* **Cohesive Semantic `Pulse to Confirm` System Across Student & Lecturer Views (`css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)**:
+  * Extended `pulseButtonConfirm()` with **`'danger'` (`@keyframes ccsPulseRed`, `.btn-pulse-danger` + X-circle SVG)** and **`'neutral'` (`.btn-pulse-neutral` micro-pulse)** variants, fixed `:disabled` opacity dimming during active pulses (`opacity: 1 !important`), and replaced SVG `stroke-dashoffset` clipping with smooth `scale(0.85 -> 1)` transitions.
+  * **Student Check-In Error Feedback**: Flashes Red (`'danger'` — `PHIÊN ĐÃ ĐÓNG`, `NGOÀI PHẠM VI PHÒNG HỌC`, `KHÔNG THỂ GỬI DỮ LIỆU`) for `1150ms` when check-in is rejected, then unlocks after a `3s` cooldown so the student can retry.
+  * **Lecturer Semantic Action Pulses**: Changed `#btn-tea-close` (`Đóng phiên` $ightarrow$ `ĐÃ ĐÓNG PHIÊN`) and `#btn-tea-cancel-mistaken` (`Hủy phiên nhầm` $ightarrow$ `ĐÃ HỦY PHIÊN NHẦM`) from Green to **Red (`'danger'`)**; added Green `'success'` pulse (`ĐÃ MỞ KHÓA`) on each student row's `Mở khóa` button (`teacherResetStudentDevice`); added semantic Green/Amber pulse on `#btn-reg-gate-toggle` (`ĐK thiết bị: MỞ / KHÓA`); and added confirmation pulses inside the Random Caller (`Gọi tiếp` / `ĐÃ HỦY ĐIỂM DANH`) and Group Maker (`Trộn lại` / `ĐÃ GỬI NHÓM`) modals.
+
 ### ✨ Version `v3.6.3` — *Tactile `Pulse to Confirm` Feedback (Student `P` Green / `L` Yellow + Lecturer Open Session & Manual Marks `P/L/E/-`), Always-Visible Compact Mobile Browser Walkthrough (`Zalo` & iOS Code Scanner Guard) & Behavior-Preserving Backend Cleanup*
 * **Tactile `Pulse to Confirm` Micro-Interactions Across Student & Lecturer Buttons (`css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)**:
   * Added `pulseButtonConfirm(btnOrId, confirmLabel, variant, durationMs)` with a crisp single-ring border glow (`3px–5px` `@keyframes ccsPulseGreen`, `ccsPulseAmber`, `ccsPulseOrange`, `ccsPulseSlate`) and inline animated SVG icons (`@keyframes ccsCheckDraw`):
@@ -211,6 +229,24 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### ✨ Version `v3.6.4` — *Tự Động Reset Giao Diện Phiên Điểm Danh Sang Ngày Mới (Cô Lập Buổi Cũ & Giữ Kết Quả Buổi Đã Đóng Trong Ngày), Khóa Cố Định Nút Điểm Danh Sinh Viên Hôm Nay (`P` Xanh / `L` Vàng) & Đồng Bộ Hệ Thống `Pulse to Confirm` (`code3.6.4.text`)*
+* **Tự Động Reset Giao Diện Phiên Điểm Danh Khi Sang Ngày Học Mới & Bảo Vệ Dữ Liệu Buổi Cũ (`code3.6.4.text`, `js/teacher.js`)**:
+  * **Tự động làm mới khi mở lớp vào ngày mới**: Khi Giảng viên mở giao diện một lớp vào **ngày mới** mà hôm nay chưa mở phiên nào (ví dụ: thứ Sáu `06/11` mở lớp `002` có phiên gần nhất vào thứ Hai `02/11`), cả `handleTeacherGetState` (Backend) và `applyTeacherState` (Frontend) tự động cô lập phiên cũ khỏi bảng điều khiển trực tiếp:
+    * Hiển thị nhãn **`CHƯA MỞ PHIÊN HÔM NAY`**, đưa bộ đếm trực tiếp về `0 / N Có mặt` (`P: 0 | L: 0 | A: N | E: 0`), và xóa sạch màu nút `P / L / E`, giờ chấm, khoảng cách của buổi cũ trên danh sách sinh viên để giao diện sẵn sàng cho buổi học mới.
+    * Khóa mờ (`disabled`) 4 nút điều khiển phiên (`+2 Phút`, `Mở lại 5 phút`, `Hủy phiên nhầm`, `Đóng phiên`) và chặn bảo vệ ngay trong `handleTeacherControlSession` & `handleTeacherManualMark` trên Backend để Giảng viên **không bao giờ** bấm nhầm làm sửa/xóa dữ liệu của buổi thứ Hai.
+    * Bảo toàn **100%** lịch sử và tiến độ của các buổi trước trên thanh **`Tiến độ học phần`** và trong hộp thoại **`"Lịch sử"` (Lịch tháng)**.
+  * **Giữ nguyên kết quả trên màn hình khi phiên HÔM NAY vừa kết thúc**: Khi phiên điểm danh mở **trong ngày hôm nay** kết thúc hoặc được bấm đóng (`!ses.isOpen && sesDayKey === getTodayDateKey()`), hiển thị nhãn **`ĐÃ ĐÓNG PHIÊN HÔM NAY`**, chỉ khóa nút `#btn-tea-close` (`Đóng phiên`) và **giữ nguyên danh sách `P / L / E` của ca học hôm nay trên màn hình** để Giảng viên tiếp tục `Gọi ngẫu nhiên`, `Chia nhóm`, `Mở lại 5 phút` hoặc chấm trễ `L` bổ sung.
+* **Khóa Cố Định Nút Điểm Danh Sinh Viên Sau Khi Đã Ghi Nhận Trong Ngày (`#btn-start-checkin` trong `js/student.js`, `css/styles.css`)**:
+  * Ngay sau khi sinh viên điểm danh thành công (**`P`** hoặc **`L`**) cho một môn trong ngày hôm nay (`cc_receipt_<classId>_<todayKey>` hoặc có bản ghi `P`/`L` hôm nay trong lịch sử máy), hàm `syncStudentCheckInButtonState(classId, animatePulse)` **lưu giữ và khóa cố định nút `#btn-start-checkin` (`disabled = true`) suốt ngày hôm đó cho môn học này**, không trả về nút `"ĐIỂM DANH NGAY"` và không cho bấm lại:
+    * **Có mặt (`P`)**: Nút giữ nguyên nền **Xanh lá (`.btn-checkin-done-P`)**, biểu tượng dấu tích SVG và dòng chữ **`ĐÃ ĐIỂM DANH CÓ MẶT (P) • HH:mm`**.
+    * **Đi trễ (`L`)**: Nút giữ nguyên nền **Màu Vàng (`.btn-checkin-done-L`)**, biểu tượng đồng hồ SVG và dòng chữ **`ĐÃ GHI NHẬN ĐI TRỄ (L) • HH:mm`**.
+  * Khi sinh viên đổi dropdown (`#sel-student-class`) sang môn học khác thuộc ca sau chưa điểm danh hôm nay, nút tự động mở khóa lại về `"ĐIỂM DANH NGAY"` cho môn mới.
+  * Ẩn bỏ khung biên nhận phụ (`#student-today-receipt`) bên dưới để giao diện gọn gàng tuyệt đối vì chính nút lớn đã đóng vai trò là thẻ xác nhận trạng thái + giờ điểm danh.
+* **Đồng Bộ Hệ Thống Xung Nhịp `Pulse to Confirm` Trên Cả Giao Diện Sinh Viên & Giảng Viên (`css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)**:
+  * Mở rộng `pulseButtonConfirm()` thêm biến thể **`'danger'` (`@keyframes ccsPulseRed`, `.btn-pulse-danger` + icon dấu X tròn)** và **`'neutral'` (`.btn-pulse-neutral` phản hồi xúc giác nhẹ)**, khắc phục triệt để lỗi mờ nút (`opacity: 1 !important`) và lỗi cắt nét icon SVG khi phát xung.
+  * **Phản hồi Đỏ khi Sinh viên điểm danh thất bại**: Phát xung Đỏ (`'danger'` — `PHIÊN ĐÃ ĐÓNG`, `NGOÀI PHẠM VI PHÒNG HỌC`, `KHÔNG THỂ GỬI DỮ LIỆU`) trong `1150ms` khi bị từ chối, sau đó mở khóa lại sau `3 giây` để sinh viên bấm thử lại.
+  * **Chuẩn hóa màu xung nhịp theo ngữ nghĩa bên Giảng viên**: Đổi xung của 2 nút `#btn-tea-close` (`Đóng phiên` $\rightarrow$ `ĐÃ ĐÓNG PHIÊN`) và `#btn-tea-cancel-mistaken` (`Hủy phiên nhầm` $\rightarrow$ `ĐÃ HỦY PHIÊN NHẦM`) từ Xanh lá sang **Đỏ (`'danger'`)**; bổ sung xung Xanh lá (`ĐÃ MỞ KHÓA`) cho nút `Mở khóa` thiết bị trên từng dòng sinh viên (`teacherResetStudentDevice`); bổ sung xung Xanh/Vàng cho nút `#btn-reg-gate-toggle` (`ĐK thiết bị: MỞ / KHÓA`); và bổ sung xung phản hồi cho các nút trong hộp thoại Gọi ngẫu nhiên (`Gọi tiếp` / `ĐÃ HỦY ĐIỂM DANH`) & Chia nhóm (`Trộn lại` / `ĐÃ GỬI NHÓM`).
+
 ### ✨ Version `v3.6.3` — *Hiệu Ứng `Pulse to Confirm` (Điểm Danh `P` Xanh / `L` Vàng + Mở Phiên & Điểm Danh Thủ Công `P/L/E/-` Của Giảng Viên), Walkthrough Cảnh Báo Gọn Chặn Zalo & Trình Quét Mã Apple + Dọn Dẹp Backend*
 * **Hiệu Ứng Xung Nhịp Xác Nhận (`Pulse to Confirm`) Cho Các Nút Quan Trọng Của Sinh Viên & Giảng Viên (`css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)**:
   * Bổ sung hàm `pulseButtonConfirm` với viền sáng mảnh sát nút (`3px–5px` `@keyframes ccsPulseGreen`, `ccsPulseAmber`, `ccsPulseOrange`, `ccsPulseSlate`) và nét vẽ SVG tự động (`@keyframes ccsCheckDraw`):
@@ -399,18 +435,18 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.6.3`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.6.4`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.6.3` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.6.4` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.6.3`) on `tntrung8321.github.io/ccs/`** |
-| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI (Zero AI Icons), `Pulse to Confirm` (`P` Green / `L` Yellow / Manual Marks), Compact Anti-Zalo & iOS Code Scanner Walkthrough, Official Attendance Score & `CẤM THI`** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.6.4`) on `tntrung8321.github.io/ccs/`** |
+| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI (Zero AI Icons), Permanent Today Check-In Button Lock (`P` Emerald / `L` Amber), Cohesive `Pulse to Confirm` (`success` / `warn` / `danger` / `neutral` + Manual Marks), Compact Anti-Zalo & iOS Code Scanner Walkthrough, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Synchronous `getCurrentPosition` Prompt + Live `watchPosition` Warm-Up (`cachedGPS = null`, `maximumAge: 0`) + Same-Day Session Merging** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Backend Open-Session Auto-Fallback)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + Legacy URL Auto-Migration** |
-| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **`0.01s` Optimistic Manual Marking (`P/L/E/-`) with Status-Colored Pulse + Calendar-Based Past-Session History (`Lịch sử`) + Cancel Mistaken Session + Random Caller & Group Maker** |
+| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **Automatic Calendar-Day Session UI Reset (Past-Day Isolation vs. Same-Day Closed Retention) + `0.01s` Optimistic Manual Marking (`P/L/E/-`) + Calendar-Based History (`Lịch sử`) + Random Caller & Group Maker** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-Extra-Load RAM `CacheService` (`ALL_LATEST_SES_V35`, `SES_ATT_MAP_V35_`, `CLASS_ATT_STATS_V35_`, `GROUP_SPLIT_`)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Zalo/Social WebView & iPhone Code Scanner Block + Multi-Browser (`Safari+Chrome`), F12, Fresh GPS Timestamp & Spot-Check Lock** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Customizable `P/L/E/-` Marks + Smart Color-Family Detection (All Shades of Orange/Yellow/Red) + Ghost Session Filtering** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.6.3`) / Luôn tải bản mới tức thì** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.6.4`) / Luôn tải bản mới tức thì** |

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.6.3)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.6.4)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.6.3';
+const SYSTEM_VERSION = '3.6.4';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -1322,10 +1322,13 @@ function handleTeacherGetState(ss, body) {
     const rosterMap = getClassRosterMap(ss, selectedId, false);
     const classStatsMap = getClassAttendanceStatsMap_(ss, selectedId, false);
 
+    const todayDayKey = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
     let isSessionDayValid = false;
+    let isTodaySession = false;
     if (sessionInfo) {
       if (sessionInfo.isOpen) {
         isSessionDayValid = true;
+        isTodaySession = true;
       } else {
         const sesDayKey = sessionInfo.openedAtMs > 0
           ? Utilities.formatDate(new Date(sessionInfo.openedAtMs), TIMEZONE, 'yyyy-MM-dd')
@@ -1334,10 +1337,15 @@ function handleTeacherGetState(ss, body) {
         if (sesDayKey && sampleSt && Array.isArray(sampleSt.history)) {
           isSessionDayValid = sampleSt.history.some(h => h && h.dayKey === sesDayKey);
         }
+        isTodaySession = Boolean(sesDayKey && sesDayKey === todayDayKey && (isSessionDayValid || !sampleSt));
       }
     }
 
-    const sessionChecks = (sessionInfo && isSessionDayValid)
+    if (!isTodaySession) {
+      sessionInfo = null;
+    }
+
+    const sessionChecks = (sessionInfo && isTodaySession)
       ? getSessionAttendanceMap(ss, sessionInfo.sessionId, false)
       : {};
 
@@ -1549,10 +1557,21 @@ function handleTeacherControlSession(ss, body) {
   const rowVals = data[targetRow - 2];
   const targetSesId = String(rowVals[0] || '').trim();
   const openedMs = parseSheetTimeMs(rowVals[3]);
+  const closeMs = parseSheetTimeMs(rowVals[5]);
+  const manualCloseMs = parseSheetTimeMs(rowVals[6]);
   const sesDayKey = openedMs > 0
     ? Utilities.formatDate(new Date(openedMs), TIMEZONE, 'yyyy-MM-dd')
     : '';
   const nowMs = Date.now();
+  const todayDayKey = Utilities.formatDate(new Date(nowMs), TIMEZONE, 'yyyy-MM-dd');
+  const isTargetOpen = !manualCloseMs && nowMs <= closeMs;
+  if (!isTargetOpen && sesDayKey !== todayDayKey) {
+    return jsonResponse({
+      ok: false,
+      code: 'ERR_NO_SESSION',
+      message: 'Hôm nay chưa có phiên điểm danh nào cho lớp này.'
+    });
+  }
 
   if (subAction === 'CANCEL_MISTAKEN_SESSION') {
     const deletedSesIds = {};
@@ -1712,8 +1731,16 @@ function handleTeacherManualMark(ss, body) {
       }
     } else {
       const session = getLatestSessionForDashboard(ss, classId, false) || getLatestSessionForDashboard(ss, classId, true);
-      if (!session) {
-        return jsonResponse({ ok: false, code: 'ERR_NO_SESSION', message: 'Start a session first before marking students.' });
+      const todayDayKey = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
+      const sesDayKey = (session && session.openedAtMs > 0)
+        ? Utilities.formatDate(new Date(session.openedAtMs), TIMEZONE, 'yyyy-MM-dd')
+        : '';
+      if (!session || (!session.isOpen && sesDayKey !== todayDayKey)) {
+        return jsonResponse({
+          ok: false,
+          code: 'ERR_NO_SESSION',
+          message: 'Hôm nay chưa mở phiên điểm danh cho lớp này. Vui lòng mở phiên trước hoặc vào mục Lịch sử để sửa buổi cũ.'
+        });
       }
       primarySessionId = session.sessionId;
       targetSessionIds = [primarySessionId];
@@ -1841,7 +1868,14 @@ function getActiveGroupSplitForClass_(classId) {
   if (!classId) return null;
   try {
     const raw = CacheService.getScriptCache().get('GROUP_SPLIT_' + classId);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const todayDayKey = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
+    if (parsed.publishedAt && !String(parsed.publishedAt).startsWith(todayDayKey)) {
+      return null;
+    }
+    return parsed;
   } catch (e) {
     return null;
   }

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.6.3)
+ * STUDENT CONTROLLER (js/student.js — v3.6.4)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Official Attendance Score (Base 10.0), Same-Day Session Merging, Near-Limit Warning & Exam Ban (CẤM THI)
  *  - Live Classroom Group Assignment Card (#stu-group-card)
@@ -508,7 +508,8 @@ function renderStudentGroupCard(studentId, classObj) {
   if (!card) return;
   const sid = String(studentId || '').trim().toUpperCase();
   const split = classObj && classObj.activeGroupSplit ? classObj.activeGroupSplit : null;
-  if (!sid || !split || !Array.isArray(split.groups) || split.groups.length === 0) {
+  const splitDayKey = split && split.publishedAt ? String(split.publishedAt).slice(0, 10) : '';
+  if (!sid || !split || !Array.isArray(split.groups) || split.groups.length === 0 || (splitDayKey && splitDayKey !== getTodayDateKey())) {
     card.classList.add('hidden');
     card.innerHTML = '';
     return;
@@ -1163,22 +1164,11 @@ async function executeStudentCheckIn(qrString) {
     };
 
     const res = await callBackend(profile.apiUrl, payload, 2);
-    startCheckInButtonCooldown(4);
 
     if (res && res.ok && res.receipt) {
       const r = res.receipt;
       const recordedClassId = r.classId || classId;
       const isLate = r.status === 'L';
-      if (typeof pulseButtonConfirm === 'function') {
-        pulseButtonConfirm(
-          'btn-start-checkin',
-          isLate
-            ? (currentLang === 'en' ? 'RECORDED LATE (L)' : 'GHI NHẬN ĐI TRỄ (L)')
-            : (currentLang === 'en' ? 'RECORDED PRESENT (P)' : 'ĐÃ GHI NHẬN CÓ MẶT (P)'),
-          isLate ? 'warn' : 'success',
-          1350
-        );
-      }
       if (recordedClassId !== classId && selClassEl) {
         selClassEl.value = recordedClassId;
       }
@@ -1187,7 +1177,7 @@ async function executeStudentCheckIn(qrString) {
       }
       saveTodayStudentReceipt(recordedClassId, r);
       renderStudentAttendanceSummary(instId, recordedClassId);
-      renderTodayStudentReceipt(recordedClassId);
+      renderTodayStudentReceipt(recordedClassId, true);
       showStatus(formatServerMessage(res.code, {
         status: r.status,
         time: r.time,
@@ -1202,27 +1192,27 @@ async function executeStudentCheckIn(qrString) {
       if (checkRec && checkRec.ok && checkRec.receipt) {
         const recordedClassId = checkRec.receipt.classId || classId;
         const isLate = checkRec.receipt.status === 'L';
-        if (typeof pulseButtonConfirm === 'function') {
-          pulseButtonConfirm(
-            'btn-start-checkin',
-            isLate
-              ? (currentLang === 'en' ? 'RECORDED LATE (L)' : 'GHI NHẬN ĐI TRỄ (L)')
-              : (currentLang === 'en' ? 'RECORDED PRESENT (P)' : 'ĐÃ GHI NHẬN CÓ MẶT (P)'),
-            isLate ? 'warn' : 'success',
-            1350
-          );
-        }
         if (checkRec.receipt.attendanceStats) {
           updateStoredStudentClassStats(instId, recordedClassId, checkRec.receipt.attendanceStats);
         }
         saveTodayStudentReceipt(recordedClassId, checkRec.receipt);
         renderStudentAttendanceSummary(instId, recordedClassId);
-        renderTodayStudentReceipt(recordedClassId);
+        renderTodayStudentReceipt(recordedClassId, true);
         showStatus(formatServerMessage('CONFIRMED_' + (checkRec.receipt.status === 'P' ? 'PRESENT' : 'LATE'), {
           time: checkRec.receipt.time,
           dist: checkRec.receipt.distanceMeters
         }), isLate ? 'warn' : 'success', 'checkin-inline-status');
       } else {
+        startCheckInButtonCooldown(3);
+        if (typeof pulseButtonConfirm === 'function') {
+          pulseButtonConfirm(
+            'btn-start-checkin',
+            currentLang === 'en' ? 'NETWORK ERROR — RETRY' : 'LỖI MẠNG — THỬ LẠI',
+            'danger',
+            1150,
+            { skipSaveOrig: true }
+          );
+        }
         showStatus(
           currentLang === 'en' ? 'Network connection error, please try again.' : 'Lỗi kết nối mạng, vui lòng thử bấm lại.',
           'err',
@@ -1230,7 +1220,16 @@ async function executeStudentCheckIn(qrString) {
         );
       }
     } else {
+      startCheckInButtonCooldown(3);
       const errCode = res ? res.code : 'ERR_UNKNOWN';
+      const shortErrBtnLabel = errCode === 'ERR_SESSION_CLOSED'
+        ? (currentLang === 'en' ? 'SESSION IS CLOSED' : 'PHIÊN ĐIỂM DANH ĐANG ĐÓNG')
+        : errCode === 'ERR_OUT_OF_RANGE'
+          ? (currentLang === 'en' ? 'OUTSIDE CLASSROOM RADIUS' : 'NGOÀI BÁN KÍNH PHÒNG HỌC')
+          : (currentLang === 'en' ? 'CHECK-IN NOT COMPLETED' : 'CHƯA ĐIỂM DANH ĐƯỢC');
+      if (typeof pulseButtonConfirm === 'function') {
+        pulseButtonConfirm('btn-start-checkin', shortErrBtnLabel, 'danger', 1150, { skipSaveOrig: true });
+      }
       // Smart wrong-class hint: if this class is closed, check if another enrolled class is open or scheduled
       if (errCode === 'ERR_SESSION_CLOSED' && Array.isArray(profile.enrolledClasses) && profile.enrolledClasses.length > 1) {
         const sched = resolveActiveClassBySchedule(profile.enrolledClasses, new Date());
@@ -1258,7 +1257,7 @@ function resetCheckInButtonImmediate() {
   const defaultText = I18N[currentLang].stu_one_tap_checkin_btn || 'ĐIỂM DANH NGAY';
   if (btn) {
     btn.disabled = false;
-    btn.classList.remove('btn-pulse-success', 'btn-pulse-warn');
+    btn.classList.remove('btn-pulse-success', 'btn-pulse-warn', 'btn-pulse-danger', 'btn-pulse-neutral', 'btn-checkin-done-P', 'btn-checkin-done-L');
     btn.innerHTML = `<svg class="icon icon-lg"><use href="#ic-check"></use></svg><span id="btn-start-checkin-label">${escapeHtml(defaultText)}</span>`;
   }
 }
@@ -1272,14 +1271,72 @@ function startCheckInButtonCooldown(seconds) {
     rem--;
     if (rem <= 0) {
       clearInterval(checkInCooldownTimer);
-      resetCheckInButtonImmediate();
-    } else if (btn && !btn.classList.contains('btn-pulse-success') && !btn.classList.contains('btn-pulse-warn')) {
-      const waitText = currentLang === 'en' ? `Please wait ${rem} seconds...` : `Vui lòng chờ ${rem} giây...`;
-      const btnLabel = document.getElementById('btn-start-checkin-label');
-      if (btnLabel) btnLabel.textContent = waitText;
-      else btn.textContent = waitText;
+      const selClassEl = document.getElementById('sel-student-class');
+      syncStudentCheckInButtonState(selClassEl ? selClassEl.value : '', false);
     }
   }, 1000);
+}
+
+function syncStudentCheckInButtonState(classId, animatePulse = false) {
+  const btn = document.getElementById('btn-start-checkin');
+  if (!btn) return;
+  if (checkInCooldownTimer) {
+    clearInterval(checkInCooldownTimer);
+    checkInCooldownTimer = null;
+  }
+
+  const isEn = currentLang === 'en';
+  const todayKey = getTodayDateKey();
+  let todayRec = null;
+
+  if (classId) {
+    const raw = safeGetLocal(`cc_receipt_${classId}_${todayKey}`, null);
+    if (raw) {
+      try {
+        todayRec = JSON.parse(raw);
+      } catch (e) {
+        todayRec = null;
+      }
+    }
+    if (!todayRec) {
+      try {
+        const profiles = getStudentProfiles();
+        const instIds = Object.keys(profiles);
+        const activeInst = safeGetLocal('cc_active_inst', instIds[0] || '');
+        const p = profiles[activeInst];
+        if (p && p.studentId) {
+          const localHist = getLocalStudentAttendanceHistory(p.studentId, classId);
+          const foundToday = localHist.find(h => h && h.dayKey === todayKey && (h.status === 'P' || h.status === 'L'));
+          if (foundToday) {
+            todayRec = { status: foundToday.status, time: foundToday.time || '' };
+          }
+        }
+      } catch (e) {}
+    }
+  }
+
+  if (todayRec && (todayRec.status === 'P' || todayRec.status === 'L')) {
+    const isLate = todayRec.status === 'L';
+    const shortTime = todayRec.time ? String(todayRec.time).slice(0, 5) : '';
+    const timeSuffix = shortTime ? ` • ${shortTime}` : '';
+    const labelText = isLate
+      ? (isEn ? `RECORDED LATE (L)${timeSuffix}` : `ĐÃ GHI NHẬN ĐI TRỄ (L)${timeSuffix}`)
+      : (isEn ? `CHECKED IN PRESENT (P)${timeSuffix}` : `ĐÃ ĐIỂM DANH CÓ MẶT (P)${timeSuffix}`);
+    const svgHtml = isLate
+      ? '<svg class="icon icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path class="pulse-draw-path" d="M12 7v5l3 2"></path></svg>'
+      : '<svg class="icon icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path class="pulse-draw-path" d="M20 6L9 17l-5-5"></path></svg>';
+
+    btn.disabled = true;
+    btn.classList.remove('btn-pulse-success', 'btn-pulse-warn', 'btn-pulse-danger', 'btn-pulse-neutral', 'btn-checkin-done-P', 'btn-checkin-done-L');
+    btn.classList.add(isLate ? 'btn-checkin-done-L' : 'btn-checkin-done-P');
+    if (animatePulse) {
+      void btn.offsetWidth;
+      btn.classList.add(isLate ? 'btn-pulse-warn' : 'btn-pulse-success');
+    }
+    btn.innerHTML = `${svgHtml}<span id="btn-start-checkin-label">${escapeHtml(labelText)}</span>`;
+  } else {
+    resetCheckInButtonImmediate();
+  }
 }
 
 /**
@@ -1301,23 +1358,26 @@ function saveTodayStudentReceipt(classId, receiptObj) {
   }
 }
 
-function renderTodayStudentReceipt(classId) {
+function renderTodayStudentReceipt(classId, animatePulse = false) {
   const box = document.getElementById('student-today-receipt');
   if (box) box.classList.add('hidden');
-  if (!classId) return;
-  const key = `cc_receipt_${classId}_${getTodayDateKey()}`;
-  const raw = safeGetLocal(key, null);
-  if (!raw) return;
-  try {
-    const r = JSON.parse(raw);
-    if (r && r.studentId && r.status) {
-      recordLocalStudentSessionMark(
-        r.studentId,
-        classId,
-        r.sessionId || getTodayDateKey(),
-        r.status,
-        r.time || ''
-      );
+  if (classId) {
+    const key = `cc_receipt_${classId}_${getTodayDateKey()}`;
+    const raw = safeGetLocal(key, null);
+    if (raw) {
+      try {
+        const r = JSON.parse(raw);
+        if (r && r.studentId && r.status) {
+          recordLocalStudentSessionMark(
+            r.studentId,
+            classId,
+            r.sessionId || getTodayDateKey(),
+            r.status,
+            r.time || ''
+          );
+        }
+      } catch (e) {}
     }
-  } catch (e) {}
+  }
+  syncStudentCheckInButtonState(classId, animatePulse);
 }

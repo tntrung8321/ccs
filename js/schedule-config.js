@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.6.3)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.6.4)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -1461,29 +1461,49 @@ function watchBrowserLocationPermission() {
   }).catch(() => {});
 }
 
-function pulseButtonConfirm(btnOrId, confirmLabel = '', variant = 'success', durationMs = 1200) {
+function pulseButtonConfirm(btnOrId, confirmLabel = '', variant = 'success', durationMs = 1200, options = {}) {
   const btn = typeof btnOrId === 'string' ? document.getElementById(btnOrId) : btnOrId;
   if (!btn) return Promise.resolve();
 
+  const opts = options && typeof options === 'object' ? options : {};
+  const lockAfterPulse = Boolean(opts.lockAfterPulse);
+
   if (navigator.vibrate) {
     try {
-      navigator.vibrate(variant === 'warn' ? [45, 60, 45] : [35, 50, 65]);
+      if (variant === 'danger') navigator.vibrate([55, 45, 55]);
+      else if (variant === 'warn') navigator.vibrate([45, 60, 45]);
+      else if (variant === 'neutral') navigator.vibrate(20);
+      else navigator.vibrate([35, 50, 65]);
     } catch (e) {}
   }
 
-  const pulseCls = variant === 'warn' ? 'btn-pulse-warn' : 'btn-pulse-success';
-  if (!btn._origPulseHtml) {
+  const pulseCls = variant === 'warn'
+    ? 'btn-pulse-warn'
+    : variant === 'danger'
+      ? 'btn-pulse-danger'
+      : variant === 'neutral'
+        ? 'btn-pulse-neutral'
+        : 'btn-pulse-success';
+
+  if (!btn._origPulseHtml && !opts.skipSaveOrig) {
     btn._origPulseHtml = btn.innerHTML;
   }
 
-  btn.classList.remove('btn-pulse-success', 'btn-pulse-warn');
+  btn.classList.remove('btn-pulse-success', 'btn-pulse-warn', 'btn-pulse-danger', 'btn-pulse-neutral');
   void btn.offsetWidth;
   btn.classList.add(pulseCls);
 
   if (confirmLabel) {
-    const svgIcon = variant === 'warn'
-      ? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path class="pulse-draw-path" d="M12 7v5l3 2"></path></svg>'
-      : '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path class="pulse-draw-path" d="M20 6L9 17l-5-5"></path></svg>';
+    const isSmallBtn = btn.classList.contains('btn-sm');
+    const iconCls = btn.id === 'btn-start-checkin' ? 'icon icon-lg' : (isSmallBtn ? 'icon icon-sm' : 'icon');
+    let svgIcon = `<svg class="${iconCls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path class="pulse-draw-path" d="M20 6L9 17l-5-5"></path></svg>`;
+    if (variant === 'warn') {
+      svgIcon = `<svg class="${iconCls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path class="pulse-draw-path" d="M12 7v5l3 2"></path></svg>`;
+    } else if (variant === 'danger') {
+      svgIcon = `<svg class="${iconCls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path class="pulse-draw-path" d="M15 9l-6 6M9 9l6 6"></path></svg>`;
+    } else if (variant === 'neutral') {
+      svgIcon = '';
+    }
     const hasHeroLabel = btn.id === 'btn-start-checkin';
     btn.innerHTML = hasHeroLabel
       ? `${svgIcon}<span id="btn-start-checkin-label">${escapeHtml(confirmLabel)}</span>`
@@ -1495,12 +1515,15 @@ function pulseButtonConfirm(btnOrId, confirmLabel = '', variant = 'success', dur
   }
 
   return new Promise((resolve) => {
-    if (durationMs <= 0) {
+    if (durationMs <= 0 || lockAfterPulse) {
+      if (lockAfterPulse) {
+        btn.disabled = true;
+      }
       resolve();
       return;
     }
     btn._pulseRestoreTimer = setTimeout(() => {
-      btn.classList.remove('btn-pulse-success', 'btn-pulse-warn');
+      btn.classList.remove('btn-pulse-success', 'btn-pulse-warn', 'btn-pulse-danger', 'btn-pulse-neutral');
       if (btn._origPulseHtml && btn.id !== 'btn-start-checkin') {
         btn.innerHTML = btn._origPulseHtml;
       }
