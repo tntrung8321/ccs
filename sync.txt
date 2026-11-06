@@ -1,35 +1,10 @@
 /**
  * ============================================================================
- * QR ATTENDANCE — UNIVERSAL ROSTER & SHEET SYNC (GOOGLE SHEETS & .XLSX) (v3.6.0)
+ * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.6.3)
  * ============================================================================
- * Designed for University Lecturers, Teaching Assistants (TAs), and Teachers:
- *   - Auto-displays the "📋 Roster & Sheet Sync" menu immediately when the
- *     sheet is opened, shared, or copied (chains onto Code.gs onOpen).
- *   - Supports BOTH native Google Sheets and Excel (.XLSX) files on Drive.
- *   - Integrates with "➕ 2. Add New Class Wizard" (reads Class_ID from Classes_Config).
- *   - Pre-scans new classes on Drive to display the exact student count, tab name,
- *     Drive folder path (location), and a direct "↗ Open File" link before syncing,
- *     caching the roster so importing finishes in <0.5s.
- *   - Smart Fuzzy File & Tab Matching (handles single-class files & multi-tab workbooks).
- *   - Auto-detects Header rows (MSSV / Student ID, 1-col or 2-col Full Name, Date columns)
- *     and supports both Numeric & Alphanumeric Student IDs.
- *
- * MENU: 📋 Roster & Sheet Sync (5 Actions)
- *   1. 📥 1. Sync Student Rosters (From Drive)
- *      - Opens an interactive Checkbox Dialog showing all classes from Classes_Config:
- *        • Already-synced classes appear pre-checked (☑️ ✅ Synced • N students).
- *        • Newly created classes show exact student count, Drive folder path, and
- *          a clickable "↗ Open File" link ready for the teacher to tick and sync.
- *   2. 🔄 2. Sync Today's Attendance (To Drive)
- *      - Merges all QR sessions opened on the same day for each class (P > E > L > -).
- *      - Syncs directly to Google Sheets or converts/updates .XLSX in-place.
- *      - Protects already-synced past dates; prompts Yes/No to rescue unsynced past dates.
- *   3. ↩️ 3. Undo Last Action (Sync or Delete)
- *      - Conflict-free undo for either the last Class Deletion or last Attendance Sync.
- *   4. 🗑️ 4. Delete Completed Classes
- *      - Checkbox dialog -> Yes/No confirmation -> Full backup snapshot -> Cleans up tabs & logs.
- *   5. ⚙️ 5. Attendance Mark Settings
- *      - Switch easily between Highlight Style (Blank / Yellow / Orange / x), P/L/E/A, or Custom marks.
+ * Architecture : Two-Way Google Sheets & Excel (.XLSX) Drive Synchronization
+ * Companion    : Code.gs (code3.6.0.text) & Frontend UI (index.html, js/*.js)
+ * Release Notes: See changelog.md and RULES.md for version history & rules.
  * ============================================================================
  */
 
@@ -37,16 +12,11 @@
 // 1. DEFAULT CONFIGURATION (EASY TO EDIT IN CODE OR VIA MENU ITEM #5)
 // ============================================================================
 
-/**
- * Toolbar menu title (Universal for Lecturers, TAs, and Center Teachers).
- * You can change this string if you prefer another menu label.
- */
 const SYNC_MENU_TITLE = '📋 Roster & Sheet Sync';
 
 /**
  * Default attendance mark style written to the target Google Sheet / .XLSX file.
- * Can be changed anytime without touching code via:
- * Menu -> 📋 Roster & Sheet Sync -> ⚙️ 5. Attendance Mark Settings
+ * Configurable via Menu -> 📋 Roster & Sheet Sync -> ⚙️ 5. Attendance Mark Settings
  */
 const DEFAULT_ATTENDANCE_STYLE = {
   mode: 'CENTER',          // 'CENTER' (Blank / Yellow / Orange / x), 'PLA' (P / L / E / A), or 'CUSTOM'
@@ -60,10 +30,7 @@ const DEFAULT_ATTENDANCE_STYLE = {
   absentBg: ''             // Background color when Absent ('' = clear background)
 };
 
-/**
- * Optional manual mapping of Class_ID -> Google Drive File ID (Google Sheet or .XLSX).
- * Leave empty {} for universal auto-discovery on Google Drive, or add specific overrides here.
- */
+// Optional manual mapping of Class_ID -> Google Drive File ID (leave {} for auto-discovery)
 const CUSTOM_CLASS_FILE_IDS = {};
 
 // Script Property & Cache Keys
@@ -82,9 +49,7 @@ const MIME_DRIVE_SHORTCUT = 'application/vnd.google-apps.shortcut';
 
 
 // ============================================================================
-// 2. AUTO-SHOW MENU ON OPEN (WORKS IMMEDIATELY WHEN SHEET IS SHARED OR COPIED)
-//    Automatically chains onto `onOpen` from Code.gs (Attendance Admin) so BOTH
-//    menus ("🎓 Attendance Admin" & "📋 Roster & Sheet Sync") appear right away!
+// 2. AUTO-SHOW MENU ON OPEN (CHAINS ONTO Code.gs onOpen)
 // ============================================================================
 const _PREV_ON_OPEN_HANDLER_ = (typeof globalThis !== 'undefined' && typeof globalThis.onOpen === 'function')
   ? globalThis.onOpen
@@ -102,7 +67,6 @@ if (typeof globalThis !== 'undefined') {
 }
 
 /**
- * Builds the "📋 Roster & Sheet Sync" menu in the Google Sheets toolbar.
  * Safe to run inside Simple Triggers (`onOpen`) with zero authorization required.
  */
 function buildCenterSyncMenuOnly_() {
@@ -122,8 +86,7 @@ function buildCenterSyncMenuOnly_() {
 }
 
 /**
- * Ensures background triggers (onOpen + 15-minute auto-sync) are installed once
- * the user authorizes the script by clicking any menu button or running setup.
+ * Installs background triggers (onOpen + 15-minute auto-sync) once authorized.
  */
 function ensureBackgroundTriggers_() {
   try {
@@ -147,9 +110,6 @@ function ensureBackgroundTriggers_() {
   } catch (e) {}
 }
 
-/**
- * Can be called manually in Apps Script or inside Code.gs's `onOpen()`.
- */
 function setupCenterSyncMenu() {
   buildCenterSyncMenuOnly_();
   ensureBackgroundTriggers_();
@@ -158,12 +118,6 @@ function setupCenterSyncMenu() {
 
 // ============================================================================
 // 3. BUTTON 1: INTERACTIVE DIALOG TO SYNC STUDENT ROSTERS (GOOGLE SHEET / .XLSX)
-//    - For already-synced classes (> 0 students in Master tab): shows ☑️ Synced
-//      with the current student count immediately (0s overhead).
-//    - For newly added classes (0 students in Master tab): pre-scans the matched
-//      Google Sheet / .XLSX file on Drive to count how many students are inside,
-//      caches the extracted roster for 10 minutes, and shows the exact count,
-//      Drive folder path, and a clickable "↗ Open File" link!
 // ============================================================================
 function syncStudentRosters() {
   ensureBackgroundTriggers_();
@@ -617,10 +571,7 @@ function syncSingleClassRosterFromDrive_(masterSs, classId, className, options) 
   try {
     const cache = CacheService.getScriptCache();
     cache.removeAll([
-      'ROSTER_MAP_' + classId + '_' + (existingStudentCount + 1),
-      'ROSTER_MAP_' + classId + '_' + (finalStudentCount + 1),
       'CLASS_ATT_STATS_V36_' + classId,
-      'CLASS_ATT_STATS_V35_' + classId,
       ROSTER_PREVIEW_CACHE_PREFIX + classId
     ]);
     if (typeof rebuildSingleClassGrid === 'function') {
@@ -3226,7 +3177,7 @@ function updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap) {
   if (typeof rebuildSingleClassGrid === 'function') {
     try {
       rebuildSingleClassGrid(masterSs, classId);
-      CacheService.getScriptCache().removeAll(['CLASS_ATT_STATS_V36_' + classId, 'CLASS_ATT_STATS_V35_' + classId]);
+      CacheService.getScriptCache().remove('CLASS_ATT_STATS_V36_' + classId);
       SpreadsheetApp.flush();
       return;
     } catch (e) {}
@@ -3281,7 +3232,7 @@ function updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap) {
     classSheet.getRange(2, 4, numStudents, 2).setValues(totalsOut);
   }
   try {
-    CacheService.getScriptCache().remove('CLASS_ATT_STATS_V35_' + classId);
+    CacheService.getScriptCache().remove('CLASS_ATT_STATS_V36_' + classId);
   } catch (e) {}
   SpreadsheetApp.flush();
 }
