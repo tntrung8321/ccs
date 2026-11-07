@@ -2,6 +2,14 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🔧 Version `v3.6.6` — *Vietnamese Given-Name `A -> Z` Student Roster Sorting & Exact 5-Minute `Reopen 5 Mins` (`REOPEN_5M`) Without `55-Minute` Late Tail*
+* **Vietnamese Given-Name `A -> Z` Roster Sorting (`js/teacher.js`, `code3.6.6.text`)**:
+  * Fixed the issue where `Object.values(rosterMap)` in V8 / Apps Script automatically re-ordered numeric 8-digit Student ID keys (`MSSV`) in ascending numeric order.
+  * Added `compareStudentsVietnameseAZ` (Frontend `applyTeacherState`) and `compareStudentsVietnameseAZ_` (Backend `handleTeacherGetState`) to sort all class rosters and history modals alphabetically `A -> Z` by **Vietnamese given name (`Tên chính` $\rightarrow$ `Họ và tên đệm` $\rightarrow$ `MSSV`)** using `localeCompare(..., 'vi')`.
+* **Exact 5-Minute Window for `"Mở lại 5 phút"` (`REOPEN_5M`) Without `55m` Late Tail (`code3.6.6.text`, `js/teacher.js`)**:
+  * Updated `REOPEN_5M` in `handleTeacherControlSession` (`code3.6.6.text`) so `newPresent = nowMs + 5 * 60 * 1000` and `newClose = newPresent`, removing the extra `+ cfg.lateMins` (`55m–60m`) tail.
+  * Added client-side `reopen5mCapBySession` enforcement in `js/teacher.js` (`applyTeacherState`, `setupTeacherCountdown`, `teacherControlSession`) so even if a Google Sheet is still running an older `Code.gs` deployment, clicking `"Mở lại 5 phút"` counts down strictly from `05:00` to `00:00` and automatically fires `CLOSE_NOW` when the 5 minutes expire.
+
 ### 🔧 Version `v3.6.5` — *iOS Safari Indoor GPS Check-In Fix: 15-Second Live Handshake Between `Check GPS` & `Check In Now`, Indoor Wi-Fi/Cellular Fallback (`enableHighAccuracy: false`), Single-Stream Onboarding GPS & iOS Dual-Switch Guide*
 * **Indoor Wi-Fi/Cellular Live Fallback & Immediate `<= 100m` Resolution (`js/schedule-config.js`)**:
   * Updated `acquireLiveHighAccuracyGps(4500, 2500, 100)` so any live GPS fix with `accuracy <= 100m` resolves immediately in `0ms` without opening `watchPosition` and stalling iOS Safari for an extra `3.5s`.
@@ -239,6 +247,14 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.6.6` — *Sắp Xếp Danh Sách Sinh Viên Chuẩn Tiếng Việt `A -> Z` (Theo Tên Chính) & Sửa Nút `"Mở lại 5 phút"` (`REOPEN_5M`) Chỉ Mở Đúng 5 Phút Không Còn 55 Phút Đuôi `Late`*
+* **Sắp Xếp Danh Sách Sinh Viên Chuẩn Tiếng Việt `A -> Z` (`js/teacher.js`, `code3.6.6.text`)**:
+  * Khắc phục triệt để hiện tượng hàm `Object.values(rosterMap)` của JavaScript tự động xếp các key số nguyên 8 chữ số (`MSSV`) theo thứ tự số từ nhỏ đến lớn.
+  * Bổ sung bộ so sánh tiếng Việt `compareStudentsVietnameseAZ` (trên cả Frontend `applyTeacherState` và Backend `handleTeacherGetState`) tự động tách từ cuối cùng làm **Tên chính** (`Tên chính` $\rightarrow$ `Họ và tên đệm` $\rightarrow$ `MSSV`, hỗ trợ đầy đủ bảng chữ cái và dấu tiếng Việt `localeCompare(..., 'vi')`).
+* **Sửa Nút `"Mở lại 5 phút"` (`REOPEN_5M`) Chỉ Mở Đúng 5 Phút — Bỏ Hẳn 55 Phút Đuôi `Late` (`code3.6.6.text`, `js/teacher.js`)**:
+  * Tại `handleTeacherControlSession` (`code3.6.6.text`), đặt `newPresent = nowMs + 5 * 60 * 1000` và `newClose = newPresent`, bỏ hoàn toàn phần cộng nối đuôi `+ cfg.lateMins` (`55–60 phút` Đi trễ).
+  * Bổ sung cơ chế khóa trần `reopen5mCapBySession` ngay trên Frontend (`js/teacher.js`): khi bấm `"Mở lại 5 phút"`, đồng hồ chỉ đếm ngược đúng `05:00 -> 00:00` và tự động gửi lệnh đóng phiên (`CLOSE_NOW`) ngay khi hết 5 phút (đảm bảo hoạt động chuẩn ngay cả khi Google Sheet chưa kịp Deploy lại `Code.gs`).
+
 ### 🔧 Version `v3.6.5` — *Khắc Phục Triệt Để Lỗi iOS Safari Đã Cấp Quyền Vị Trí Nhưng Không Điểm Danh Được Trong Phòng Kín: Đệm Nối 15 Giây Giữa Nút Kiểm Tra GPS & Điểm Danh, Fallback Wi-Fi/4G Trong Nhà (`enableHighAccuracy: false`), Gộp Luồng GPS Nhập MSSV & Chỉ Dẫn Công Tắc Kép iPhone*
 * **Fallback Định vị Wi-Fi/4G Trong Phòng Kín & Nhận Ngay Tọa Độ `<= 100m` (`js/schedule-config.js`)**:
   * Tinh chỉnh `acquireLiveHighAccuracyGps(4500, 2500, 100)`: ngay khi lấy được tọa độ thực tế có sai số `<= 100m` (đủ chuẩn điểm danh), hệ thống trả kết quả ngay lập tức mà không mở thêm `watchPosition` giữ máy chờ thêm `3.5 giây`.
@@ -456,11 +472,11 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.6.5`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.6.6`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.6.5` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.6.6` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.6.5`) on `tntrung8321.github.io/ccs/`** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.6.6`) on `tntrung8321.github.io/ccs/`** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI (Zero AI Icons), Permanent Today Check-In Button Lock (`P` Emerald / `L` Amber), Cohesive `Pulse to Confirm` (`success` / `warn` / `danger` / `neutral` + Manual Marks), Compact Anti-Zalo & iOS Code Scanner Walkthrough, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Synchronous `getCurrentPosition` Prompt + Live `watchPosition` Warm-Up (`cachedGPS = null`, `maximumAge: 0`) + Same-Day Session Merging** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |
@@ -470,4 +486,4 @@
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-Extra-Load RAM `CacheService` (`ALL_LATEST_SES_V35`, `SES_ATT_MAP_V35_`, `CLASS_ATT_STATS_V35_`, `GROUP_SPLIT_`)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Zalo/Social WebView & iPhone Code Scanner Block + Multi-Browser (`Safari+Chrome`), F12, Fresh GPS Timestamp & Spot-Check Lock** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Customizable `P/L/E/-` Marks + Smart Color-Family Detection (All Shades of Orange/Yellow/Red) + Ghost Session Filtering** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.6.5`) / Luôn tải bản mới tức thì** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.6.6`) / Luôn tải bản mới tức thì** |

@@ -1,8 +1,8 @@
 # QUY TẮC HỆ THỐNG CCS (CLASSCHECK SYSTEM RULES)
 
-> **Phiên bản đối chiếu hiện tại:** `v3.6.5` (Frontend UI & Backend Apps Script)  
+> **Phiên bản đối chiếu hiện tại:** `v3.6.6` (Frontend UI & Backend Apps Script)  
 > **Các tệp nguồn đối chiếu:**
-> - Backend Apps Script: [`code3.6.5.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.5.text)
+> - Backend Apps Script: [`code3.6.6.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.6.text)
 > - Script Đồng bộ Sổ Điểm danh & Master Sheet: [`sync.txt`](file:///d:/CCS%20-%20ClassCheck%20System/sync.txt)
 > - Frontend Sinh viên / Giảng viên / Lịch học: [`js/student.js`](file:///d:/CCS%20-%20ClassCheck%20System/js/student.js), [`js/teacher.js`](file:///d:/CCS%20-%20ClassCheck%20System/js/teacher.js), [`js/schedule-config.js`](file:///d:/CCS%20-%20ClassCheck%20System/js/schedule-config.js)
 > - Quy tắc Quản lý Phiên bản & Demo Giao diện: [`.agent/rules/changelog-and-versioning.md`](file:///d:/CCS%20-%20ClassCheck%20System/.agent/rules/changelog-and-versioning.md), [`.agent/rules/ui-demo-preview.md`](file:///d:/CCS%20-%20ClassCheck%20System/.agent/rules/ui-demo-preview.md)
@@ -22,7 +22,7 @@ Trên **Master Sheet**, hệ thống lưu trữ thống nhất bằng 4 mã tr�
 | **`-`** | Vắng không phép (*Absent*) — Trừ **`1.0đ`**, tính **`1.0x`** | Chữ: `x`, Nền: *(trống)* | Chữ: `A`, Nền: *(trống)* | Tự chọn chữ & mã màu Hex | Đỏ (`#dc2626`) |
 
 ### 1.2. Mức thiết lập cửa sổ thời gian (`Present_Mins` & `Late_Mins`)
-Được cấu hình trực tiếp theo từng lớp trong tab **`Classes_Config`** của Master Sheet và áp dụng tại [`handleTeacherStartSession`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.5.text#L1393-L1480) & [`handleStudentCheckIn`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.5.text#L649-L661):
+Được cấu hình trực tiếp theo từng lớp trong tab **`Classes_Config`** của Master Sheet và áp dụng tại [`handleTeacherStartSession`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.6.text#L1393-L1480) & [`handleStudentCheckIn`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.6.text#L649-L661):
 
 1. **Mốc Có mặt (`Present_Mins`)**:
    - Mặc định: **`3 phút`** đầu kể từ lúc Giảng viên bấm mở phiên (`presentUntilMs = startTime + Present_Mins * 60000`).
@@ -32,9 +32,9 @@ Trên **Master Sheet**, hệ thống lưu trữ thống nhất bằng 4 mã tr�
    - Sinh viên bấm điểm danh khi `presentUntilMs < nowMs <= closesAtMs` $\rightarrow$ Ghi nhận trạng thái **`L`** (Đi trễ).
 3. **Sau khi hết giờ (`nowMs > closesAtMs`)**:
    - Khóa cổng điểm danh (`ERR_SESSION_CLOSED`).
-   - Sau `10 giây` (`CLOSE_SWEEP_DELAY_MS = 10000`), hàm [`sweepAndCloseSession`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.5.text#L1840-L1940) tự động quét toàn bộ sinh viên thuộc lớp chưa có bản ghi trong phiên (trừ sinh viên có `Status = REVOKED`) và điền trạng thái **`-`** (`Location_Mode = 'AUTO_SWEEP'`).
+   - Sau `10 giây` (`CLOSE_SWEEP_DELAY_MS = 10000`), hàm [`sweepAndCloseSession`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.6.text#L1840-L1940) tự động quét toàn bộ sinh viên thuộc lớp chưa có bản ghi trong phiên (trừ sinh viên có `Status = REVOKED`) và điền trạng thái **`-`** (`Location_Mode = 'AUTO_SWEEP'`).
 
-### 1.3. Điều khiển phiên trực tiếp của Giảng viên ([`handleTeacherControlSession`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.5.text#L1510-L1563))
+### 1.3. Điều khiển phiên trực tiếp của Giảng viên ([`handleTeacherControlSession`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.6.text#L1510-L1563))
 - **Gia hạn +2p (`EXTEND_2M`)**: Cộng thêm `2 phút` vào `closesAtMs` (cho phép điểm danh mức Đi trễ `L`).
 - **Mở lại +5p (`REOPEN_5M`)**: Mở lại chính phiên hiện tại (`Status = OPEN`), cấp mới **`2 phút` đầu là Có mặt (`P`)** (`presentUntilMs = baseNow + 2p`) và **`5 phút` tổng thời gian mở (`closesAtMs = baseNow + 5p`)**.
 - **Đóng ngay (`CLOSE_NOW`)**: Đưa `presentUntilMs` và `closesAtMs` về thời điểm hiện tại, khóa phiên ngay lập tức và chạy `sweepAndCloseSession`.
@@ -45,7 +45,7 @@ Trên **Master Sheet**, hệ thống lưu trữ thống nhất bằng 4 mã tr�
 
 1. **Lọc phiên rỗng (Ghost/Test Sessions)**: Ngày nào mà tất cả các phiên mở ra đã đóng và có **`0` sinh viên có mặt/đi trễ/có phép/chấm tay** (`P = 0, L = 0, E = 0, TEACHER_MANUAL = 0`) thì coi là phiên mở nhầm/test $\rightarrow$ **Không tính là 1 buổi học đã diễn ra** và không tính vắng cho sinh viên.
 2. **Gộp phiên trùng ngày (`1 ngày = 1 buổi học = 1 cột trên Sheet`)**:
-   - Trên cả Sổ Điểm danh Lớp ([`sync.txt`](file:///d:/CCS%20-%20ClassCheck%20System/sync.txt)) và Tab Lớp của Master Sheet ([`code3.6.5.text` — `buildGroupedClassDayRecords_`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.5.text#L2020-L2106)), các phiên mở cùng ngày của cùng 1 lớp được gộp thành **1 buổi duy nhất trong ngày**.
+   - Trên cả Sổ Điểm danh Lớp ([`sync.txt`](file:///d:/CCS%20-%20ClassCheck%20System/sync.txt)) và Tab Lớp của Master Sheet ([`code3.6.6.text` — `buildGroupedClassDayRecords_`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.6.text#L2020-L2106)), các phiên mở cùng ngày của cùng 1 lớp được gộp thành **1 buổi duy nhất trong ngày**.
    - Giữa các phiên trong cùng ngày:
      - Bản ghi do **Giảng viên chỉnh tay (`TEACHER_MANUAL`)** luôn có quyền cao nhất (theo lần chỉnh cuối cùng của Giảng viên, hỗ trợ cả duyệt phép `E` cho buổi học trước).
      - Bản ghi tự động quét vắng (`AUTO_SWEEP` khi đóng phiên 2) **không bao giờ đè** lên trạng thái `P / E / L` mà sinh viên đã điểm danh hợp lệ ở phiên 1 trong cùng ngày.
@@ -161,7 +161,7 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
    - **Tuyệt đối không sử dụng Emoji / AI Icons** (`🎲`, `🎉`, `⚠️`, `🚨`, `✅`, `❌`, v.v.) trên toàn bộ giao diện Web của Giảng viên và Sinh viên.
    - Sử dụng Typography rõ ràng (`Be Vietnam Pro` + `JetBrains Mono` cho số liệu/MSSV/đồng hồ) và chấm tròn màu `7px` cho trạng thái `P / L / E / A`.
 2. **Quy tắc Đánh số Phiên bản & Đồng bộ (`changelog-and-versioning.md`)**:
-   - Mỗi lần cập nhật tính năng hoặc sửa lỗi: tăng `SYSTEM_VERSION` (`X.Y.Z`), đổi tên file [`code<X.Y.Z>.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.5.text) ở cả thư mục máy và trên Google Drive (`14mEoxJJ1_USzlYorIvnZBHJwzzK1KDOj`) khi có thay đổi backend, cập nhật [`sync.txt`](file:///d:/CCS%20-%20ClassCheck%20System/sync.txt) (`1TA3scTqHwz8btQYJbzDSPiP6K3QCsxyA`), [`changelog.md`](file:///d:/CCS%20-%20ClassCheck%20System/changelog.md) (`18y2_402KSn4KfRZ0LExDlnCmB6UsqGPz`) song ngữ Anh–Việt, và query string `?v=<X.Y.Z>` ở các file frontend.
+   - Mỗi lần cập nhật tính năng hoặc sửa lỗi: tăng `SYSTEM_VERSION` (`X.Y.Z`), đổi tên file [`code<X.Y.Z>.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.6.6.text) ở cả thư mục máy và trên Google Drive (`14mEoxJJ1_USzlYorIvnZBHJwzzK1KDOj`) khi có thay đổi backend, cập nhật [`sync.txt`](file:///d:/CCS%20-%20ClassCheck%20System/sync.txt) (`1TA3scTqHwz8btQYJbzDSPiP6K3QCsxyA`), [`changelog.md`](file:///d:/CCS%20-%20ClassCheck%20System/changelog.md) (`18y2_402KSn4KfRZ0LExDlnCmB6UsqGPz`) song ngữ Anh–Việt, và query string `?v=<X.Y.Z>` ở các file frontend.
 3. **Quy tắc Sửa Code Tối Thiểu & Kiểm Thử Thực Tế (`ui-demo-preview.md`)**:
    - **Chỉ sửa đúng chỗ cần sửa**: Can thiệp đúng dòng/hàm cần thay đổi, hạn chế viết lại toàn bộ hàm/file; tuyệt đối không tự ý thêm các dòng comment giới thiệu đầu file/hàm hoặc chèn thêm chữ lên giao diện ngoài yêu cầu.
    - **Phân tách Preview Giao diện & Test Chức năng**:

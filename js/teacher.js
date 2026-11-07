@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.6.5)
+ * LECTURER CONTROLLER (js/teacher.js — v3.6.6)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -23,6 +23,7 @@ let pendingManualMarks = {}; // Optimistic UI locks keyed by studentId so rapid 
 let lastPulsedManualMark = null; // { studentId, status, dayKey, expiresAt } for P/L/E/- button pulse across re-renders
 let randomCallerVisitedByClass = {}; // Per-class shuffle bag Set of studentIds already called
 let currentDraftGroups = [];
+let reopen5mCapBySession = {}; // Maps sessionId -> presentUntilMs cap when Reopen 5m is clicked
 let currentDraftGroupSize = 4;
 
 document.addEventListener('visibilitychange', () => {
@@ -192,6 +193,27 @@ function extractSessionDayKey(ses) {
   return '';
 }
 
+function splitVietnameseNameParts(fullName) {
+  const clean = String(fullName || '').trim().replace(/\s+/g, ' ');
+  if (!clean) return { givenName: '', familyMiddle: '' };
+  const parts = clean.split(' ');
+  const givenName = parts[parts.length - 1] || '';
+  const familyMiddle = parts.slice(0, -1).join(' ');
+  return { givenName, familyMiddle };
+}
+
+function compareStudentsVietnameseAZ(a, b) {
+  const na = splitVietnameseNameParts(a && a.fullName);
+  const nb = splitVietnameseNameParts(b && b.fullName);
+  const cmpGiven = na.givenName.localeCompare(nb.givenName, 'vi', { sensitivity: 'base' });
+  if (cmpGiven !== 0) return cmpGiven;
+  const cmpAccent = na.givenName.localeCompare(nb.givenName, 'vi');
+  if (cmpAccent !== 0) return cmpAccent;
+  const cmpFam = na.familyMiddle.localeCompare(nb.familyMiddle, 'vi', { sensitivity: 'base' });
+  if (cmpFam !== 0) return cmpFam;
+  return String((a && a.studentId) || '').localeCompare(String((b && b.studentId) || ''), 'vi');
+}
+
 async function applyTeacherState(state, isInitialLoad = false, isFromCache = false) {
   if (!state) return;
   ingestServerScheduleData(state);
@@ -222,7 +244,17 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
     }
   }
 
+  if (state.activeSession && state.activeSession.sessionId && reopen5mCapBySession[state.activeSession.sessionId]) {
+    const capMs = reopen5mCapBySession[state.activeSession.sessionId];
+    if (Date.now() <= capMs) {
+      state.activeSession.closesAtMs = capMs;
+    } else {
+      delete reopen5mCapBySession[state.activeSession.sessionId];
+    }
+  }
+
   if (Array.isArray(state.roster)) {
+    state.roster.sort(compareStudentsVietnameseAZ);
     overlayPendingManualMarksOnRoster(state.roster);
   }
   teacherState = state;
@@ -555,13 +587,19 @@ function setupTeacherCountdown(ses, hasSelectedClass = true) {
     const now = Date.now();
     const enNow = currentLang === 'en';
     if (now > ses.closesAtMs) {
+      const wasReopen5mCapped = Boolean(ses.sessionId && reopen5mCapBySession[ses.sessionId]);
+      if (ses.sessionId) delete reopen5mCapBySession[ses.sessionId];
       ses.isOpen = false;
       syncSessionControlButtonsState(ses, hasSelectedClass);
       badge.className = 'badge-err';
       badge.textContent = enNow ? "TODAY'S SESSION CLOSED" : 'ĐÃ ĐÓNG PHIÊN HÔM NAY';
       timerEl.textContent = '00:00';
       clearInterval(teacherCountdownTimer);
-      setTimeout(() => refreshTeacherState(true), 1200);
+      if (wasReopen5mCapped) {
+        teacherControlSession('CLOSE_NOW');
+      } else {
+        setTimeout(() => refreshTeacherState(true), 1200);
+      }
       return;
     }
     if (now <= ses.presentUntilMs) {
@@ -804,14 +842,21 @@ async function teacherControlSession(subAction, extra = {}) {
       await applyTeacherState(res, false);
       showStatus(
         isEn
-          ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.6.5.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
-          : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.6.5.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+          ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.6.6.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+          : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.6.6.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
         'warn',
         'tea-session-inline-status'
       );
       return;
     }
 
+    if (subAction === 'REOPEN_5M' && res.activeSession && res.activeSession.sessionId) {
+      const targetEndMs = Number(res.activeSession.presentUntilMs || (Date.now() + 5 * 60 * 1000));
+      reopen5mCapBySession[res.activeSession.sessionId] = targetEndMs;
+      res.activeSession.closesAtMs = targetEndMs;
+    } else if ((subAction === 'CLOSE_NOW' || subAction === 'CANCEL_MISTAKEN_SESSION') && prevSesId) {
+      delete reopen5mCapBySession[prevSesId];
+    }
     await applyTeacherState(res, false);
     if (typeof pulseButtonConfirm === 'function') {
       if (subAction === 'EXTEND_2M') {
