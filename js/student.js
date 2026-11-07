@@ -164,7 +164,8 @@ function renderStudentCourseSelectors() {
   }).join('');
   selInst.value = activeInst;
 
-  onStudentInstChange(false);
+  const hasExistingSel = Boolean(document.getElementById('sel-student-class') && document.getElementById('sel-student-class').value);
+  onStudentInstChange(hasExistingSel);
 }
 
 function onStudentInstChange(preserveManualSelection = false) {
@@ -1030,6 +1031,8 @@ function openStudentPin10sBox(pos) {
   }
   if (inp) inp.value = '';
   renderStudentPin10Slots('');
+  const heroBtn = document.getElementById('btn-start-checkin');
+  if (heroBtn) heroBtn.classList.add('hidden');
   if (box) box.classList.remove('hidden');
   setTimeout(() => focusStudentPin10Input(), 40);
 }
@@ -1040,6 +1043,8 @@ function cancelStudentPin10sModal() {
   if (inp) inp.value = '';
   renderStudentPin10Slots('');
   if (box) box.classList.add('hidden');
+  const heroBtn = document.getElementById('btn-start-checkin');
+  if (heroBtn) heroBtn.classList.remove('hidden');
   window.lockedRound2GpsPos = null;
   const selClassEl = document.getElementById('sel-student-class');
   syncStudentCheckInButtonState(selClassEl ? selClassEl.value : '', false);

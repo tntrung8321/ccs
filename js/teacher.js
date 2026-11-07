@@ -187,9 +187,11 @@ async function restoreTeacherSessionOnLoad(auth) {
   hideStatus();
 
   safeRemoveLocal('cc_tea_selected_class');
-  safeRemoveSession('cc_tea_selected_class');
-  selectedTeacherClassId = '';
-  teacherHasManuallySelectedClass = false;
+  if (!teacherHasManuallySelectedClass || !selectedTeacherClassId) {
+    safeRemoveSession('cc_tea_selected_class');
+    selectedTeacherClassId = '';
+    teacherHasManuallySelectedClass = false;
+  }
 
   const cachedRaw = safeGetSession('cc_tea_state_cache', null);
   if (cachedRaw) {
@@ -413,7 +415,8 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
   // Resolve real-time class from Google Calendar / Period Slots (123, 456, 789, 10-12, 13-15) / Open Session
   const scheduleMatch = resolveActiveClassBySchedule(cleanClasses, new Date());
   const openSesClass = cleanClasses.find(c => c.sessionOpenNow);
-  const autoClassId = scheduleMatch.matchedClassId || (openSesClass ? openSesClass.classId : '');
+  const todaySesClassId = (state.activeSession && state.activeSession.sessionId && state.selectedClassId) ? state.selectedClassId : '';
+  const autoClassId = scheduleMatch.matchedClassId || (openSesClass ? openSesClass.classId : todaySesClassId);
 
   if (!teacherHasManuallySelectedClass) {
     // Auto-select the class matching the current period/calendar or active open session, or "" if outside teaching hours
@@ -698,15 +701,23 @@ function syncSessionControlButtonsState(ses, hasSelectedClass = true) {
 
   if (p2LaunchStrip && btnOpenTrigger) {
     const isConfirmVisible = Boolean(confirmBox && !confirmBox.classList.contains('hidden'));
+    const isPinProjectorActive = Boolean(isOpenNow && Number(ses.round || 1) === 2 && String(ses.qrMode || '').toUpperCase() === 'PIN_10S');
     if (isP1ClosedReadyForP2 && !isConfirmVisible) {
       btnOpenTrigger.classList.add('hidden');
       p2LaunchStrip.classList.remove('hidden');
+    } else if (isPinProjectorActive) {
+      p2LaunchStrip.classList.add('hidden');
+      btnOpenTrigger.classList.add('hidden');
     } else {
       p2LaunchStrip.classList.add('hidden');
       if (!isConfirmVisible) {
         btnOpenTrigger.classList.remove('hidden');
       }
       btnOpenTrigger.disabled = Boolean(isOpenNow || (hasTodaySession && p2Opened));
+      if (hasTodaySession && !isOpenNow && p2Opened) {
+        btnOpenTrigger.classList.remove('btn-pulse-success', 'btn-pulse-warn', 'btn-pulse-danger');
+        btnOpenTrigger.innerHTML = '<svg class="icon"><use href="#ic-check"></use></svg><span>' + (isEn ? 'Completed Round 1 & Round 2 Today' : 'Đã hoàn tất Phiên 1 & Phiên 2 hôm nay') + '</span>';
+      }
     }
   }
 
