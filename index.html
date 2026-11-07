@@ -15,7 +15,7 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.6.6" />
+  <link rel="stylesheet" href="css/styles.css?v=3.7.0" />
 </head>
 <body>
 
@@ -292,6 +292,24 @@
           <span id="btn-start-checkin-label" data-i18n="stu_one_tap_checkin_btn">ĐIỂM DANH NGAY</span>
         </button>
 
+        <!-- ROUND 2: 4-DIGIT 10S PIN ENTRY PAD (SHOWN ONLY WHEN LECTURER ENABLES PIN_10S IN P2) -->
+        <div id="stu-p2-pin-box" class="stu-p2-pin-box hidden">
+          <div id="stu-p2-pin-gps-banner" class="stu-p2-pin-gps-banner">
+            Đã khóa tọa độ GPS • Nhập 4 số trên bảng chiếu
+          </div>
+          <div class="stu-p2-pin-slots" id="stu-p2-pin-slots-wrap" onclick="focusStudentPin10Input()">
+            <div id="stu-pin-slot-0" class="stu-pin-slot active"></div>
+            <div id="stu-pin-slot-1" class="stu-pin-slot"></div>
+            <div id="stu-pin-slot-2" class="stu-pin-slot"></div>
+            <div id="stu-pin-slot-3" class="stu-pin-slot"></div>
+          </div>
+          <input type="tel" id="inp-stu-pin10" class="stu-pin-hidden-input" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" oninput="onStudentPin10Input(this.value)" />
+          <div class="stu-p2-pin-footer">
+            <span id="stu-p2-pin-hint">Tự động nộp ngay khi gõ đủ 4 số</span>
+            <button type="button" class="btn btn-outline btn-sm" onclick="cancelStudentPin10sModal()" data-i18n="tea_cancel_open_btn">Hủy</button>
+          </div>
+        </div>
+
         <!-- INLINE CONTEXTUAL FEEDBACK FOR CHECK-IN -->
         <div id="checkin-inline-status" class="inline-feedback hidden"></div>
 
@@ -387,6 +405,45 @@
                   <span data-i18n="tea_open_trigger_btn">Mở phiên điểm danh</span>
                 </button>
 
+                <!-- Contextual Round 2 Launch Strip (Shown in place of Open P1 button after P1 closes) -->
+                <div id="tea-p2-launch-strip" class="p2-outside-launch-bar hidden">
+                  <button type="button" id="btn-tea-open-round2" class="btn-open-p2-main" onclick="openRound2Session()">
+                    <svg class="icon"><use href="#ic-check"></use></svg>
+                    <span id="lbl-tea-open-round2" data-i18n="tea_open_p2_btn">Mở điểm danh Lần 2 (Đột xuất)</span>
+                  </button>
+                  <div class="p2-inline-opts">
+                    <label class="p2-opt-pill" for="inp-tea-p2-mins">
+                      <span data-i18n="tea_p2_duration_label">Thời lượng:</span>
+                      <input type="number" id="inp-tea-p2-mins" min="1" max="15" value="3" />
+                      <span data-i18n="tea_p2_mins_unit">phút</span>
+                    </label>
+                    <label class="p2-opt-pill" for="chk-tea-p2-pin10s">
+                      <input type="checkbox" id="chk-tea-p2-pin10s" />
+                      <span data-i18n="tea_p2_pin10s_label">Bật Mã PIN 10s</span>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Live 10-Second Rotating PIN Projector Box (Shown when Round 2 is open with PIN_10S) -->
+                <div id="tea-p2-pin-projector-box" class="p2-projector-pin-card hidden">
+                  <div class="p2-projector-pin-title" id="lbl-tea-pin-projector-title">MÃ PIN ĐIỂM DANH LẦN 2 (ĐỔI MỖI 10 GIÂY)</div>
+                  <div class="p2-projector-pin-digits" id="tea-pin10s-digits">
+                    <span class="p2-pin-digit" id="tea-pin10s-d0">-</span>
+                    <span class="p2-pin-digit" id="tea-pin10s-d1">-</span>
+                    <span class="p2-pin-digit" id="tea-pin10s-d2">-</span>
+                    <span class="p2-pin-digit" id="tea-pin10s-d3">-</span>
+                  </div>
+                  <div class="p2-projector-pin-bar-track">
+                    <div class="p2-projector-pin-bar-fill" id="tea-pin10s-bar-fill"></div>
+                  </div>
+                  <div class="p2-projector-pin-footer">
+                    <span id="tea-pin10s-sub">Đổi mã mới sau: 10s</span>
+                    <button type="button" id="btn-tea-switch-1tap" class="btn btn-outline btn-sm p2-switch-1tap-btn" onclick="switchRound2QrMode('STATIC')" data-i18n="tea_switch_1tap_btn">
+                      Chuyển về 1-Chạm (Không PIN)
+                    </button>
+                  </div>
+                </div>
+
                 <!-- Step 2 Inline Confirmation Box (Hidden until Step 1 clicked) -->
                 <div id="tea-open-confirm-bar" class="two-step-confirm-box hidden">
                   <div id="tea-open-confirm-text" class="two-step-confirm-label" data-i18n="tea_confirm_open_prompt">
@@ -450,6 +507,9 @@
                 <svg class="icon icon-sm"><use href="#ic-shuffle"></use></svg>
                 <span data-i18n="tea_spot_check_btn">Gọi ngẫu nhiên</span>
               </button>
+              <button class="btn btn-outline btn-sm" id="btn-copy-present-list" onclick="copyPresentStudentsList()">
+                <span data-i18n="tea_copy_present_btn">Sao chép DS</span>
+              </button>
               <button class="btn btn-outline btn-sm" onclick="openGroupMakerModal()">
                 <svg class="icon icon-sm"><use href="#ic-users"></use></svg>
                 <span data-i18n="tea_group_maker_btn">Chia nhóm</span>
@@ -470,6 +530,11 @@
               <button type="button" id="tab-filter-absent" class="filter-tab" data-roster-filter="ABSENT" onclick="setRosterFilter('ABSENT')">Vắng (0)</button>
               <button type="button" id="tab-filter-suspect" class="filter-tab" data-roster-filter="SUSPECT" onclick="setRosterFilter('SUSPECT')">Nghi vấn (0)</button>
               <button type="button" id="btn-open-history-modal" class="filter-tab filter-tab-history" onclick="openAttendanceHistoryManagerModal()" data-i18n="tea_history_btn">Lịch sử</button>
+              <div id="tea-round-segmented" class="round-segmented hidden">
+                <button type="button" id="seg-round-p1" class="seg-btn" data-round-view="P1" onclick="setTeacherRosterRoundView('P1')">Phiên 1</button>
+                <button type="button" id="seg-round-p2" class="seg-btn" data-round-view="P2" onclick="setTeacherRosterRoundView('P2')">Phiên 2</button>
+                <button type="button" id="seg-round-final" class="seg-btn active" data-round-view="FINAL" onclick="setTeacherRosterRoundView('FINAL')">Kết quả cuối</button>
+              </div>
             </div>
             <input type="text" id="inp-roster-search" data-i18n-placeholder="tea_search_placeholder" placeholder="Tìm họ tên hoặc mã số sinh viên (Nhấn Enter để đánh dấu Có mặt)..." oninput="renderTeacherRoster()" onkeydown="handleRosterSearchKeydown(event)" style="margin-bottom:0;" />
           </div>
@@ -519,8 +584,8 @@
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/schedule-config.js?v=3.6.6"></script>
-  <script src="js/student.js?v=3.6.6"></script>
-  <script src="js/teacher.js?v=3.6.6"></script>
+  <script src="js/schedule-config.js?v=3.7.0"></script>
+  <script src="js/student.js?v=3.7.0"></script>
+  <script src="js/teacher.js?v=3.7.0"></script>
 </body>
 </html>

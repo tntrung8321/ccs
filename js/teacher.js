@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.6.6)
+ * LECTURER CONTROLLER (js/teacher.js — v3.7.0)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -25,6 +25,132 @@ let randomCallerVisitedByClass = {}; // Per-class shuffle bag Set of studentIds 
 let currentDraftGroups = [];
 let reopen5mCapBySession = {}; // Maps sessionId -> presentUntilMs cap when Reopen 5m is clicked
 let currentDraftGroupSize = 4;
+let activeRosterRoundView = 'FINAL'; // 'P1' | 'P2' | 'FINAL'
+let expandedP2DetailStudentIds = {}; // studentId -> boolean
+let teacherClockOffsetMs = 0; // serverNowMs - Date.now() (RTT/2 compensated)
+let teacherLastClockSyncAtMs = 0;
+let teacherClockSyncTimer = null;
+let teacherPin10sTicker = null;
+let teacherPin10sClockSyncedForSesId = '';
+
+function updateTeacherClockOffsetFromServer(serverNowMs, rttMs = 0) {
+  const srv = Number(serverNowMs || 0);
+  if (!srv || isNaN(srv) || srv <= 0) return;
+  const halfRtt = Math.round(Math.max(0, Number(rttMs || 0)) / 2);
+  teacherClockOffsetMs = (srv + halfRtt) - Date.now();
+  teacherLastClockSyncAtMs = Date.now();
+}
+
+function getTeacherSyncedNowMs() {
+  return Date.now() + Number(teacherClockOffsetMs || 0);
+}
+
+async function syncTeacherServerClockOffset() {
+  const auth = getTeacherAuth();
+  const apiUrl = auth && auth.apiUrl ? auth.apiUrl : DEFAULT_LECTURER_API;
+  const t0 = Date.now();
+  try {
+    const res = await callBackend(apiUrl, { action: 'PING' }, 1);
+    const t1 = Date.now();
+    if (res && res.ok && (res.serverNowMs || res.serverTimeMs)) {
+      updateTeacherClockOffsetFromServer(res.serverNowMs || res.serverTimeMs, t1 - t0);
+      updateProjectorPin10sUI();
+    }
+  } catch (e) {}
+}
+
+function stopTeacherPin10sProjectorLoop() {
+  if (teacherPin10sTicker) {
+    clearInterval(teacherPin10sTicker);
+    teacherPin10sTicker = null;
+  }
+  if (teacherClockSyncTimer) {
+    clearInterval(teacherClockSyncTimer);
+    teacherClockSyncTimer = null;
+  }
+}
+
+function updateProjectorPin10sUI() {
+  const box = document.getElementById('tea-p2-pin-projector-box');
+  if (!box) return;
+  const ses = teacherState && teacherState.activeSession;
+  const isPin10sOpen = Boolean(
+    ses &&
+    ses.isOpen &&
+    Number(ses.round || 1) === 2 &&
+    String(ses.qrMode || '').toUpperCase() === 'PIN_10S'
+  );
+  if (!isPin10sOpen) {
+    box.classList.add('hidden');
+    stopTeacherPin10sProjectorLoop();
+    return;
+  }
+
+  box.classList.remove('hidden');
+  const activeCfg = (teacherState && Array.isArray(teacherState.classes))
+    ? teacherState.classes.find(c => c && c.classId === selectedTeacherClassId)
+    : null;
+  const seed = String(
+    (ses && ses.pinSeed) ||
+    (activeCfg && activeCfg.activeQrSecret) ||
+    KNOWN_CLASS_SECRETS[selectedTeacherClassId] ||
+    (ses && ses.sessionId) ||
+    ''
+  );
+  const syncedNowMs = getTeacherSyncedNowMs();
+  const bucket10s = Math.floor(syncedNowMs / 10000);
+  const pin4 = typeof computePin4FromSeed === 'function'
+    ? computePin4FromSeed(seed, bucket10s)
+    : '0000';
+
+  for (let i = 0; i < 4; i++) {
+    const dEl = document.getElementById('tea-pin10s-d' + i);
+    if (dEl) dEl.textContent = pin4.charAt(i) || '0';
+  }
+
+  const elapsedInBucketMs = ((syncedNowMs % 10000) + 10000) % 10000;
+  const remMs = 10000 - elapsedInBucketMs;
+  const pct = Math.max(0, Math.min(100, (remMs / 10000) * 100));
+  const barFill = document.getElementById('tea-pin10s-bar-fill');
+  if (barFill) {
+    barFill.style.width = pct.toFixed(1) + '%';
+  }
+  const subEl = document.getElementById('tea-pin10s-sub');
+  if (subEl) {
+    const remSec = Math.ceil(remMs / 1000);
+    subEl.textContent = currentLang === 'en'
+      ? `Next PIN in: ${remSec}s`
+      : `Đổi mã mới sau: ${remSec}s`;
+  }
+}
+
+function syncProjectorPin10sLifecycle(ses) {
+  const isPin10sOpen = Boolean(
+    ses &&
+    ses.isOpen &&
+    Number(ses.round || 1) === 2 &&
+    String(ses.qrMode || '').toUpperCase() === 'PIN_10S'
+  );
+  const box = document.getElementById('tea-p2-pin-projector-box');
+  if (!isPin10sOpen) {
+    if (box) box.classList.add('hidden');
+    stopTeacherPin10sProjectorLoop();
+    teacherPin10sClockSyncedForSesId = '';
+    return;
+  }
+
+  if (teacherPin10sClockSyncedForSesId !== String(ses.sessionId || '')) {
+    teacherPin10sClockSyncedForSesId = String(ses.sessionId || '');
+    syncTeacherServerClockOffset();
+  }
+  updateProjectorPin10sUI();
+  if (!teacherPin10sTicker) {
+    teacherPin10sTicker = setInterval(updateProjectorPin10sUI, 100);
+  }
+  if (!teacherClockSyncTimer) {
+    teacherClockSyncTimer = setInterval(syncTeacherServerClockOffset, 60000);
+  }
+}
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && currentMode === 'TEACHER' && getTeacherAuth()) {
@@ -216,6 +342,9 @@ function compareStudentsVietnameseAZ(a, b) {
 
 async function applyTeacherState(state, isInitialLoad = false, isFromCache = false) {
   if (!state) return;
+  if (!isFromCache && (state.serverNowMs || state.serverTimeMs)) {
+    updateTeacherClockOffsetFromServer(state.serverNowMs || state.serverTimeMs, 0);
+  }
   ingestServerScheduleData(state);
 
   // Filter out removed test sample class ENG101_G1 while keeping 100% of real classes
@@ -231,14 +360,26 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
     const todayKey = getTodayDateKey();
     if (sesDayKey && sesDayKey !== todayKey) {
       state.activeSession = null;
+      state.round2OpenedToday = false;
+      state.round1Session = null;
+      state.round2Session = null;
       if (Array.isArray(state.roster)) {
         state.roster.forEach(st => {
           if (!st) return;
           st.status = '-';
+          st.p1Status = '-';
+          st.p2Status = '';
+          st.finalStatus = '-';
           st.time = '';
+          st.p1Time = '';
+          st.p2Time = '';
           st.distance = '';
+          st.p1Distance = '';
+          st.p2Distance = '';
           st.accuracy = '';
           st.source = '';
+          st.p1Source = '';
+          st.p2Source = '';
         });
       }
     }
@@ -256,6 +397,9 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
   if (Array.isArray(state.roster)) {
     state.roster.sort(compareStudentsVietnameseAZ);
     overlayPendingManualMarksOnRoster(state.roster);
+  }
+  if (state.activeSession && (state.activeSession.round2OpenedToday || Number(state.activeSession.round) === 2)) {
+    state.round2OpenedToday = true;
   }
   teacherState = state;
   safeSetSession('cc_tea_state_cache', JSON.stringify(state));
@@ -323,16 +467,9 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
       : 'ĐK thiết bị: --';
   }
 
+  updateTeacherRoundSegmentedControlUI();
+  updateTeacherLiveCountersFromRoster();
   const roster = activeCfg ? (state.roster || []) : [];
-  const pCount = roster.filter(r => r.status === 'P').length;
-  const lCount = roster.filter(r => r.status === 'L').length;
-  const eCount = roster.filter(r => r.status === 'E').length;
-  const aCount = roster.filter(r => !r.status || r.status === '-').length;
-
-  document.getElementById('tea-live-count').textContent = isEn
-    ? `${pCount + lCount} / ${roster.length} Present`
-    : `${pCount + lCount} / ${roster.length} Có mặt`;
-  document.getElementById('tea-live-breakdown').textContent = `P: ${pCount} | L: ${lCount} | A: ${aCount} | E: ${eCount}`;
 
   // Sync live session marks to local student attendance summary store
   if (selectedTeacherClassId && ses && typeof recordLocalStudentSessionMark === 'function') {
@@ -540,18 +677,57 @@ async function onTeacherClassChange() {
 }
 
 function syncSessionControlButtonsState(ses, hasSelectedClass = true) {
+  const btnOpenTrigger = document.getElementById('btn-tea-open-trigger');
+  const confirmBox = document.getElementById('tea-open-confirm-bar');
+  const p2LaunchStrip = document.getElementById('tea-p2-launch-strip');
   const btnExtend = document.getElementById('btn-tea-extend');
   const btnReopen = document.getElementById('btn-tea-reopen');
   const btnCancelMistaken = document.getElementById('btn-tea-cancel-mistaken');
   const btnClose = document.getElementById('btn-tea-close');
+  const isEn = currentLang === 'en';
 
   const hasTodaySession = Boolean(hasSelectedClass && ses && ses.sessionId);
   const isOpenNow = Boolean(hasTodaySession && ses.isOpen);
+  const p2Opened = Boolean(teacherState && teacherState.round2OpenedToday);
+  const isP1ClosedReadyForP2 = Boolean(
+    hasTodaySession &&
+    !isOpenNow &&
+    !p2Opened &&
+    Number(ses.round || 1) === 1
+  );
+
+  if (p2LaunchStrip && btnOpenTrigger) {
+    const isConfirmVisible = Boolean(confirmBox && !confirmBox.classList.contains('hidden'));
+    if (isP1ClosedReadyForP2 && !isConfirmVisible) {
+      btnOpenTrigger.classList.add('hidden');
+      p2LaunchStrip.classList.remove('hidden');
+    } else {
+      p2LaunchStrip.classList.add('hidden');
+      if (!isConfirmVisible) {
+        btnOpenTrigger.classList.remove('hidden');
+      }
+      btnOpenTrigger.disabled = Boolean(isOpenNow || (hasTodaySession && p2Opened));
+    }
+  }
 
   if (btnExtend) btnExtend.disabled = !hasTodaySession;
-  if (btnReopen) btnReopen.disabled = !hasTodaySession;
+  if (btnReopen) {
+    if (p2Opened) {
+      btnReopen.disabled = true;
+      btnReopen.title = isEn
+        ? 'Cannot reopen Round 1 because Round 2 has already been opened today'
+        : 'Không thể mở lại Phiên 1 vì Phiên 2 đã được mở trong buổi học này';
+      btnReopen.textContent = isEn ? 'Reopen P1 (Locked: P2 opened)' : 'Mở lại 5p (Khóa: Đã mở P2)';
+    } else {
+      btnReopen.disabled = !hasTodaySession;
+      btnReopen.title = '';
+      btnReopen.textContent = isEn ? 'Reopen 5 Mins' : 'Mở lại 5 phút';
+    }
+  }
   if (btnCancelMistaken) btnCancelMistaken.disabled = !hasTodaySession;
   if (btnClose) btnClose.disabled = !isOpenNow;
+
+  syncProjectorPin10sLifecycle(hasSelectedClass ? ses : null);
 }
 
 function setupTeacherCountdown(ses, hasSelectedClass = true) {
@@ -576,9 +752,12 @@ function setupTeacherCountdown(ses, hasSelectedClass = true) {
     return;
   }
 
+  const isRound2Ses = Number(ses.round || 1) === 2 || Boolean(teacherState && teacherState.round2OpenedToday);
   if (!ses.isOpen) {
     badge.className = 'badge-err';
-    badge.textContent = isEn ? "TODAY'S SESSION CLOSED" : 'ĐÃ ĐÓNG PHIÊN HÔM NAY';
+    badge.textContent = isRound2Ses
+      ? (isEn ? 'ROUND 2 CLOSED' : 'ĐÃ ĐÓNG PHIÊN 2')
+      : (isEn ? 'ROUND 1 CLOSED' : 'ĐÃ ĐÓNG PHIÊN 1');
     timerEl.textContent = '00:00';
     return;
   }
@@ -586,13 +765,16 @@ function setupTeacherCountdown(ses, hasSelectedClass = true) {
   const updateTick = () => {
     const now = Date.now();
     const enNow = currentLang === 'en';
+    const isR2 = Number(ses.round || 1) === 2;
     if (now > ses.closesAtMs) {
       const wasReopen5mCapped = Boolean(ses.sessionId && reopen5mCapBySession[ses.sessionId]);
       if (ses.sessionId) delete reopen5mCapBySession[ses.sessionId];
       ses.isOpen = false;
       syncSessionControlButtonsState(ses, hasSelectedClass);
       badge.className = 'badge-err';
-      badge.textContent = enNow ? "TODAY'S SESSION CLOSED" : 'ĐÃ ĐÓNG PHIÊN HÔM NAY';
+      badge.textContent = isR2
+        ? (enNow ? 'ROUND 2 CLOSED' : 'ĐÃ ĐÓNG PHIÊN 2')
+        : (enNow ? 'ROUND 1 CLOSED' : 'ĐÃ ĐÓNG PHIÊN 1');
       timerEl.textContent = '00:00';
       clearInterval(teacherCountdownTimer);
       if (wasReopen5mCapped) {
@@ -602,7 +784,12 @@ function setupTeacherCountdown(ses, hasSelectedClass = true) {
       }
       return;
     }
-    if (now <= ses.presentUntilMs) {
+    if (isR2) {
+      const remSec = Math.max(0, Math.floor((ses.closesAtMs - now) / 1000));
+      badge.className = 'badge-ok';
+      badge.textContent = enNow ? 'ROUND 2 OPEN (VERIFICATION)' : 'ĐANG MỞ ĐIỂM DANH LẦN 2';
+      timerEl.textContent = formatMmSs(remSec);
+    } else if (now <= ses.presentUntilMs) {
       const remSec = Math.max(0, Math.floor((ses.presentUntilMs - now) / 1000));
       badge.className = 'badge-ok';
       badge.textContent = enNow ? 'OPEN — RECORDING PRESENT (P)' : 'ĐANG MỞ — GHI NHẬN CÓ MẶT (P)';
@@ -776,12 +963,44 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
   }
 }
 
+async function openRound2Session() {
+  const minsInput = document.getElementById('inp-tea-p2-mins');
+  const pinChk = document.getElementById('chk-tea-p2-pin10s');
+  const rawMins = minsInput ? parseInt(minsInput.value, 10) : 3;
+  const durationMinutes = Math.min(15, Math.max(1, isNaN(rawMins) ? 3 : rawMins));
+  const qrMode = (pinChk && pinChk.checked) ? 'PIN_10S' : 'STATIC';
+  if (minsInput) minsInput.value = String(durationMinutes);
+
+  if (qrMode === 'PIN_10S') {
+    syncTeacherServerClockOffset();
+  }
+  await teacherControlSession('OPEN_ROUND_2', {
+    durationMinutes: durationMinutes,
+    qrMode: qrMode
+  });
+}
+
+async function switchRound2QrMode(newMode) {
+  const mode = String(newMode || 'STATIC').trim().toUpperCase();
+  await teacherControlSession('SET_QR_MODE', { qrMode: mode });
+}
+
 async function teacherControlSession(subAction, extra = {}) {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
   const isEn = currentLang === 'en';
   if (!auth || !classId) {
     showStatus(isEn ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.', 'warn');
+    return;
+  }
+  if (subAction === 'REOPEN_5M' && teacherState && teacherState.round2OpenedToday) {
+    showStatus(
+      formatServerMessage('ERR_REOPEN_BLOCKED_BY_P2', {}, isEn
+        ? 'Cannot reopen Round 1 because Round 2 has already been opened today.'
+        : 'Không thể mở lại Phiên 1 vì Phiên 2 đã được mở trong buổi học này.'),
+      'err',
+      'tea-session-inline-status'
+    );
     return;
   }
   const prevSesId = (teacherState && teacherState.activeSession && teacherState.activeSession.sessionId)
@@ -863,6 +1082,22 @@ async function teacherControlSession(subAction, extra = {}) {
         pulseButtonConfirm('btn-tea-extend', isEn ? '+2 MINS ADDED' : 'ĐÃ +2 PHÚT', 'success', 1200);
       } else if (subAction === 'REOPEN_5M') {
         pulseButtonConfirm('btn-tea-reopen', isEn ? 'REOPENED 5M' : 'ĐÃ MỞ LẠI 5 PHÚT', 'success', 1200);
+      } else if (subAction === 'OPEN_ROUND_2') {
+        showStatus(
+          isEn
+            ? `Opened Round 2 verification check-in (${extra.qrMode === 'PIN_10S' ? '10s Rotating PIN' : '1-Tap GPS'}).`
+            : `Đã mở điểm danh Lần 2 (${extra.qrMode === 'PIN_10S' ? 'Mã PIN 10 giây' : '1-Chạm GPS'}).`,
+          'success',
+          'tea-session-inline-status'
+        );
+      } else if (subAction === 'SET_QR_MODE') {
+        showStatus(
+          isEn
+            ? 'Switched Round 2 to 1-Tap GPS (No PIN required). Previous PIN check-ins are preserved.'
+            : 'Đã chuyển Phiên 2 về chế độ 1-Chạm (Không cần PIN). Sinh viên đã nhập đúng PIN trước đó được giữ nguyên.',
+          'success',
+          'tea-session-inline-status'
+        );
       } else if (subAction === 'CLOSE_NOW') {
         pulseButtonConfirm('btn-tea-close', isEn ? 'SESSION CLOSED' : 'ĐÃ ĐÓNG PHIÊN', 'danger', 1200);
       } else if (subAction === 'CANCEL_MISTAKEN_SESSION') {
@@ -878,6 +1113,12 @@ async function teacherControlSession(subAction, extra = {}) {
         'tea-session-inline-status'
       );
     }
+  } else if (res && res.code) {
+    showStatus(
+      formatServerMessage(res.code, res.params || {}, res.message || ''),
+      'err',
+      'tea-session-inline-status'
+    );
   }
 }
 
@@ -931,6 +1172,68 @@ function detectCoCheckInSuspects(roster) {
   return suspectMap;
 }
 
+function updateTeacherRoundSegmentedControlUI() {
+  const segWrap = document.getElementById('tea-round-segmented');
+  if (!segWrap) return;
+  const p2Opened = Boolean(teacherState && teacherState.round2OpenedToday);
+  const isEn = currentLang === 'en';
+  if (!p2Opened) {
+    segWrap.classList.add('hidden');
+    return;
+  }
+  segWrap.classList.remove('hidden');
+  const btnP1 = document.getElementById('seg-round-p1');
+  const btnP2 = document.getElementById('seg-round-p2');
+  const btnFinal = document.getElementById('seg-round-final');
+  if (btnP1) {
+    btnP1.textContent = isEn ? 'Round 1' : 'Phiên 1';
+    btnP1.classList.toggle('active', activeRosterRoundView === 'P1');
+  }
+  if (btnP2) {
+    btnP2.textContent = isEn ? 'Round 2' : 'Phiên 2';
+    btnP2.classList.toggle('active', activeRosterRoundView === 'P2');
+  }
+  if (btnFinal) {
+    btnFinal.textContent = isEn ? 'Final Result' : 'Kết quả cuối';
+    btnFinal.classList.toggle('active', activeRosterRoundView === 'FINAL');
+  }
+}
+
+function setTeacherRosterRoundView(roundView) {
+  if (roundView === 'P1' || roundView === 'P2' || roundView === 'FINAL') {
+    activeRosterRoundView = roundView;
+  } else {
+    activeRosterRoundView = 'FINAL';
+  }
+  updateTeacherRoundSegmentedControlUI();
+  updateTeacherLiveCountersFromRoster();
+  renderTeacherRoster();
+}
+
+function toggleStudentRowP2Detail(studentId) {
+  const sid = String(studentId || '').trim();
+  if (!sid) return;
+  if (!(teacherState && teacherState.round2OpenedToday)) return;
+  expandedP2DetailStudentIds[sid] = !expandedP2DetailStudentIds[sid];
+  renderTeacherRoster();
+}
+
+function getStudentStatusForRoundView(st, viewMode, p2Opened) {
+  if (!st) return '-';
+  if (!p2Opened || viewMode === 'P1') {
+    const rawP1 = st.p1Status !== undefined ? st.p1Status : st.status;
+    return normalizeAttendanceStatusCode(rawP1);
+  }
+  if (viewMode === 'P2') {
+    return normalizeAttendanceStatusCode(st.p2Status !== undefined ? st.p2Status : '-');
+  }
+  return mergeAttendance(
+    st.p1Status !== undefined ? st.p1Status : st.status,
+    st.p2Status !== undefined ? st.p2Status : '-',
+    true
+  );
+}
+
 function setRosterFilter(filterMode) {
   activeRosterFilter = filterMode || 'ALL';
   document.querySelectorAll('[data-roster-filter]').forEach(btn => {
@@ -955,13 +1258,23 @@ function renderTeacherRoster() {
   const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
 
   const list = (teacherState && teacherState.roster) || [];
+  const p2Opened = Boolean(teacherState && teacherState.round2OpenedToday);
+  const viewMode = p2Opened ? activeRosterRoundView : 'P1';
+  updateTeacherRoundSegmentedControlUI();
+
   const suspectMap = detectCoCheckInSuspects(list);
   const suspectIds = Object.keys(suspectMap);
 
-  // Update quick filter tab counters even when roster names are hidden on projector
+  // Update quick filter tab counters based on the active view (P1, P2, or Final)
   const countAll = list.length;
-  const countPresent = list.filter(s => s.status === 'P' || s.status === 'L').length;
-  const countAbsent = list.filter(s => !s.status || s.status === '-').length;
+  const countPresent = list.filter(s => {
+    const stCode = getStudentStatusForRoundView(s, viewMode, p2Opened);
+    return stCode === 'P' || stCode === 'L';
+  }).length;
+  const countAbsent = list.filter(s => {
+    const stCode = getStudentStatusForRoundView(s, viewMode, p2Opened);
+    return !stCode || stCode === '-';
+  }).length;
   const countSuspect = suspectIds.length;
 
   const tabAll = document.getElementById('tab-filter-all');
@@ -991,8 +1304,9 @@ function renderTeacherRoster() {
   const filtered = list.filter(s => {
     const matchesSearch = s.studentId.toLowerCase().includes(query) || s.fullName.toLowerCase().includes(query);
     if (!matchesSearch) return false;
-    if (activeRosterFilter === 'PRESENT') return s.status === 'P' || s.status === 'L';
-    if (activeRosterFilter === 'ABSENT') return !s.status || s.status === '-';
+    const stCode = getStudentStatusForRoundView(s, viewMode, p2Opened);
+    if (activeRosterFilter === 'PRESENT') return stCode === 'P' || stCode === 'L';
+    if (activeRosterFilter === 'ABSENT') return !stCode || stCode === '-';
     if (activeRosterFilter === 'SUSPECT') return Boolean(suspectMap[s.studentId]);
     return true;
   });
@@ -1041,38 +1355,105 @@ function renderTeacherRoster() {
     ? lastPulsedManualMark
     : null;
 
+  function formatRoundTimeAndSourceBadge(statusVal, rawTime, rawDist, rawSource) {
+    if (!statusVal || statusVal === '-') return { cleanTime: '', badgeText: '' };
+    const cleanTime = cleanRosterTimeStr(rawTime);
+    const isManual = String(rawSource || '').toUpperCase() === 'TEACHER_MANUAL';
+    if (isManual) {
+      return { cleanTime: cleanTime, badgeText: '(m)' };
+    }
+    const hasDist =
+      (statusVal === 'P' || statusVal === 'L') &&
+      rawDist !== '' &&
+      rawDist !== null &&
+      rawDist !== undefined &&
+      String(rawDist).trim() !== '' &&
+      !isNaN(Number(rawDist));
+    const badgeText = hasDist ? `(${Math.round(Number(rawDist))}m)` : '';
+    return { cleanTime: cleanTime, badgeText: badgeText };
+  }
+
+  function formatCompactRoundDetailPart(roundLabel, statusVal, rawTime, rawDist, rawSource) {
+    const stNorm = normalizeAttendanceStatusCode(statusVal);
+    if (stNorm === '-') return `${roundLabel}: -`;
+    const meta = formatRoundTimeAndSourceBadge(stNorm, rawTime, rawDist, rawSource);
+    const timePart = meta.cleanTime ? ` ${meta.cleanTime}` : '';
+    const srcPart = meta.badgeText ? ` ${meta.badgeText}` : '';
+    return `${roundLabel}: ${stNorm}${timePart}${srcPart}`;
+  }
+
+  const isFinalReadOnly = Boolean(p2Opened && viewMode === 'FINAL');
+  const readOnlyTitle = isEn
+    ? 'Final Result tab is read-only. Switch to Round 1 or Round 2 tab to mark manually.'
+    : 'Tab Kết quả cuối chỉ để xem. Chuyển sang tab Phiên 1 hoặc Phiên 2 để chấm tay.';
+
   container.innerHTML = filtered.map(st => {
     const suspectNote = suspectMap[st.studentId];
     const isDuplicateName = (nameCounts[String(st.fullName || '').trim().toLowerCase()] || 0) > 1;
     const maskedTail = isDuplicateName && st.studentId ? ` (***${String(st.studentId).slice(-3)})` : '';
-    const cleanTime = st.status && st.status !== '-' ? cleanRosterTimeStr(st.time) : '';
-    const hasDist =
-      (st.status === 'P' || st.status === 'L') &&
-      st.distance !== '' &&
-      st.distance !== null &&
-      st.distance !== undefined &&
-      String(st.distance).trim() !== '' &&
-      !isNaN(Number(st.distance));
-    const distNum = hasDist ? Math.round(Number(st.distance)) : null;
+
+    const rowSt = getStudentStatusForRoundView(st, viewMode, p2Opened);
+    let cleanTime = '';
+    let badgeText = '';
+    let inlineP2DetailHtml = '';
+
+    if (!p2Opened || viewMode === 'P1') {
+      const p1Time = st.p1Time !== undefined ? st.p1Time : st.time;
+      const p1Dist = st.p1Distance !== undefined ? st.p1Distance : st.distance;
+      const p1Src = st.p1Source !== undefined ? st.p1Source : st.source;
+      const meta = formatRoundTimeAndSourceBadge(rowSt, p1Time, p1Dist, p1Src);
+      cleanTime = meta.cleanTime;
+      badgeText = meta.badgeText;
+    } else if (viewMode === 'P2') {
+      const meta = formatRoundTimeAndSourceBadge(rowSt, st.p2Time, st.p2Distance, st.p2Source);
+      cleanTime = meta.cleanTime;
+      badgeText = meta.badgeText;
+    } else {
+      // FINAL view: clean row by default; clicking student info toggles P1 | P2 breakdown
+      if (expandedP2DetailStudentIds[st.studentId]) {
+        const p1Part = formatCompactRoundDetailPart(
+          'P1',
+          st.p1Status !== undefined ? st.p1Status : st.status,
+          st.p1Time !== undefined ? st.p1Time : st.time,
+          st.p1Distance !== undefined ? st.p1Distance : st.distance,
+          st.p1Source !== undefined ? st.p1Source : st.source
+        );
+        const p2Part = formatCompactRoundDetailPart(
+          'P2',
+          st.p2Status !== undefined ? st.p2Status : '-',
+          st.p2Time,
+          st.p2Distance,
+          st.p2Source
+        );
+        inlineP2DetailHtml = `<span class="roster-p2-detail-inline">${escapeHtml(p1Part)} | ${escapeHtml(p2Part)}</span>`;
+      }
+    }
+
     const isRowPulsing = Boolean(activePulse && activePulse.studentId === st.studentId);
     const pulseP = isRowPulsing && activePulse.status === 'P' ? 'mark-pulse-P' : '';
     const pulseL = isRowPulsing && activePulse.status === 'L' ? 'mark-pulse-L' : '';
     const pulseE = isRowPulsing && activePulse.status === 'E' ? 'mark-pulse-E' : '';
     const pulseDash = isRowPulsing && activePulse.status === '-' ? 'mark-pulse-dash' : '';
+    const safeSid = escapeHtml(st.studentId);
+    const targetRoundArg = !p2Opened ? 'P1' : viewMode;
+    const disabledAttr = isFinalReadOnly ? 'disabled' : '';
+    const readOnlyClass = isFinalReadOnly ? 'btn-mark-readonly' : '';
+
     return `
       <div class="roster-item ${suspectNote ? 'suspect-row' : ''}">
-        <div class="roster-student-info">
-          <strong title="MSSV: ${escapeHtml(st.studentId)}">${escapeHtml(st.fullName)}${escapeHtml(maskedTail)}</strong>
+        <div class="roster-student-info ${p2Opened ? 'roster-info-clickable' : ''}" ${p2Opened ? `onclick="toggleStudentRowP2Detail('${safeSid}')"` : ''}>
+          <strong title="MSSV: ${safeSid}">${escapeHtml(st.fullName)}${escapeHtml(maskedTail)}</strong>
           ${cleanTime ? `<span style="font-size:0.75rem; color:var(--muted); font-family:var(--font-mono);">${escapeHtml(cleanTime)}</span>` : ''}
-          ${distNum !== null ? `<span style="font-size:0.74rem; color:#0f766e; font-weight:600; font-family:var(--font-mono);">(${distNum}m)</span>` : ''}
+          ${badgeText ? `<span style="font-size:0.74rem; color:#0f766e; font-weight:600; font-family:var(--font-mono);">${escapeHtml(badgeText)}</span>` : ''}
+          ${inlineP2DetailHtml}
           ${suspectNote ? `<span class="suspect-tag">[${isEn ? 'SUSPECT' : 'NGHI VẤN'}] ${escapeHtml(suspectNote)}</span>` : ''}
         </div>
         <div class="roster-actions">
-          <button class="btn btn-outline btn-sm ${st.status === 'P' ? 'btn-mark-active-P' : ''} ${pulseP}" title="${isEn ? 'Mark Present (P)' : 'Đánh dấu Có mặt (P)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','P')">P</button>
-          <button class="btn btn-outline btn-sm ${st.status === 'L' ? 'btn-mark-active-L' : ''} ${pulseL}" title="${isEn ? 'Mark Late (L)' : 'Đánh dấu Đi trễ (L)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','L')">L</button>
-          <button class="btn btn-outline btn-sm ${st.status === 'E' ? 'btn-mark-active-E' : ''} ${pulseE}" title="${isEn ? 'Mark Excused (E)' : 'Đánh dấu Có phép (E)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','E')">E</button>
-          <button class="btn btn-outline btn-sm ${pulseDash}" title="${isEn ? 'Revoke attendance (-)' : 'Hủy điểm danh (-)'}" onclick="teacherManualMark('${escapeHtml(st.studentId)}','-')">-</button>
-          <button id="btn-unlock-${escapeHtml(st.studentId)}" class="btn btn-outline btn-sm" title="${isEn ? 'Reset device lock' : 'Đặt lại khóa thiết bị'}" onclick="teacherResetStudentDevice('${escapeHtml(st.studentId)}', this)">${isEn ? 'Unlock' : 'Mở khóa'}</button>
+          <button type="button" class="btn btn-outline btn-sm ${rowSt === 'P' ? 'btn-mark-active-P' : ''} ${readOnlyClass} ${pulseP}" ${disabledAttr} title="${isFinalReadOnly ? escapeHtml(readOnlyTitle) : (isEn ? 'Mark Present (P)' : 'Đánh dấu Có mặt (P)')}" onclick="teacherManualMark('${safeSid}','P','${targetRoundArg}')">P</button>
+          <button type="button" class="btn btn-outline btn-sm ${rowSt === 'L' ? 'btn-mark-active-L' : ''} ${readOnlyClass} ${pulseL}" ${disabledAttr} title="${isFinalReadOnly ? escapeHtml(readOnlyTitle) : (isEn ? 'Mark Late (L)' : 'Đánh dấu Đi trễ (L)')}" onclick="teacherManualMark('${safeSid}','L','${targetRoundArg}')">L</button>
+          <button type="button" class="btn btn-outline btn-sm ${rowSt === 'E' ? 'btn-mark-active-E' : ''} ${readOnlyClass} ${pulseE}" ${disabledAttr} title="${isFinalReadOnly ? escapeHtml(readOnlyTitle) : (isEn ? 'Mark Excused (E)' : 'Đánh dấu Có phép (E)')}" onclick="teacherManualMark('${safeSid}','E','${targetRoundArg}')">E</button>
+          <button type="button" class="btn btn-outline btn-sm ${rowSt === '-' && isFinalReadOnly ? 'btn-mark-active--' : ''} ${readOnlyClass} ${pulseDash}" ${disabledAttr} title="${isFinalReadOnly ? escapeHtml(readOnlyTitle) : (isEn ? 'Revoke attendance (-)' : 'Hủy điểm danh (-)')}" onclick="teacherManualMark('${safeSid}','-','${targetRoundArg}')">-</button>
+          <button type="button" id="btn-unlock-${safeSid}" class="btn btn-outline btn-sm" title="${isEn ? 'Reset device lock' : 'Đặt lại khóa thiết bị'}" onclick="teacherResetStudentDevice('${safeSid}', this)">${isEn ? 'Unlock' : 'Mở khóa'}</button>
         </div>
       </div>
     `;
@@ -1092,8 +1473,13 @@ async function handleRosterSearchKeydown(event) {
   );
   if (matches.length === 1) {
     const target = matches[0];
+    const p2Opened = Boolean(teacherState && teacherState.round2OpenedToday);
+    if (p2Opened && activeRosterRoundView === 'FINAL') {
+      showStatus(formatServerMessage('ERR_FINAL_READ_ONLY'), 'warn', 'tea-session-inline-status');
+      return;
+    }
     searchInput.value = '';
-    await teacherManualMark(target.studentId, 'P');
+    await teacherManualMark(target.studentId, 'P', p2Opened ? activeRosterRoundView : 'P1');
     showStatus(
       currentLang === 'en'
         ? `Marked PRESENT (P) for ${target.fullName} (${target.studentId}).`
@@ -1113,13 +1499,65 @@ function formatProjectorDisplayName(studentObj, fullRoster) {
   return `${studentObj.fullName}${suffix}`;
 }
 
+async function copyPresentStudentsList() {
+  const list = (teacherState && teacherState.roster) || [];
+  const p2Opened = Boolean(teacherState && teacherState.round2OpenedToday);
+  const presentPool = typeof getFinalPresentStudentsPool === 'function'
+    ? getFinalPresentStudentsPool(list, p2Opened)
+    : list.filter(s => s.status === 'P' || s.status === 'L');
+  const isEn = currentLang === 'en';
+
+  if (presentPool.length === 0) {
+    showStatus(
+      isEn ? 'No present (P/L) students to copy yet.' : 'Chưa có sinh viên nào có mặt (P/L) để sao chép.',
+      'warn',
+      'tea-session-inline-status'
+    );
+    return '';
+  }
+
+  const lines = presentPool.map((st, idx) => {
+    const finalSt = typeof getStudentEffectiveFinalStatus === 'function'
+      ? getStudentEffectiveFinalStatus(st, p2Opened)
+      : (st.status || 'P');
+    return `${idx + 1}. ${st.studentId} - ${st.fullName} (${finalSt})`;
+  });
+  const textOut = lines.join('\n');
+
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(textOut);
+    }
+  } catch (e) {}
+
+  if (typeof pulseButtonConfirm === 'function') {
+    pulseButtonConfirm(
+      'btn-copy-present-list',
+      isEn ? `COPIED (${presentPool.length})` : `ĐÃ CHÉP (${presentPool.length})`,
+      'success',
+      1200
+    );
+  }
+  showStatus(
+    isEn
+      ? `Copied ${presentPool.length} present/late (P/L) students from Final Result.`
+      : `Đã sao chép danh sách ${presentPool.length} sinh viên có mặt/đi trễ (P/L) theo Kết quả cuối.`,
+    'success',
+    'tea-session-inline-status'
+  );
+  return textOut;
+}
+
 function triggerRandomSpotCheck() {
   const list = (teacherState && teacherState.roster) || [];
-  const checkedIn = list.filter(s => s.status === 'P' || s.status === 'L');
+  const p2Opened = Boolean(teacherState && teacherState.round2OpenedToday);
+  const checkedIn = typeof getFinalPresentStudentsPool === 'function'
+    ? getFinalPresentStudentsPool(list, p2Opened)
+    : list.filter(s => s.status === 'P' || s.status === 'L');
   const isEn = currentLang === 'en';
   if (checkedIn.length === 0) {
     showStatus(
-      isEn ? 'No students have checked in during this session yet.' : 'Chưa có sinh viên nào điểm danh trong phiên này.',
+      isEn ? 'No students have checked in during this session yet.' : 'Chưa có sinh viên nào có mặt (P/L) trong buổi này.',
       'warn'
     );
     return;
@@ -1143,6 +1581,10 @@ function triggerRandomSpotCheck() {
   const displayName = formatProjectorDisplayName(pick, list);
   const calledCount = visitedSet.size;
   const totalPresent = checkedIn.length;
+  const effectiveStatus = typeof getStudentEffectiveFinalStatus === 'function'
+    ? getStudentEffectiveFinalStatus(pick, p2Opened)
+    : pick.status;
+  const displayTime = p2Opened ? (pick.p2Time || pick.p1Time || pick.time || 'N/A') : (pick.time || 'N/A');
 
   const htmlBody = `
     <div style="text-align:center; padding:10px 4px;">
@@ -1153,7 +1595,7 @@ function triggerRandomSpotCheck() {
         ${escapeHtml(displayName)}
       </div>
       <div style="font-size:0.8rem; color:var(--text-secondary); font-family:var(--font-mono);">
-        ${isEn ? `Status: ${pick.status} • Checked in at: ${pick.time || 'N/A'}` : `Trạng thái: ${pick.status} • Điểm danh lúc: ${pick.time || 'N/A'}`}
+        ${isEn ? `Final Status: ${effectiveStatus} • Checked in at: ${displayTime}` : `Kết quả: ${effectiveStatus} • Điểm danh lúc: ${displayTime}`}
       </div>
     </div>
   `;
@@ -1167,7 +1609,7 @@ function triggerRandomSpotCheck() {
         await pulseButtonConfirm('app-modal-confirm', isEn ? 'REVOKED' : 'ĐÃ HỦY ĐIỂM DANH', 'danger', 480);
       }
       closeAppModal();
-      await teacherManualMark(pick.studentId, '-');
+      await teacherManualMark(pick.studentId, '-', p2Opened ? 'P2' : 'P1');
       showStatus(
         isEn
           ? `Revoked attendance and locked re-submission in this session for ${displayName}.`
@@ -1911,7 +2353,10 @@ function buildShuffledGroups(pool, groupSize) {
 function renderGroupMakerModalContent(groupSize, reshuffle = false) {
   const isEn = currentLang === 'en';
   const list = (teacherState && teacherState.roster) || [];
-  const presentStudents = list.filter(s => s.status === 'P' || s.status === 'L');
+  const p2Opened = Boolean(teacherState && teacherState.round2OpenedToday);
+  const presentStudents = typeof getFinalPresentStudentsPool === 'function'
+    ? getFinalPresentStudentsPool(list, p2Opened)
+    : list.filter(s => s.status === 'P' || s.status === 'L');
   const pool = presentStudents.length > 0 ? presentStudents : list;
   const usingFullRoster = presentStudents.length === 0;
 
@@ -2057,6 +2502,7 @@ async function publishClassroomGroupsToStudents(clearGroups = false) {
 function overlayPendingManualMarksOnRoster(rosterList) {
   if (!Array.isArray(rosterList)) return;
   const now = Date.now();
+  const p2Opened = Boolean(teacherState && teacherState.round2OpenedToday);
   Object.keys(pendingManualMarks).forEach(sid => {
     if (!pendingManualMarks[sid] || now >= pendingManualMarks[sid].expiresAt) {
       delete pendingManualMarks[sid];
@@ -2065,10 +2511,33 @@ function overlayPendingManualMarksOnRoster(rosterList) {
   rosterList.forEach(st => {
     const pending = st && pendingManualMarks[st.studentId];
     if (pending && now < pending.expiresAt) {
-      st.status = pending.status;
-      st.time = pending.time;
-      st.distance = pending.distance;
-      st.source = 'TEACHER_MANUAL';
+      const tRound = pending.targetRound || 'P1';
+      if (tRound === 'P2') {
+        const effP2St = pending.status === 'L' ? 'P' : pending.status;
+        st.p2Status = effP2St;
+        st.p2Time = pending.time;
+        st.p2Distance = pending.distance;
+        st.p2Source = 'TEACHER_MANUAL';
+      } else {
+        st.p1Status = pending.status;
+        st.p1Time = pending.time;
+        st.p1Distance = pending.distance;
+        st.p1Source = 'TEACHER_MANUAL';
+      }
+      if (p2Opened) {
+        st.finalStatus = mergeAttendance(
+          st.p1Status !== undefined ? st.p1Status : st.status,
+          st.p2Status !== undefined ? st.p2Status : '-',
+          true
+        );
+        st.status = st.finalStatus;
+      } else {
+        st.status = st.p1Status;
+        st.finalStatus = st.p1Status;
+        st.time = pending.time;
+        st.distance = pending.distance;
+        st.source = 'TEACHER_MANUAL';
+      }
     }
   });
 }
@@ -2076,11 +2545,17 @@ function overlayPendingManualMarksOnRoster(rosterList) {
 function updateTeacherLiveCountersFromRoster() {
   if (!teacherState || !Array.isArray(teacherState.roster)) return;
   const isEn = currentLang === 'en';
-  const roster = teacherState.roster;
-  const pCount = roster.filter(r => r.status === 'P').length;
-  const lCount = roster.filter(r => r.status === 'L').length;
-  const eCount = roster.filter(r => r.status === 'E').length;
-  const aCount = roster.filter(r => !r.status || r.status === '-').length;
+  const roster = selectedTeacherClassId ? teacherState.roster : [];
+  const p2Opened = Boolean(teacherState && teacherState.round2OpenedToday);
+  const viewMode = p2Opened ? activeRosterRoundView : 'P1';
+
+  const pCount = roster.filter(r => getStudentStatusForRoundView(r, viewMode, p2Opened) === 'P').length;
+  const lCount = roster.filter(r => getStudentStatusForRoundView(r, viewMode, p2Opened) === 'L').length;
+  const eCount = roster.filter(r => getStudentStatusForRoundView(r, viewMode, p2Opened) === 'E').length;
+  const aCount = roster.filter(r => {
+    const st = getStudentStatusForRoundView(r, viewMode, p2Opened);
+    return !st || st === '-';
+  }).length;
 
   const countEl = document.getElementById('tea-live-count');
   const breakEl = document.getElementById('tea-live-breakdown');
@@ -2094,7 +2569,7 @@ function updateTeacherLiveCountersFromRoster() {
   }
 }
 
-async function teacherManualMark(studentId, status) {
+async function teacherManualMark(studentId, status, explicitTargetRound = '') {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value || selectedTeacherClassId;
   if (!auth || !classId) return;
@@ -2109,7 +2584,20 @@ async function teacherManualMark(studentId, status) {
     return;
   }
 
-  // 1. Instant 0.01s Optimistic UI Update (updates badge, counters, and roster immediately before network round-trip)
+  const p2Opened = Boolean(teacherState && teacherState.round2OpenedToday);
+  const targetRound = String(explicitTargetRound || (p2Opened ? activeRosterRoundView : 'P1')).trim().toUpperCase();
+
+  // Requirement 1: Tab "Kết quả cuối" is strictly READ-ONLY
+  if (p2Opened && targetRound === 'FINAL') {
+    showStatus(
+      formatServerMessage('ERR_FINAL_READ_ONLY'),
+      'warn',
+      'tea-session-inline-status'
+    );
+    return;
+  }
+
+  // 1. Instant 0.01s Optimistic UI Update (updates only the targeted round P1 or P2, then computes Final via mergeAttendance)
   const nowD = new Date();
   const pad2 = n => String(n).padStart(2, '0');
   const nowTimeStr = `${pad2(nowD.getHours())}:${pad2(nowD.getMinutes())}`;
@@ -2118,16 +2606,12 @@ async function teacherManualMark(studentId, status) {
   if (teacherState && Array.isArray(teacherState.roster)) {
     const targetRow = teacherState.roster.find(r => r && r.studentId === studentId);
     if (targetRow) {
-      prevSnapshot = {
-        status: targetRow.status,
-        time: targetRow.time,
-        distance: targetRow.distance,
-        source: targetRow.source
-      };
+      prevSnapshot = Object.assign({}, targetRow);
     }
   }
 
   pendingManualMarks[studentId] = {
+    targetRound: targetRound,
     status: status,
     time: status === '-' ? '' : nowTimeStr,
     distance: status === '-' ? '' : 0,
@@ -2157,43 +2641,23 @@ async function teacherManualMark(studentId, status) {
     renderTeacherRoster();
   }
 
-  // Immediately update local student attendance summary so switching to Student tab reflects the manual mark in 0ms
+  const updatedRow = (teacherState && Array.isArray(teacherState.roster))
+    ? teacherState.roster.find(r => r && r.studentId === studentId)
+    : null;
+  const effectiveFinalStatus = updatedRow
+    ? getStudentEffectiveFinalStatus(updatedRow, p2Opened)
+    : status;
+
   const sesKey = (teacherState && teacherState.activeSession && teacherState.activeSession.sessionId)
     ? teacherState.activeSession.sessionId
     : getTodayDateKey();
   if (typeof recordLocalStudentSessionMark === 'function') {
-    recordLocalStudentSessionMark(studentId, classId, sesKey, status === '-' ? 'A' : status, status === '-' ? '' : nowTimeStr);
+    recordLocalStudentSessionMark(studentId, classId, sesKey, effectiveFinalStatus === '-' ? 'A' : effectiveFinalStatus, effectiveFinalStatus === '-' ? '' : nowTimeStr);
   }
-  try {
-    const profiles = getStudentProfiles();
-    Object.keys(profiles).forEach(instKey => {
-      const prof = profiles[instKey];
-      if (prof && String(prof.studentId || '').trim().toUpperCase() === String(studentId || '').trim().toUpperCase() && Array.isArray(prof.enrolledClasses)) {
-        const ec = prof.enrolledClasses.find(c => c && c.classId === classId);
-        if (ec && ec.attendanceStats && typeof ec.attendanceStats === 'object') {
-          const stObj = Object.assign({ P: 0, L: 0, E: 0, A: 0, total: 0 }, ec.attendanceStats);
-          const oldSt = prevSnapshot ? prevSnapshot.status : '';
-          if (oldSt === 'P' && stObj.P > 0) stObj.P--;
-          else if (oldSt === 'L' && stObj.L > 0) stObj.L--;
-          else if (oldSt === 'E' && stObj.E > 0) stObj.E--;
-          else if (oldSt === '-' && stObj.A > 0) stObj.A--;
-
-          if (status === 'P') stObj.P++;
-          else if (status === 'L') stObj.L++;
-          else if (status === 'E') stObj.E++;
-          else if (status === '-') stObj.A++;
-
-          stObj.total = stObj.P + stObj.L + stObj.E + stObj.A;
-          ec.attendanceStats = stObj;
-          saveStudentProfile(instKey, prof);
-        }
-      }
-    });
-  } catch (e) {}
   safeSetLocal('cc_tea_last_preview_mark', JSON.stringify({
     studentId: String(studentId || '').trim().toUpperCase(),
     classId: classId,
-    status: status
+    status: effectiveFinalStatus
   }));
   if (typeof renderStudentAttendanceSummary === 'function') {
     renderStudentAttendanceSummary('', classId);
@@ -2205,7 +2669,8 @@ async function teacherManualMark(studentId, status) {
     teacherToken: auth.token,
     classId: classId,
     studentId: studentId,
-    status: status
+    status: status,
+    targetRound: targetRound
   });
   delete pendingManualMarks[studentId];
 
@@ -2219,7 +2684,7 @@ async function teacherManualMark(studentId, status) {
       renderTeacherRoster();
     }
     showStatus(
-      res && res.message ? res.message : (currentLang === 'en' ? 'Error updating status.' : 'Lỗi cập nhật trạng thái.'),
+      res && res.code ? formatServerMessage(res.code, res.params || {}, res.message || '') : (currentLang === 'en' ? 'Error updating status.' : 'Lỗi cập nhật trạng thái.'),
       'err',
       'tea-session-inline-status'
     );

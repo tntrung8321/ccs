@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.6.6)
+ * STUDENT CONTROLLER (js/student.js — v3.7.0)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Official Attendance Score (Base 10.0), Same-Day Session Merging, Near-Limit Warning & Exam Ban (CẤM THI)
  *  - Live Classroom Group Assignment Card (#stu-group-card)
@@ -15,7 +15,9 @@ let isSubmitting = false;
 let isCheckingGps = false;
 let checkInCooldownTimer = null;
 let stuAttHistoryExpanded = false;
+let studentLivePollTimer = null;
 window.cachedGPS = null; // Kept null so check-in always verifies fresh live GPS
+window.lockedRound2GpsPos = null; // Pre-locked live GPS coordinate during Round 2 10-second PIN entry
 
 window.addEventListener('DOMContentLoaded', () => {
   getOrCreateDeviceCredential();
@@ -41,7 +43,19 @@ window.addEventListener('DOMContentLoaded', () => {
     syncStudentViewportScrollLock();
   }
   syncStudentLiveScheduleFromServer();
+  startStudentLiveSessionPolling();
 });
+
+function startStudentLiveSessionPolling() {
+  if (studentLivePollTimer) clearInterval(studentLivePollTimer);
+  studentLivePollTimer = setInterval(() => {
+    if (!document.hidden && currentMode === 'STUDENT' && !isSubmitting) {
+      const pinBox = document.getElementById('stu-p2-pin-box');
+      if (pinBox && !pinBox.classList.contains('hidden')) return;
+      syncStudentLiveScheduleFromServer();
+    }
+  }, 5000);
+}
 
 /**
  * Fetches live Google Calendar & Period Schedule metadata from Backend in background
@@ -76,6 +90,10 @@ async function syncStudentLiveScheduleFromServer() {
             className: sc.className || ec.className,
             scheduleInfo: sc.scheduleInfo || ec.scheduleInfo,
             sessionOpenNow: Boolean(sc.sessionOpenNow),
+            activeRound: Number(sc.activeRound || 1),
+            activeSessionId: String(sc.activeSessionId || ''),
+            activeQrMode: String(sc.activeQrMode || 'STATIC'),
+            round2OpenedToday: Boolean(sc.round2OpenedToday),
             activeGroupSplit: sc.activeGroupSplit !== undefined ? sc.activeGroupSplit : (ec.activeGroupSplit || null),
             attendanceStats: st
           }) : Object.assign({}, ec, { attendanceStats: st });
@@ -964,12 +982,134 @@ async function submitStudentOnboarding() {
  * REQUIREMENT 3: STUDENT CHECK-IN WITH ANTI-SPAM LOCK & SEAMLESS GPS REUSE
  * ============================================================================
  */
+function getSelectedStudentEnrolledClassObj(classId) {
+  const profiles = getStudentProfiles();
+  const instIds = Object.keys(profiles);
+  const selInstEl = document.getElementById('sel-student-inst');
+  const instId = (selInstEl && selInstEl.value && profiles[selInstEl.value]) ? selInstEl.value : safeGetLocal('cc_active_inst', instIds[0] || '');
+  const p = profiles[instId];
+  if (!p || !Array.isArray(p.enrolledClasses)) return null;
+  const targetCid = classId || (document.getElementById('sel-student-class') ? document.getElementById('sel-student-class').value : '');
+  return p.enrolledClasses.find(c => c && c.classId === targetCid) || null;
+}
+
+function focusStudentPin10Input() {
+  const inp = document.getElementById('inp-stu-pin10');
+  if (inp) {
+    inp.focus();
+  }
+}
+
+function renderStudentPin10Slots(val) {
+  const clean = String(val || '').replace(/\D/g, '').slice(0, 4);
+  for (let i = 0; i < 4; i++) {
+    const slot = document.getElementById('stu-pin-slot-' + i);
+    if (!slot) continue;
+    const ch = clean.charAt(i) || '';
+    slot.textContent = ch;
+    slot.classList.toggle('filled', Boolean(ch));
+    slot.classList.toggle('active', i === clean.length || (clean.length === 4 && i === 3));
+  }
+}
+
+function openStudentPin10sBox(pos) {
+  if (pos) {
+    window.lockedRound2GpsPos = pos;
+  }
+  const box = document.getElementById('stu-p2-pin-box');
+  const banner = document.getElementById('stu-p2-pin-gps-banner');
+  const inp = document.getElementById('inp-stu-pin10');
+  const isEn = currentLang === 'en';
+  const accVal = (window.lockedRound2GpsPos && window.lockedRound2GpsPos.coords && window.lockedRound2GpsPos.coords.accuracy)
+    ? Math.round(window.lockedRound2GpsPos.coords.accuracy)
+    : null;
+  if (banner) {
+    banner.textContent = isEn
+      ? `GPS Locked${accVal ? ` (±${accVal}m)` : ''} • Enter 4 digits on projector`
+      : `Đã khóa tọa độ GPS${accVal ? ` (±${accVal}m)` : ''} • Nhập 4 số trên bảng chiếu`;
+  }
+  if (inp) inp.value = '';
+  renderStudentPin10Slots('');
+  if (box) box.classList.remove('hidden');
+  setTimeout(() => focusStudentPin10Input(), 40);
+}
+
+function cancelStudentPin10sModal() {
+  const box = document.getElementById('stu-p2-pin-box');
+  const inp = document.getElementById('inp-stu-pin10');
+  if (inp) inp.value = '';
+  renderStudentPin10Slots('');
+  if (box) box.classList.add('hidden');
+  window.lockedRound2GpsPos = null;
+  const selClassEl = document.getElementById('sel-student-class');
+  syncStudentCheckInButtonState(selClassEl ? selClassEl.value : '', false);
+}
+
+async function onStudentPin10Input(rawVal) {
+  const clean = String(rawVal || '').replace(/\D/g, '').slice(0, 4);
+  const inp = document.getElementById('inp-stu-pin10');
+  if (inp && inp.value !== clean) {
+    inp.value = clean;
+  }
+  renderStudentPin10Slots(clean);
+  if (clean.length === 4 && !isSubmitting) {
+    await executeStudentCheckIn('PIN10:' + clean, window.lockedRound2GpsPos);
+  }
+}
+
 async function handleOneTapGpsCheckIn() {
   if (isSubmitting) return;
+  const selClassEl = document.getElementById('sel-student-class');
+  const classId = selClassEl ? selClassEl.value : '';
+  const clsObj = getSelectedStudentEnrolledClassObj(classId);
+
+  if (
+    clsObj &&
+    clsObj.sessionOpenNow &&
+    Number(clsObj.activeRound || 1) === 2 &&
+    String(clsObj.activeQrMode || '').toUpperCase() === 'PIN_10S'
+  ) {
+    // Step 1: Lock live GPS before opening 4-digit PIN pad so submitting the 4th digit has 0ms GPS delay
+    const dot = document.getElementById('gps-dot');
+    const readout = document.getElementById('gps-readout');
+    const btn = document.getElementById('btn-start-checkin');
+    if (btn) btn.disabled = true;
+    if (dot) dot.className = 'status-dot dot-busy';
+    if (readout) {
+      readout.textContent = currentLang === 'en'
+        ? 'Locking live GPS before PIN entry...'
+        : 'Đang khóa vị trí GPS trước khi nhập PIN...';
+    }
+    try {
+      const pos = await getAccuratePosition();
+      const spoofCheck = inspectGpsForSpoofing(pos);
+      if (spoofCheck.hardBlock) {
+        if (dot) dot.className = 'status-dot dot-err';
+        showStatus(currentLang === 'en' ? 'Invalid GPS signal.' : 'Tín hiệu định vị GPS không hợp lệ.', 'err', 'checkin-inline-status');
+        if (btn) btn.disabled = false;
+        return;
+      }
+      const accVal = Math.round(pos.coords.accuracy);
+      if (dot) dot.className = 'status-dot dot-ok';
+      if (readout) {
+        readout.textContent = currentLang === 'en'
+          ? `GPS locked (±${accVal}m) — Enter 4-digit PIN`
+          : `Đã khóa GPS (±${accVal}m) — Nhập 4 số PIN`;
+      }
+      hideStatus('checkin-inline-status');
+      openStudentPin10sBox(pos);
+    } catch (gpsErr) {
+      if (btn) btn.disabled = false;
+      if (dot) dot.className = 'status-dot dot-err';
+      showStatus(formatGpsErrorGuide(gpsErr), 'err', 'checkin-inline-status');
+    }
+    return;
+  }
+
   await executeStudentCheckIn('BUTTON_GPS_CHECKIN');
 }
 
-async function executeStudentCheckIn(qrString) {
+async function executeStudentCheckIn(qrString, preLockedGpsPos = null) {
   if (isSubmitting) return;
 
   let profiles = getStudentProfiles();
@@ -1088,11 +1228,13 @@ async function executeStudentCheckIn(qrString) {
   );
 
   try {
-    // Always acquire fresh live GPS on check-in (never reuse old cached position)
+    // Always acquire fresh live GPS on check-in (or use the just-locked Round 2 GPS fix during 10s PIN entry)
     window.cachedGPS = null;
-    let pos;
+    let pos = (preLockedGpsPos && isValidGpsPos(preLockedGpsPos)) ? preLockedGpsPos : null;
     try {
-      pos = await getAccuratePosition();
+      if (!pos) {
+        pos = await getAccuratePosition();
+      }
       if (typeof hideGpsPermissionGuideBox === 'function') hideGpsPermissionGuideBox();
     } catch (gpsErr) {
       if (dot) dot.className = 'status-dot dot-err';
@@ -1164,6 +1306,9 @@ async function executeStudentCheckIn(qrString) {
       const r = res.receipt;
       const recordedClassId = r.classId || classId;
       const isLate = r.status === 'L';
+      const pinBox = document.getElementById('stu-p2-pin-box');
+      if (pinBox) pinBox.classList.add('hidden');
+      window.lockedRound2GpsPos = null;
       if (recordedClassId !== classId && selClassEl) {
         selClassEl.value = recordedClassId;
       }
@@ -1215,8 +1360,24 @@ async function executeStudentCheckIn(qrString) {
         );
       }
     } else {
-      startCheckInButtonCooldown(3);
       const errCode = res ? res.code : 'ERR_UNKNOWN';
+      if (errCode === 'ERR_PIN_REQUIRED' || errCode === 'PIN_EXPIRED' || errCode === 'PIN_WRONG') {
+        // Keep GPS locked, keep 4-digit PIN pad open, clear digits for instant retry without cooldown
+        openStudentPin10sBox(pos);
+        const slotsWrap = document.getElementById('stu-p2-pin-slots-wrap');
+        if (slotsWrap && (errCode === 'PIN_EXPIRED' || errCode === 'PIN_WRONG')) {
+          slotsWrap.classList.remove('pin-shake');
+          void slotsWrap.offsetWidth;
+          slotsWrap.classList.add('pin-shake');
+        }
+        showStatus(
+          formatServerMessage(errCode, res ? res.params : {}, res ? res.message : ''),
+          errCode === 'PIN_EXPIRED' ? 'warn' : 'err',
+          'checkin-inline-status'
+        );
+        return;
+      }
+      startCheckInButtonCooldown(3);
       const shortErrBtnLabel = errCode === 'ERR_SESSION_CLOSED'
         ? (currentLang === 'en' ? 'SESSION IS CLOSED' : 'PHIÊN ĐIỂM DANH ĐANG ĐÓNG')
         : (errCode === 'ERR_LOCATION_OUT_OF_RANGE' || errCode === 'ERR_OUT_OF_RANGE')
@@ -1310,23 +1471,50 @@ function syncStudentCheckInButtonState(classId, animatePulse = false) {
     }
   }
 
+  const clsObj = getSelectedStudentEnrolledClassObj(classId);
+  const isRound2OpenNow = Boolean(
+    clsObj &&
+    clsObj.sessionOpenNow &&
+    Number(clsObj.activeRound || 1) === 2
+  );
+  const hasCheckedInRound2 = Boolean(
+    todayRec &&
+    (todayRec.status === 'P' || todayRec.status === 'L') &&
+    (Number(todayRec.round || 1) === 2 || (clsObj && clsObj.activeSessionId && todayRec.sessionId === clsObj.activeSessionId))
+  );
+
+  // If Round 2 is currently open and student has only checked in Round 1 (or not at all), unlock button for Round 2
+  if (isRound2OpenNow && !hasCheckedInRound2) {
+    isSubmitting = false;
+    const r2Label = I18N[currentLang].stu_round2_checkin_btn || (isEn ? 'CHECK-IN ROUND 2' : 'ĐIỂM DANH LẦN 2');
+    btn.disabled = false;
+    btn.classList.remove('btn-pulse-success', 'btn-pulse-warn', 'btn-pulse-danger', 'btn-pulse-neutral', 'btn-checkin-done-P', 'btn-checkin-done-L');
+    btn.classList.add('btn-checkin-round2');
+    btn.innerHTML = `<svg class="icon icon-lg"><use href="#ic-check"></use></svg><span id="btn-start-checkin-label">${escapeHtml(r2Label)}</span>`;
+    return;
+  }
+
+  btn.classList.remove('btn-checkin-round2');
   if (todayRec && (todayRec.status === 'P' || todayRec.status === 'L')) {
     const isLate = todayRec.status === 'L';
     const shortTime = todayRec.time ? String(todayRec.time).slice(0, 5) : '';
     const timeSuffix = shortTime ? ` • ${shortTime}` : '';
-    const labelText = isLate
-      ? (isEn ? `RECORDED LATE (L)${timeSuffix}` : `ĐÃ GHI NHẬN ĐI TRỄ (L)${timeSuffix}`)
-      : (isEn ? `CHECKED IN PRESENT (P)${timeSuffix}` : `ĐÃ ĐIỂM DANH CÓ MẶT (P)${timeSuffix}`);
-    const svgHtml = isLate
+    const isR2Rec = Number(todayRec.round || 1) === 2;
+    const labelText = isR2Rec
+      ? (isEn ? `CHECKED IN ROUND 2${timeSuffix}` : `ĐÃ ĐIỂM DANH LẦN 2${timeSuffix}`)
+      : isLate
+        ? (isEn ? `RECORDED LATE (L)${timeSuffix}` : `ĐÃ GHI NHẬN ĐI TRỄ (L)${timeSuffix}`)
+        : (isEn ? `CHECKED IN PRESENT (P)${timeSuffix}` : `ĐÃ ĐIỂM DANH CÓ MẶT (P)${timeSuffix}`);
+    const svgHtml = (isLate && !isR2Rec)
       ? '<svg class="icon icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path class="pulse-draw-path" d="M12 7v5l3 2"></path></svg>'
       : '<svg class="icon icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path class="pulse-draw-path" d="M20 6L9 17l-5-5"></path></svg>';
 
     btn.disabled = true;
     btn.classList.remove('btn-pulse-success', 'btn-pulse-warn', 'btn-pulse-danger', 'btn-pulse-neutral', 'btn-checkin-done-P', 'btn-checkin-done-L');
-    btn.classList.add(isLate ? 'btn-checkin-done-L' : 'btn-checkin-done-P');
+    btn.classList.add((isLate && !isR2Rec) ? 'btn-checkin-done-L' : 'btn-checkin-done-P');
     if (animatePulse) {
       void btn.offsetWidth;
-      btn.classList.add(isLate ? 'btn-pulse-warn' : 'btn-pulse-success');
+      btn.classList.add((isLate && !isR2Rec) ? 'btn-pulse-warn' : 'btn-pulse-success');
     }
     btn.innerHTML = `${svgHtml}<span id="btn-start-checkin-label">${escapeHtml(labelText)}</span>`;
   } else {

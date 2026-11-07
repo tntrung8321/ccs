@@ -2,6 +2,28 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### ✨ Version `v3.7.0` — *Round 2 Spot-Check Attendance (`P2`), Strict Truth Table `mergeAttendance`, Read-Only `Kết quả cuối` Tab, 10-Second Rotating PIN (`PIN_10S` + `clockOffset` + `PIN_GRACE_MS` + `Pin_Check_Log`) & 3-Column Sheet Breakdown*
+* **Strict Truth-Table Attendance Merging (`mergeAttendance(p1, p2, p2Opened)` in `code3.7.0.text`, `sync.txt`, `js/schedule-config.js`)**:
+  * **No Round 2 (`p2Opened === false`)**: Preserves 100% of Round 1 status (`P -> P`, `L -> L`, `E -> E`, `- -> -`).
+  * **Round 2 Opened (`p2Opened === true`)**:
+    * `P1 = P` + `P2 = P` $\rightarrow$ **`P`**; `P1 = P` + `P2 = -` $\rightarrow$ **`-`** (left class early).
+    * `P1 = L` + `P2 = P` $\rightarrow$ **`L`**; `P1 = L` + `P2 = -` $\rightarrow$ **`-`** (late & left early).
+    * `P1 = -` + `P2 = P` $\rightarrow$ **`L`** (missed Round 1, verified in Round 2 $\rightarrow$ Late `L`); `P1 = -` + `P2 = -` $\rightarrow$ **`-`**.
+    * `P1 = E` (or `P2 = E`) $\rightarrow$ **`E`** (Excused status preserved regardless of Round 2).
+    * Round 2 checks presence only (scanning in Round 2 counts as `P2 = P`). Manual marks in Round 1 (`HH:mm (m)`) are strictly scoped to Round 1 (`p1Manual`) and never auto-counted as present in Round 2 (`p2Manual`).
+* **3-View Roster Switcher (`Phiên 1` | `Phiên 2` | `Kết quả cuối (Chốt)`) & Read-Only `Kết quả cuối` Tab (`index.html`, `js/teacher.js`, `css/styles.css`)**:
+  * In **`Kết quả cuối (Chốt)`**, the `[P][L][E][-]` buttons are locked (`disabled`, read-only display) and computed purely by `mergeAttendance`, with zero auto-backfill into `P1`/`P2`.
+  * To mark or edit manually, the lecturer selects **`Phiên 1`** or **`Phiên 2`** (`roundNumber: 1 | 2`). Manual lecturer marks display `HH:mm (m)`.
+  * **`REOPEN_5M` Conflict Guard**: Once Round 2 has been opened in that session day (`round2OpenedToday === true`), `REOPEN_5M` of Round 1 is blocked on both Backend (`ERR_REOPEN_BLOCKED_BY_P2`) and Frontend (`"Mở lại 5p (Khóa: Đã mở P2)"`). Before Round 2 opens, `REOPEN_5M` works as normal.
+* **Contextual Outside Round 2 Action Bar & 10-Second Rotating PIN (`PIN_10S`) (`code3.7.0.text`, `js/teacher.js`, `js/student.js`)**:
+  * Placed the contextual Round 2 launcher bar (`#tea-round2-action-bar`: `[ Mở Phiên 2 (1-Chạm GPS) ]` + `[ Mở Phiên 2 + Mã PIN 10s ]`) directly below the session status bar as soon as Round 1 closes today.
+  * **Clock Offset Calibration (`clockOffset`)**: When the lecturer's PIN screen opens, fetches `serverNowMs` once (`clockOffset = serverNowMs - (t0 + rtt/2)`) and recalibrates every 60s so all `bucket10s` and countdown bars stay synchronized even if the laptop clock drifts by $\pm 3\text{s}$.
+  * **Top-of-File `PIN_GRACE_MS = 1500` & Dedicated `Pin_Check_Log` Sheet**: Accepts `serverBucket - 1` within `PIN_GRACE_MS`, returns distinct `PIN_EXPIRED` vs. `PIN_WRONG` error codes (keeping pre-locked student GPS `window.lockedRound2GpsPos` without cooldown or penalty), logs every PIN check (`Server_Bucket`, `Student_Bucket`, `Delta_Ms`, `Grace_Ms`, `Result`) to `Pin_Check_Log`, and supports instant mid-session switching to `1-Chạm (Không PIN)` (`SET_QR_MODE -> STATIC`).
+* **Unified `Kết quả cuối` Pool for Random Caller & Copy Present List (`js/schedule-config.js`, `js/teacher.js`)**:
+  * Both `Gọi ngẫu nhiên` (`pickRandomStudent`) and `Sao chép DS` (`copyPresentStudentsList`) read from a single shared helper `getFinalPresentStudentsPool(roster, round2Opened)` that includes students whose effective final status is `P` or `L` and excludes `-` (and `E`).
+* **3-Column Sheet Breakdown When Round 2 Occurs (`code3.7.0.text`, `sync.txt`)**:
+  * Days with only Round 1 write 1 column (`dd/MM/yyyy`); days with Round 2 write `dd/MM/yyyy (P1)`, `dd/MM/yyyy (P2)` (light gray info columns), and `dd/MM/yyyy (Chốt)` (official grading column read by `sync.txt`).
+
 ### 🔧 Version `v3.6.6` — *Vietnamese Given-Name `A -> Z` Student Roster Sorting & Exact 5-Minute `Reopen 5 Mins` (`REOPEN_5M`) Without `55-Minute` Late Tail*
 * **Vietnamese Given-Name `A -> Z` Roster Sorting (`js/teacher.js`, `code3.6.6.text`)**:
   * Fixed the issue where `Object.values(rosterMap)` in V8 / Apps Script automatically re-ordered numeric 8-digit Student ID keys (`MSSV`) in ascending numeric order.
@@ -247,6 +269,28 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### ✨ Version `v3.7.0` — *Điểm Danh Phiên 2 Kiểm Tra Giữa/Cuối Giờ (`P2`), Bảng Sự Thật `mergeAttendance`, Khóa Chỉ Xem Tab `Kết quả cuối`, Mã PIN Xoay Vòng 10 Giây (`PIN_10S` + `clockOffset` + `PIN_GRACE_MS` + `Pin_Check_Log`) & Xuất 3 Cột Sheet (`P1 / P2 / Chốt`)*
+* **Hàm Hợp Nhất Điểm Danh 2 Phiên Chuẩn Bảng Sự Thật (`mergeAttendance(p1, p2, p2Opened)` trong `code3.7.0.text`, `sync.txt`, `js/schedule-config.js`)**:
+  * **Không mở Phiên 2 (`p2Opened === false`)**: Giữ nguyên 100% kết quả Phiên 1 (`P -> P`, `L -> L`, `E -> E`, `- -> -`).
+  * **Có mở Phiên 2 (`p2Opened === true`)**:
+    * `P1 = P` + `P2 = P` $\rightarrow$ **`P`**; `P1 = P` + `P2 = -` $\rightarrow$ **`-`** (trốn tiết về sớm).
+    * `P1 = L` + `P2 = P` $\rightarrow$ **`L`**; `P1 = L` + `P2 = -` $\rightarrow$ **`-`** (đi trễ & bỏ về sớm).
+    * `P1 = -` + `P2 = P` $\rightarrow$ **`L`** (vắng P1 nhưng có mặt P2 $\rightarrow$ tính Đi trễ `L`); `P1 = -` + `P2 = -` $\rightarrow$ **`-`**.
+    * `P1 = E` (hoặc `P2 = E`) $\rightarrow$ **`E`** (giữ nguyên Có phép bất kể P2).
+    * Phiên 2 chỉ xét sự có mặt (quét/bấm ở P2 đều tính là có mặt P2). Điểm danh thủ công của Giảng viên ở P1 (hiện `HH:mm (m)`) tách biệt hoàn toàn theo phiên (`p1Manual` vs. `p2Manual`), không tự động tính là có mặt ở P2.
+* **Thanh Gạt 3 Chế Độ (`Phiên 1` | `Phiên 2` | `Kết quả cuối (Chốt)`) & Khóa Chỉ Xem Ở Tab `Kết quả cuối` (`index.html`, `js/teacher.js`, `css/styles.css`)**:
+  * Tại tab **`Kết quả cuối (Chốt)`**, các nút `[P][L][E][-]` bị khóa (`disabled`, chỉ hiển thị kết quả tính bởi `mergeAttendance`), bỏ hoàn toàn cơ chế tự điền ngược `P1/P2`.
+  * Muốn chấm tay hoặc sửa, Giảng viên chuyển sang tab **`Phiên 1`** hoặc **`Phiên 2`** để bấm (`HH:mm (m)`).
+  * **Chặn xung đột với `"Mở lại 5 phút"` (`REOPEN_5M`) của P1**: Khi P2 đã mở (đang mở hoặc đã đóng) trong buổi đó (`round2OpenedToday === true`), hệ thống khóa nút `REOPEN_5M` của P1 trên cả Backend (`ERR_REOPEN_BLOCKED_BY_P2`) và Giao diện (`"Mở lại 5p (Khóa: Đã mở P2)"`). Nếu P1 mở lại trước khi P2 mở lần đầu thì hoạt động bình thường.
+* **Thanh Mở Phiên 2 Ngữ Cảnh Ở Ngoài & Mã PIN 10 Giây (`PIN_10S`) (`code3.7.0.text`, `js/teacher.js`, `js/student.js`)**:
+  * Ngay khi Phiên 1 vừa đóng trong ngày, hiện thanh thao tác Phiên 2 (`#tea-round2-action-bar`: `[ Mở Phiên 2 (1-Chạm GPS) ]` + `[ Mở Phiên 2 + Mã PIN 10s ]`) ngay bên ngoài khung điều khiển chính.
+  * **Đồng bộ giờ (`clockOffset`)**: Khi màn hình PIN trên máy giảng viên bật, gọi Server lấy `serverNowMs` 1 lần, tính `clockOffset = serverNowMs - Date.now()` (bù nửa RTT) và hiệu chỉnh lại mỗi 60 giây.
+  * **Hằng số `PIN_GRACE_MS = 1500` & Sheet nhật ký `Pin_Check_Log`**: Khai báo `PIN_GRACE_MS = 1500` ở đầu file `code3.7.0.text`, trả mã lỗi riêng `PIN_EXPIRED` / `PIN_WRONG` (giữ nguyên tọa độ GPS đã khóa trên máy sinh viên để nhập lại ngay, không tính là điểm danh thất bại), ghi log từng lần kiểm PIN vào Sheet `Pin_Check_Log` (`Server_Bucket`, `Student_Bucket`, `Delta_Ms`, `Grace_Ms`, `Result`), và hỗ trợ nút `"Chuyển về 1-Chạm (Không PIN)"` ngay giữa phiên (`SET_QR_MODE -> STATIC`).
+* **Danh Sách Gọi Ngẫu Nhiên & Nút Sao Chép Đọc Chung Từ `Kết quả cuối` (`js/schedule-config.js`, `js/teacher.js`)**:
+  * Cả `Gọi ngẫu nhiên` và nút `Sao chép DS` đều đọc từ hàm dùng chung `getFinalPresentStudentsPool(roster, round2Opened)`: lấy sinh viên có `Kết quả cuối` là `P` hoặc `L`, loại trừ `"-"` (và `"E"`).
+* **Xuất 3 Cột Trên Bảng Điểm Danh Khi Có Phiên 2 (`code3.7.0.text`, `sync.txt`)**:
+  * Buổi chỉ mở P1 ghi 1 cột `dd/MM/yyyy`; buổi có mở P2 ghi 3 cột `dd/MM/yyyy (P1)`, `dd/MM/yyyy (P2)` (cột phụ nền xám nhạt) và `dd/MM/yyyy (Chốt)` (cột chính thức dùng để tính điểm chuyên cần và đồng bộ sang sổ điểm gốc).
+
 ### 🔧 Version `v3.6.6` — *Sắp Xếp Danh Sách Sinh Viên Chuẩn Tiếng Việt `A -> Z` (Theo Tên Chính) & Sửa Nút `"Mở lại 5 phút"` (`REOPEN_5M`) Chỉ Mở Đúng 5 Phút Không Còn 55 Phút Đuôi `Late`*
 * **Sắp Xếp Danh Sách Sinh Viên Chuẩn Tiếng Việt `A -> Z` (`js/teacher.js`, `code3.6.6.text`)**:
   * Khắc phục triệt để hiện tượng hàm `Object.values(rosterMap)` của JavaScript tự động xếp các key số nguyên 8 chữ số (`MSSV`) theo thứ tự số từ nhỏ đến lớn.
@@ -474,7 +518,7 @@
 
 ## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.6.6`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.6.6` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.0` |
 | :--- | :--- | :--- |
 | **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.6.6`) on `tntrung8321.github.io/ccs/`** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI (Zero AI Icons), Permanent Today Check-In Button Lock (`P` Emerald / `L` Amber), Cohesive `Pulse to Confirm` (`success` / `warn` / `danger` / `neutral` + Manual Marks), Compact Anti-Zalo & iOS Code Scanner Walkthrough, Official Attendance Score & `CẤM THI`** |

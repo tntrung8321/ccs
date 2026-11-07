@@ -1941,6 +1941,302 @@ select.unselected-warning {
   margin-bottom: 2px;
 }
 
+/* ============================================================================
+   ROUND 2 CHECK-IN (CONTEXTUAL LAUNCH BAR, PROJECTOR 10S PIN, SEGMENTED SWITCH)
+   ============================================================================ */
+.p2-outside-launch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: #f0fdfa;
+  border: 1.5px solid #0d9488;
+}
+
+.btn-open-p2-main {
+  background: #0d9488;
+  color: #ffffff;
+  border: none;
+  border-radius: 7px;
+  padding: 9px 14px;
+  font-weight: 800;
+  font-size: 0.88rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 210px;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.22);
+}
+
+.btn-open-p2-main:hover {
+  background: #0f766e;
+}
+
+.p2-inline-opts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.p2-opt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #ffffff;
+  border: 1px solid #99f6e4;
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-size: 0.77rem;
+  font-weight: 700;
+  color: #0f766e;
+  margin: 0;
+  cursor: pointer;
+}
+
+.p2-opt-pill input[type="number"] {
+  width: 44px;
+  padding: 2px 4px;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-align: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+}
+
+.p2-opt-pill input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #0d9488;
+}
+
+.p2-projector-pin-card {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #f8fafc;
+  border: 2px solid #0d9488;
+  text-align: center;
+}
+
+.p2-projector-pin-title {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #5eead4;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.p2-projector-pin-digits {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.p2-pin-digit {
+  width: 56px;
+  height: 66px;
+  border-radius: 9px;
+  background: #1e293b;
+  border: 2px solid #38bdf8;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 2.25rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.22);
+}
+
+.p2-projector-pin-bar-track {
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  background: #334155;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.p2-projector-pin-bar-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #14b8a6, #38bdf8);
+  transition: width 95ms linear;
+}
+
+.p2-projector-pin-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.76rem;
+  color: #cbd5e1;
+  font-family: var(--font-mono);
+}
+
+.p2-switch-1tap-btn {
+  background: #1e293b !important;
+  border-color: #475569 !important;
+  color: #f8fafc !important;
+  font-size: 0.73rem !important;
+  padding: 4px 9px !important;
+}
+
+.p2-switch-1tap-btn:hover {
+  background: #334155 !important;
+}
+
+.round-segmented {
+  display: inline-flex;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 2px;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.round-segmented .seg-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+}
+
+.round-segmented .seg-btn.active {
+  background: #0f172a;
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.roster-info-clickable {
+  cursor: pointer;
+}
+
+.roster-p2-detail-inline {
+  display: inline-block;
+  font-size: 0.73rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: #334155;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.roster-actions .btn-mark-readonly:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.roster-actions .btn-mark-active-P.btn-mark-readonly:disabled,
+.roster-actions .btn-mark-active-L.btn-mark-readonly:disabled,
+.roster-actions .btn-mark-active-E.btn-mark-readonly:disabled,
+.roster-actions .btn-mark-active--.btn-mark-readonly:disabled {
+  opacity: 0.92;
+  cursor: not-allowed;
+}
+
+.btn-checkin-hero.btn-checkin-round2 {
+  background: #0d9488 !important;
+  border-color: #0f766e !important;
+  color: #ffffff !important;
+}
+
+.stu-p2-pin-box {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1.5px solid #0d9488;
+  background: #f0fdfa;
+  text-align: center;
+}
+
+.stu-p2-pin-gps-banner {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #0f766e;
+  margin-bottom: 8px;
+}
+
+.stu-p2-pin-slots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  cursor: text;
+}
+
+.stu-pin-slot {
+  width: 46px;
+  height: 52px;
+  border-radius: 8px;
+  border: 2px solid #94a3b8;
+  background: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 1.55rem;
+  font-weight: 800;
+  color: #0f172a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stu-pin-slot.active {
+  border-color: #0d9488;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.18);
+}
+
+.stu-pin-slot.filled {
+  border-color: #0f766e;
+  background: #ccfbf1;
+}
+
+.stu-pin-hidden-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+}
+
+.stu-p2-pin-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.73rem;
+  color: #475569;
+}
+
+@keyframes ccsPinShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+.pin-shake {
+  animation: ccsPinShake 260ms ease-in-out;
+}
+
 @media print {
   body * {
     visibility: hidden;

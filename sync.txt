@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.6.6)
+ * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.7.0)
  * ============================================================================
  * Architecture : Two-Way Google Sheets & Excel (.XLSX) Drive Synchronization
  * Companion    : Code.gs (code3.6.6.text) & Frontend UI (index.html, js/*.js)
@@ -2878,6 +2878,40 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
 // ============================================================================
 // 12. SESSION GROUPING, MERGING & MASTER SHEET SYNC HELPERS
 // ============================================================================
+function normalizeAttendanceStatusCodeSync_(val) {
+  const s = String(val === undefined || val === null ? '' : val).trim().toUpperCase();
+  if (s === 'P' || s === 'PRESENT' || s === 'CÓ MẶT' || s === 'CO MAT') return 'P';
+  if (s === 'L' || s === 'LATE' || s === 'TRỄ' || s === 'TRE' || s === 'ĐI TRỄ' || s === 'DI TRE') return 'L';
+  if (s === 'E' || s === 'EXCUSED' || s === 'CÓ PHÉP' || s === 'CO PHEP') return 'E';
+  return '-';
+}
+
+function mergeAttendanceSync_(p1, p2, p2Opened) {
+  if (typeof mergeAttendance === 'function') {
+    return mergeAttendance(p1, p2, p2Opened);
+  }
+  const s1 = normalizeAttendanceStatusCodeSync_(p1);
+  if (p2Opened === undefined) {
+    const rawP2 = String(p2 === undefined || p2 === null ? '' : p2).trim();
+    if (rawP2 === '') return s1;
+  } else if (!p2Opened) {
+    return s1;
+  }
+  if (s1 === 'E') return 'E';
+  const s2Raw = normalizeAttendanceStatusCodeSync_(p2);
+  if (s2Raw === 'E') return 'E';
+  const s2Present = (s2Raw === 'P' || s2Raw === 'L');
+  if (!s2Present) return '-';
+  if (s1 === 'P') return 'P';
+  return 'L';
+}
+
+function isRound2SessionSync_(sessionId, sessionLabel) {
+  const sid = String(sessionId || '').trim();
+  const lbl = String(sessionLabel || '').trim();
+  return /_R2$/i.test(sid) || /_P2$/i.test(lbl);
+}
+
 function getGroupedSessionsByClassDate_(masterSs) {
   const sessSheet = masterSs.getSheetByName('Sessions_Log');
   if (!sessSheet) throw new Error('Sheet \'Sessions_Log\' not found.');
@@ -2935,8 +2969,9 @@ function getGroupedSessionsByClassDate_(masterSs) {
     }
     const isClosed = closedManuallyStr.length > 0 || (closesAtMs > 0 && Date.now() > closesAtMs);
 
-    // Skip closed ghost/test sessions that have 0 real attendance marks (P/L/E/TEACHER_MANUAL)
-    if (isClosed && !activeSessionIds[sessionId]) continue;
+    const isR2 = isRound2SessionSync_(sessionId, sessionLabel);
+    // Skip closed ghost/test P1 sessions that have 0 real attendance marks, but NEVER skip a P2 session (Edge Case E.1: P2 opened with 0 scans)
+    if (isClosed && !activeSessionIds[sessionId] && !isR2) continue;
 
     const dateKey = year + '-' + month + '-' + day;
     const groupKey = classId + '__' + dateKey;
@@ -2949,8 +2984,11 @@ function getGroupedSessionsByClassDate_(masterSs) {
         month: month,
         dateKey: dateKey,
         sessionIds: [],
+        p1SessionIds: [],
+        p2SessionIds: [],
+        p2Opened: false,
         sessionLabels: [],
-        primaryLabel: sessionLabel,
+        primaryLabel: sessionLabel.replace(/_P2$/i, ''),
         openedAtMs: openedAtMs,
         allClosed: true,
         maxClosesAtMs: closesAtMs
@@ -2960,6 +2998,12 @@ function getGroupedSessionsByClassDate_(masterSs) {
 
     const grp = groupsMap[groupKey];
     grp.sessionIds.push(sessionId);
+    if (isR2) {
+      grp.p2SessionIds.push(sessionId);
+      grp.p2Opened = true;
+    } else {
+      grp.p1SessionIds.push(sessionId);
+    }
     if (sessionLabel && grp.sessionLabels.indexOf(sessionLabel) === -1) {
       grp.sessionLabels.push(sessionLabel);
     }
@@ -3031,38 +3075,25 @@ function getClassEndTimeOnCalendarMs_(masterSs, classId, now, openedAtMs) {
 
 function getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup) {
   const statusMap = {};
-
-  function mergeStatus_(sid, newSt, isTeacherManual) {
-    if (!sid) return;
-    const key = sid.toUpperCase();
-    if (isTeacherManual) {
-      statusMap[key] = newSt;
-      return;
-    }
-    const cur = statusMap[key] || '-';
-    if (newSt === 'P') {
-      statusMap[key] = 'P';
-    } else if (newSt === 'E' && cur !== 'P') {
-      statusMap[key] = 'E';
-    } else if (newSt === 'L' && cur !== 'P' && cur !== 'E') {
-      statusMap[key] = 'L';
-    } else if (!statusMap[key]) {
-      statusMap[key] = '-';
-    }
-  }
+  const p1Marks = {};
+  const p2Marks = {};
+  const p1Manual = {};
+  const p2Manual = {};
+  const allKeys = {};
 
   const classSheet = masterSs.getSheetByName(classId);
   if (classSheet) {
     const values = classSheet.getDataRange().getValues();
     if (values.length > 1) {
       const headers = values[0].map(function(h) { return String(h).trim(); });
-      const matchedCols = [];
+      const matchedFinalCols = [];
 
       for (let c = 5; c < headers.length; c++) {
+        if (/_P1$|_Trạng_thái_P2$/i.test(headers[c])) continue;
         for (let s = 0; s < sessionGroup.sessionLabels.length; s++) {
-          const lbl = sessionGroup.sessionLabels[s];
+          const lbl = String(sessionGroup.sessionLabels[s] || '').replace(/_P2$/i, '');
           if (lbl && headers[c].indexOf(lbl) !== -1) {
-            matchedCols.push(c);
+            matchedFinalCols.push(c);
             break;
           }
         }
@@ -3072,11 +3103,12 @@ function getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup) {
         const sid = normalizeStudentId_(values[r][1], values[r][2]);
         if (!sid) continue;
         const key = sid.toUpperCase();
+        allKeys[key] = true;
         statusMap[key] = '-';
-        for (let k = 0; k < matchedCols.length; k++) {
-          const st = String(values[r][matchedCols[k]] || '').trim().toUpperCase();
+        for (let k = 0; k < matchedFinalCols.length; k++) {
+          const st = String(values[r][matchedFinalCols[k]] || '').trim().toUpperCase();
           if (st === 'P' || st === 'E' || st === 'L') {
-            mergeStatus_(key, st, false);
+            p1Marks[key] = st;
           }
         }
       }
@@ -3084,8 +3116,11 @@ function getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup) {
   }
 
   const sessionIdSet = {};
+  let hasP2Session = Boolean(sessionGroup.p2Opened);
   for (let i = 0; i < sessionGroup.sessionIds.length; i++) {
-    sessionIdSet[sessionGroup.sessionIds[i]] = true;
+    const sId = sessionGroup.sessionIds[i];
+    sessionIdSet[sId] = true;
+    if (isRound2SessionSync_(sId, '')) hasP2Session = true;
   }
 
   const attSheet = masterSs.getSheetByName('Attendance_Log');
@@ -3099,12 +3134,38 @@ function getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup) {
         const st = String(attData[i][5] || '').trim().toUpperCase();
         const src = String(attData[i][9] || '').trim();
         if (sid && (st === 'P' || st === 'E' || st === 'L' || st === '-')) {
+          const key = sid.toUpperCase();
+          allKeys[key] = true;
           const isManual = (src === 'TEACHER_MANUAL');
-          mergeStatus_(sid.toUpperCase(), st, isManual);
+          const isR2 = isRound2SessionSync_(rowSessId, '');
+          if (isR2) {
+            if (isManual) {
+              p2Marks[key] = (st === 'P' || st === 'L') ? 'P' : (st === 'E' ? 'E' : '-');
+              p2Manual[key] = true;
+            } else if (!p2Manual[key] && !p2Marks[key]) {
+              p2Marks[key] = (st === 'P' || st === 'L') ? 'P' : (st === 'E' ? 'E' : '-');
+            }
+          } else {
+            if (isManual) {
+              p1Marks[key] = (st === 'P' || st === 'L' || st === 'E') ? st : '-';
+              p1Manual[key] = true;
+            } else if (!p1Manual[key]) {
+              const cur = p1Marks[key] || '-';
+              if (st === 'P') p1Marks[key] = 'P';
+              else if (st === 'E' && cur !== 'P') p1Marks[key] = 'E';
+              else if (st === 'L' && cur !== 'P' && cur !== 'E') p1Marks[key] = 'L';
+            }
+          }
         }
       }
     }
   }
+
+  Object.keys(allKeys).forEach(function(key) {
+    const p1St = p1Marks[key] || '-';
+    const p2St = hasP2Session ? (p2Marks[key] || '-') : '';
+    statusMap[key] = mergeAttendanceSync_(p1St, p2St, hasP2Session);
+  });
 
   return statusMap;
 }

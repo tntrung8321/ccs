@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.6.6)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.0)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -22,6 +22,66 @@ const KNOWN_CLASS_SECRETS = {
 };
 
 const REMOVED_SAMPLE_CLASSES = ['ENG101_G1'];
+
+function normalizeAttendanceStatusCode(val) {
+  const s = String(val === undefined || val === null ? '' : val).trim().toUpperCase();
+  if (s === 'P' || s === 'PRESENT' || s === 'CÓ MẶT' || s === 'CO MAT') return 'P';
+  if (s === 'L' || s === 'LATE' || s === 'TRỄ' || s === 'TRE' || s === 'ĐI TRỄ' || s === 'DI TRE') return 'L';
+  if (s === 'E' || s === 'EXCUSED' || s === 'CÓ PHÉP' || s === 'CO PHEP') return 'E';
+  return '-';
+}
+
+function mergeAttendance(p1, p2, p2Opened) {
+  const s1 = normalizeAttendanceStatusCode(p1);
+  if (p2Opened === undefined) {
+    const rawP2 = String(p2 === undefined || p2 === null ? '' : p2).trim();
+    if (rawP2 === '') return s1;
+  } else if (!p2Opened) {
+    return s1;
+  }
+  if (s1 === 'E') return 'E';
+  const s2Raw = normalizeAttendanceStatusCode(p2);
+  if (s2Raw === 'E') return 'E';
+  const s2Present = (s2Raw === 'P' || s2Raw === 'L');
+  if (!s2Present) return '-';
+  if (s1 === 'P') return 'P';
+  return 'L';
+}
+
+function computePin4FromSeed(seed, bucket10s) {
+  const str = String(seed || '') + ':' + String(bucket10s);
+  let h1 = 0x811c9dc5;
+  let h2 = 0x811c9dc5 ^ 0x9e3779b9;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    h1 ^= c;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 ^= (c + i);
+    h2 = Math.imul(h2, 0x01000193);
+  }
+  const combined = ((h1 >>> 0) ^ (h2 >>> 11)) >>> 0;
+  const pinNum = combined % 10000;
+  return ('0000' + pinNum).slice(-4);
+}
+
+function getStudentEffectiveFinalStatus(st, round2Opened) {
+  if (!st) return '-';
+  const p1 = st.p1Status !== undefined ? st.p1Status : st.status;
+  const p2 = st.p2Status !== undefined ? st.p2Status : '';
+  if (round2Opened) {
+    return mergeAttendance(p1, p2, true);
+  }
+  return normalizeAttendanceStatusCode(p1);
+}
+
+function getFinalPresentStudentsPool(rosterList, round2Opened) {
+  const list = Array.isArray(rosterList) ? rosterList : [];
+  return list.filter(st => {
+    if (!st || !st.studentId) return false;
+    const finalSt = getStudentEffectiveFinalStatus(st, Boolean(round2Opened));
+    return finalSt === 'P' || finalSt === 'L';
+  });
+}
 
 /**
  * Early recognition buffer: allows auto-selecting a class 15 minutes before its start time.
@@ -639,7 +699,21 @@ const I18N = {
     stu_att_p: "Có mặt",
     stu_att_l: "Đi trễ",
     stu_att_e: "Có phép",
-    stu_att_a: "Vắng"
+    stu_att_a: "Vắng",
+    tea_open_p2_btn: "Mở điểm danh Lần 2 (Đột xuất)",
+    tea_p2_duration_label: "Thời lượng:",
+    tea_p2_mins_unit: "phút",
+    tea_p2_pin10s_label: "Bật Mã PIN 10s",
+    tea_switch_1tap_btn: "Chuyển về 1-Chạm (Không PIN)",
+    tea_copy_present_btn: "Sao chép DS",
+    stu_round2_checkin_btn: "ĐIỂM DANH LẦN 2",
+    PIN_EXPIRED: "[MÃ PIN HẾT HẠN] Mã PIN 10 giây vừa đổi. Vui lòng nhìn bảng chiếu và nhập lại 4 số mới.",
+    PIN_WRONG: "[SAI MÃ PIN] Mã PIN 4 số không khớp với bảng chiếu. Vui lòng nhập lại.",
+    ERR_PIN_REQUIRED: "[YÊU CẦU MÃ PIN] Phiên điểm danh Lần 2 đang bật Mã PIN 10 giây. Vui lòng nhập 4 số trên bảng chiếu.",
+    ERR_P1_STILL_OPEN: "[CHƯA ĐÓNG PHIÊN 1] Vui lòng đóng Phiên 1 trước khi mở điểm danh Lần 2.",
+    ERR_ROUND2_ALREADY_USED: "[ĐÃ DÙNG LẦN 2] Mỗi buổi học chỉ mở tối đa 1 lần điểm danh Lần 2.",
+    ERR_REOPEN_BLOCKED_BY_P2: "[KHÓA MỞ LẠI P1] Không thể mở lại Phiên 1 vì Phiên 2 đã được mở trong buổi học này.",
+    ERR_FINAL_READ_ONLY: "[CHỈ ĐỂ XEM] Tab Kết quả cuối chỉ để xem. Vui lòng chuyển sang tab Phiên 1 hoặc Phiên 2 để chấm tay."
   },
   en: {
     nav_student: "Student",
@@ -725,7 +799,21 @@ const I18N = {
     stu_att_p: "Present",
     stu_att_l: "Late",
     stu_att_e: "Excused",
-    stu_att_a: "Absent"
+    stu_att_a: "Absent",
+    tea_open_p2_btn: "Open Round 2 Check-In (Surprise)",
+    tea_p2_duration_label: "Duration:",
+    tea_p2_mins_unit: "mins",
+    tea_p2_pin10s_label: "Enable 10s PIN",
+    tea_switch_1tap_btn: "Switch to 1-Tap (No PIN)",
+    tea_copy_present_btn: "Copy List",
+    stu_round2_checkin_btn: "CHECK-IN ROUND 2",
+    PIN_EXPIRED: "[PIN EXPIRED] The 10-second PIN just rotated. Please check the projector and enter the new 4 digits.",
+    PIN_WRONG: "[WRONG PIN] The 4-digit PIN does not match the projector. Please re-enter.",
+    ERR_PIN_REQUIRED: "[PIN REQUIRED] Round 2 check-in requires the 10-second PIN shown on the projector.",
+    ERR_P1_STILL_OPEN: "[ROUND 1 OPEN] Please close Round 1 before opening Round 2.",
+    ERR_ROUND2_ALREADY_USED: "[ROUND 2 USED] Maximum 1 Round 2 session per class day.",
+    ERR_REOPEN_BLOCKED_BY_P2: "[REOPEN P1 BLOCKED] Cannot reopen Round 1 because Round 2 has already been opened today.",
+    ERR_FINAL_READ_ONLY: "[READ ONLY] Final Result tab is read-only. Switch to Round 1 or Round 2 tab to mark manually."
   }
 };
 

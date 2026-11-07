@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.6.6)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.0)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.6.6';
+const SYSTEM_VERSION = '3.7.0';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -18,7 +18,9 @@ const TAB_DEVICES   = 'Device_Registry';
 const TAB_SESSIONS  = 'Sessions_Log';
 const TAB_ATTEND    = 'Attendance_Log';
 const TAB_AUDIT     = 'Audit_Log';
-const SYSTEM_TABS   = [TAB_DASHBOARD, TAB_CLASSES, TAB_DEVICES, TAB_SESSIONS, TAB_ATTEND, TAB_AUDIT];
+const TAB_PIN_LOG   = 'Pin_Check_Log';
+const SYSTEM_TABS   = [TAB_DASHBOARD, TAB_CLASSES, TAB_DEVICES, TAB_SESSIONS, TAB_ATTEND, TAB_AUDIT, TAB_PIN_LOG];
+var PIN_GRACE_MS    = 1500;
 
 /**
  * 1. GOOGLE SHEETS CUSTOM MENU
@@ -432,7 +434,8 @@ function doGet(e) {
     service: 'QR_Attendance_Backend',
     version: SYSTEM_VERSION,
     installationId: props.getProperty('INSTALLATION_ID') || 'UNINITIALIZED',
-    serverTime: new Date().toISOString()
+    serverTime: new Date().toISOString(),
+    serverNowMs: Date.now()
   });
 }
 
@@ -494,6 +497,117 @@ function doPost(e) {
  * 5. STUDENT HANDLERS (High-Concurrency Cache + Anti-Sabotage + Soft-Flag)
  * ============================================================================
  */
+function normalizeAttendanceStatusCode_(val) {
+  const s = String(val === undefined || val === null ? '' : val).trim().toUpperCase();
+  if (s === 'P' || s === 'PRESENT' || s === 'CÓ MẶT' || s === 'CO MAT') return 'P';
+  if (s === 'L' || s === 'LATE' || s === 'TRỄ' || s === 'TRE' || s === 'ĐI TRỄ' || s === 'DI TRE') return 'L';
+  if (s === 'E' || s === 'EXCUSED' || s === 'CÓ PHÉP' || s === 'CO PHEP') return 'E';
+  return '-';
+}
+
+function mergeAttendance(p1, p2, p2Opened) {
+  const s1 = normalizeAttendanceStatusCode_(p1);
+  if (p2Opened === undefined) {
+    const rawP2 = String(p2 === undefined || p2 === null ? '' : p2).trim();
+    if (rawP2 === '') return s1;
+  } else if (!p2Opened) {
+    return s1;
+  }
+  if (s1 === 'E') return 'E';
+  const s2Raw = normalizeAttendanceStatusCode_(p2);
+  if (s2Raw === 'E') return 'E';
+  const s2Present = (s2Raw === 'P' || s2Raw === 'L');
+  if (!s2Present) return '-';
+  if (s1 === 'P') return 'P';
+  return 'L';
+}
+
+function isRound2Session_(sessionId, sessionLabel) {
+  const sid = String(sessionId || '').trim();
+  const lbl = String(sessionLabel || '').trim();
+  return /_R2$/i.test(sid) || /_P2$/i.test(lbl);
+}
+
+function getRound2PinSeed_(secret, sessionId) {
+  return sha256Hex(String(secret || '') + '|R2SEED|' + String(sessionId || '')).slice(0, 24);
+}
+
+function computePin4FromSeed(seed, bucket10s) {
+  const str = String(seed || '') + ':' + String(bucket10s);
+  let h1 = 0x811c9dc5;
+  let h2 = 0x811c9dc5 ^ 0x9e3779b9;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    h1 ^= c;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 ^= (c + i);
+    h2 = Math.imul(h2, 0x01000193);
+  }
+  const combined = ((h1 >>> 0) ^ (h2 >>> 11)) >>> 0;
+  const pinNum = combined % 10000;
+  return ('0000' + pinNum).slice(-4);
+}
+
+function getTodayClassSessionsBundle_(ss, classId, todayDayKey) {
+  const sheet = ss.getSheetByName(TAB_SESSIONS);
+  const result = {
+    p1Session: null,
+    p2Session: null,
+    round2OpenedToday: false,
+    activeSession: null
+  };
+  if (!sheet || !classId || sheet.getLastRow() < 2) return result;
+  const nowMs = Date.now();
+  const dayKey = todayDayKey || Utilities.formatDate(new Date(nowMs), TIMEZONE, 'yyyy-MM-dd');
+  const lastRow = sheet.getLastRow();
+  const data = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+  for (let i = 0; i < data.length; i++) {
+    const cid = String(data[i][1] || '').trim();
+    if (cid !== classId) continue;
+    const openedAtMs = parseSheetTimeMs(data[i][3]);
+    const sesDayKey = openedAtMs > 0
+      ? Utilities.formatDate(new Date(openedAtMs), TIMEZONE, 'yyyy-MM-dd')
+      : '';
+    if (sesDayKey !== dayKey) continue;
+    const presentUntilMs = parseSheetTimeMs(data[i][4]);
+    const closesAtMs = parseSheetTimeMs(data[i][5]);
+    const closedManual = String(data[i][6] || '').trim();
+    const isOpen = !closedManual && nowMs <= closesAtMs;
+    const sid = String(data[i][0] || '').trim();
+    const lbl = String(data[i][2] || '').trim();
+    const isR2 = isRound2Session_(sid, lbl);
+    const sesObj = {
+      rowIndex: i + 2,
+      sessionId: sid,
+      classId: cid,
+      sessionLabel: lbl,
+      openedAtMs: openedAtMs,
+      presentUntilMs: presentUntilMs,
+      closesAtMs: closesAtMs,
+      closedManual: closedManual,
+      isOpen: isOpen,
+      roomLat: Number(data[i][7]),
+      roomLng: Number(data[i][8]),
+      radiusMeters: Number(data[i][9] || 100),
+      qrMode: String(data[i][10] || 'STATIC'),
+      round: isR2 ? 2 : 1
+    };
+    if (isR2) {
+      result.p2Session = sesObj;
+      result.round2OpenedToday = true;
+    } else {
+      result.p1Session = sesObj;
+    }
+  }
+  result.activeSession = result.p2Session || result.p1Session || null;
+  if (result.activeSession) {
+    result.activeSession.round2OpenedToday = result.round2OpenedToday;
+    result.activeSession.p1SessionId = result.p1Session ? result.p1Session.sessionId : '';
+    result.activeSession.p2SessionId = result.p2Session ? result.p2Session.sessionId : '';
+  }
+  return result;
+}
+
 function handlePing(ss, body) {
   const cache = CacheService.getScriptCache();
   let lecturerName = cache.get('LECTURER_NAME_B2_V35');
@@ -508,11 +622,16 @@ function handlePing(ss, body) {
   const scheduleMetaMap = getStoredClassSchedulesMap();
   const publicClasses = Object.values(classes).map(c => {
     const ses = allLatestSes[c.classId];
+    const isOpen = Boolean(ses && ses.isOpen);
+    const isR2 = Boolean(ses && isRound2Session_(ses.sessionId, ses.sessionLabel));
     return {
       classId: c.classId,
       className: c.className,
       regOpen: c.regOpen,
-      sessionOpenNow: Boolean(ses && ses.isOpen),
+      sessionOpenNow: isOpen,
+      activeRound: isOpen ? (isR2 ? 2 : 1) : 0,
+      activeSessionId: isOpen ? String(ses.sessionId || '') : '',
+      activeQrMode: isOpen ? String(ses.qrMode || 'STATIC') : 'STATIC',
       scheduleInfo: scheduleMetaMap[c.classId] || parseClassScheduleInfoBackend(c.className),
       activeGroupSplit: getActiveGroupSplitForClass_(c.classId)
     };
@@ -712,6 +831,7 @@ function handleStudentOnboard(ss, body) {
       enrolledClasses: enrolledClasses
     });
   } finally {
+    try { cache.remove(spamKey); } catch (e) {}
     lock.releaseLock();
   }
 }
@@ -824,6 +944,7 @@ function handleStudentCheckIn(ss, body) {
         });
       }
       if (rec && rec.status && rec.status !== '-') {
+        try { cache.remove(spamKey); } catch (e) {}
         if (!rec.attendanceStats) {
           rec.attendanceStats = getStudentClassAttendanceStats(ss, classId, studentId, false);
         }
@@ -836,9 +957,27 @@ function handleStudentCheckIn(ss, body) {
     } catch (e) {}
   }
 
-  const qrValid = verifyClassroomQr(qrPayload, classConfig, activeSession);
+  if (activeSession.qrMode === 'PIN_10S' && qrPayload === 'BUTTON_GPS_CHECKIN') {
+    cache.remove(spamKey);
+    return jsonResponse({
+      ok: false,
+      code: 'ERR_PIN_REQUIRED',
+      round: isRound2Session_(activeSession.sessionId, activeSession.sessionLabel) ? 2 : 1,
+      sessionId: activeSession.sessionId,
+      qrMode: 'PIN_10S'
+    });
+  }
+  const qrValid = verifyClassroomQr(qrPayload, classConfig, activeSession, undefined, ss, studentId);
   if (!qrValid) {
-    return jsonResponse({ ok: false, code: 'ERR_INVALID_QR' });
+    cache.remove(spamKey);
+    const pinErrCode = (activeSession && activeSession._lastPinEval && activeSession._lastPinEval.code)
+      ? activeSession._lastPinEval.code
+      : 'PIN_WRONG';
+    return jsonResponse({
+      ok: false,
+      code: activeSession.qrMode === 'PIN_10S' ? pinErrCode : 'ERR_INVALID_QR',
+      pinEval: activeSession && activeSession._lastPinEval ? activeSession._lastPinEval : undefined
+    });
   }
 
   // 4. Verify Geolocation Proximity (Accuracy-Aware Haversine + Lecturer GPS / 3-Student Average Anchor)
@@ -1078,7 +1217,8 @@ function handleStudentCheckIn(ss, body) {
     if (recentList.length > 40) recentList = recentList.slice(-40);
     try { cache.put(recentKey, JSON.stringify(recentList), 600); } catch (e) {}
 
-    const status = nowMs <= activeSession.presentUntilMs ? 'P' : 'L';
+    const isRound2CheckIn = isRound2Session_(activeSession.sessionId, activeSession.sessionLabel);
+    const status = isRound2CheckIn ? 'P' : (nowMs <= activeSession.presentUntilMs ? 'P' : 'L');
     const timeStr = Utilities.formatDate(new Date(nowMs), TIMEZONE, 'HH:mm:ss');
     const attendanceId = 'ATT_' + generateRandomToken(10);
 
@@ -1119,6 +1259,7 @@ function handleStudentCheckIn(ss, body) {
       requestId: requestId,
       sessionId: activeSession.sessionId,
       sessionLabel: activeSession.sessionLabel,
+      round: isRound2CheckIn ? 2 : 1,
       classId: classId,
       studentId: studentId,
       fullName: canonicalName,
@@ -1141,6 +1282,7 @@ function handleStudentCheckIn(ss, body) {
       receipt: receipt
     });
   } finally {
+    try { cache.remove(spamKey); } catch (e) {}
     lock.releaseLock();
   }
 }
@@ -1338,17 +1480,20 @@ function handleTeacherGetState(ss, body) {
 
   let sessionInfo = null;
   let rosterSummary = [];
+  let round2OpenedToday = false;
 
   if (selectedId) {
-    sessionInfo = allLatestSes[selectedId] || getLatestSessionForDashboard(ss, selectedId, false);
     const rosterMap = getClassRosterMap(ss, selectedId, false);
     const classStatsMap = getClassAttendanceStatsMap_(ss, selectedId, false);
-
     const todayDayKey = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
+    const todayBundle = getTodayClassSessionsBundle_(ss, selectedId, todayDayKey);
+    round2OpenedToday = Boolean(todayBundle.round2OpenedToday);
+    sessionInfo = todayBundle.activeSession || allLatestSes[selectedId] || getLatestSessionForDashboard(ss, selectedId, false);
+
     let isSessionDayValid = false;
     let isTodaySession = false;
     if (sessionInfo) {
-      if (sessionInfo.isOpen) {
+      if (sessionInfo.isOpen || round2OpenedToday) {
         isSessionDayValid = true;
         isTodaySession = true;
       } else {
@@ -1365,23 +1510,52 @@ function handleTeacherGetState(ss, body) {
 
     if (!isTodaySession) {
       sessionInfo = null;
+      round2OpenedToday = false;
+    } else if (sessionInfo) {
+      sessionInfo.round = isRound2Session_(sessionInfo.sessionId, sessionInfo.sessionLabel) ? 2 : 1;
+      sessionInfo.round2OpenedToday = round2OpenedToday;
+      if (sessionInfo.round === 2 && classes[selectedId]) {
+        sessionInfo.pin10sSeed = getRound2PinSeed_(classes[selectedId].activeQrSecret, sessionInfo.sessionId); sessionInfo.pinSeed = sessionInfo.pin10sSeed;
+      }
     }
 
-    const sessionChecks = (sessionInfo && isTodaySession)
-      ? getSessionAttendanceMap(ss, sessionInfo.sessionId, false)
+    const p1Checks = (isTodaySession && todayBundle.p1Session)
+      ? getSessionAttendanceMap(ss, todayBundle.p1Session.sessionId, false)
+      : ((sessionInfo && isTodaySession && !round2OpenedToday) ? getSessionAttendanceMap(ss, sessionInfo.sessionId, false) : {});
+    const p2Checks = (isTodaySession && todayBundle.p2Session)
+      ? getSessionAttendanceMap(ss, todayBundle.p2Session.sessionId, false)
       : {};
 
     rosterSummary = Object.values(rosterMap).map(st => {
-      const rec = sessionChecks[st.studentId];
+      const rec1 = p1Checks[st.studentId] || null;
+      const rec2 = p2Checks[st.studentId] || null;
       const stStats = classStatsMap[st.studentId] || null;
+      const p1Status = (rec1 && rec1.status) ? rec1.status : '-';
+      const p2Status = round2OpenedToday
+        ? ((rec2 && (rec2.status === 'P' || rec2.status === 'L')) ? 'P' : (rec2 && rec2.status === 'E' ? 'E' : '-'))
+        : '';
+      const finalStatus = isTodaySession
+        ? mergeAttendance(p1Status, p2Status, round2OpenedToday)
+        : '-';
+      const activeRec = (round2OpenedToday && rec2) ? rec2 : (rec1 || null);
       return {
         studentId: st.studentId,
         fullName: st.fullName,
-        status: rec ? rec.status : '-',
-        time: rec ? rec.time : '',
-        distance: rec ? rec.distance : '',
-        accuracy: rec ? rec.accuracy : '',
-        source: rec ? rec.source : '',
+        status: finalStatus,
+        finalStatus: finalStatus,
+        p1Status: isTodaySession ? p1Status : '-',
+        p2Status: isTodaySession ? p2Status : '',
+        p2Opened: round2OpenedToday,
+        p1Time: rec1 ? rec1.time : '',
+        p1Distance: rec1 && rec1.distance !== undefined ? rec1.distance : '',
+        p1Source: rec1 ? rec1.source : '',
+        p2Time: rec2 ? rec2.time : '',
+        p2Distance: rec2 && rec2.distance !== undefined ? rec2.distance : '',
+        p2Source: rec2 ? rec2.source : '',
+        time: (rec2 && rec2.time) ? rec2.time : (rec1 ? rec1.time : ''),
+        distance: activeRec && activeRec.distance !== undefined ? activeRec.distance : '',
+        accuracy: activeRec && activeRec.accuracy !== undefined ? activeRec.accuracy : '',
+        source: activeRec ? activeRec.source : '',
         attendanceStats: stStats
       };
     }).sort(compareStudentsVietnameseAZ_);
@@ -1391,10 +1565,12 @@ function handleTeacherGetState(ss, body) {
     ok: true,
     code: 'TEACHER_STATE',
     serverTimeMs: Date.now(),
+    serverNowMs: Date.now(),
     classes: classList,
     calendarEvents: getTodayCalendarEventsCached(),
     classSchedules: scheduleMetaMap,
     selectedClassId: selectedId,
+    round2OpenedToday: round2OpenedToday,
     activeSession: sessionInfo,
     activeGroupSplit: selectedId ? getActiveGroupSplitForClass_(selectedId) : null,
     roster: rosterSummary
@@ -1642,7 +1818,7 @@ function handleTeacherControlSession(ss, body) {
     logAudit(ss, 'TEACHER', 'CANCEL_MISTAKEN_SESSION', classId, 'Deleted mistaken session(s): ' + Object.keys(deletedSesIds).join(', '));
   } else if (subAction === 'CLOSE_NOW') {
     sesSheet.getRange(targetRow, 7).setValue(formatIso(nowMs));
-    if (sesDayKey && targetSesId) {
+    if (sesDayKey && targetSesId && !isRound2Session_(targetSesId, rowVals[2])) {
       const checks = getSessionAttendanceMap(ss, targetSesId, true);
       const hasRealMark = Object.values(checks).some(rec => rec && (rec.status === 'P' || rec.status === 'L' || rec.status === 'E'));
       if (!hasRealMark) {
@@ -1652,6 +1828,83 @@ function handleTeacherControlSession(ss, body) {
     invalidateClassCache(classId);
     rebuildSingleClassGrid(ss, classId);
     refreshTempPcCode(ss, true);
+  } else if (subAction === 'OPEN_ROUND_2') {
+    const todayBundle = getTodayClassSessionsBundle_(ss, classId, todayDayKey);
+    if (!todayBundle.p1Session) {
+      return jsonResponse({
+        ok: false,
+        code: 'ERR_NO_P1_SESSION',
+        message: 'Hôm nay chưa mở Phiên 1 nên chưa thể mở Điểm danh lần 2.'
+      });
+    }
+    if (todayBundle.p1Session.isOpen) {
+      return jsonResponse({
+        ok: false,
+        code: 'ERR_P1_STILL_OPEN',
+        message: 'Phiên 1 đang mở. Vui lòng đóng Phiên 1 trước khi mở Điểm danh lần 2.'
+      });
+    }
+    if (todayBundle.round2OpenedToday) {
+      return jsonResponse({
+        ok: false,
+        code: 'ERR_ROUND2_ALREADY_USED',
+        message: 'Mỗi buổi học chỉ được mở Điểm danh lần 2 tối đa 1 lần.'
+      });
+    }
+    const classes = getClassesMap(ss, false);
+    const cfg = classes[classId] || { roomLat: 0, roomLng: 0, radiusMeters: 100 };
+    const p1Ses = todayBundle.p1Session;
+    const roomLat = Number(p1Ses.roomLat || cfg.roomLat || 0);
+    const roomLng = Number(p1Ses.roomLng || cfg.roomLng || 0);
+    const radiusMeters = Number(p1Ses.radiusMeters || cfg.radiusMeters || 100);
+    const round2Mins = Math.min(30, Math.max(1, Number(body.round2Mins || 3)));
+    const reqQrMode = String(body.qrMode || 'STATIC').toUpperCase();
+    const p2QrMode = (reqQrMode === 'PIN_10S' || reqQrMode === 'ROTATING') ? reqQrMode : 'STATIC';
+    const presentUntilMs = nowMs + round2Mins * 60 * 1000;
+    const closesAtMs = presentUntilMs;
+    const p2SessionId = 'SES_' + classId + '_' + Utilities.formatDate(new Date(nowMs), TIMEZONE, 'yyyyMMdd_HHmmss') + '_R2';
+    const p2Label = Utilities.formatDate(new Date(nowMs), TIMEZONE, 'ddMMM_HHmm') + '_P2';
+
+    sesSheet.appendRow([
+      p2SessionId,
+      classId,
+      p2Label,
+      formatIso(nowMs),
+      formatIso(presentUntilMs),
+      formatIso(closesAtMs),
+      '',
+      roomLat,
+      roomLng,
+      radiusMeters,
+      p2QrMode
+    ]);
+
+    try {
+      const cache = CacheService.getScriptCache();
+      const p1AnchorRaw = cache.get('SES_ANCHOR_' + p1Ses.sessionId);
+      if (p1AnchorRaw) {
+        cache.put('SES_ANCHOR_' + p2SessionId, p1AnchorRaw, 7200);
+      } else if (roomLat && roomLng) {
+        cache.put('SES_ANCHOR_' + p2SessionId, JSON.stringify({
+          mode: 'LOCKED',
+          lat: roomLat,
+          lng: roomLng,
+          source: 'P1_INHERITED'
+        }), 7200);
+      } else {
+        cache.put('SES_ANCHOR_' + p2SessionId, JSON.stringify({
+          mode: 'COLLECTING_AVG_3',
+          campusLat: cfg.roomLat,
+          campusLng: cfg.roomLng,
+          maxCampusMeters: 850,
+          samples: []
+        }), 7200);
+      }
+    } catch (e) {}
+
+    invalidateClassCache(classId);
+    rebuildSingleClassGrid(ss, classId);
+    logAudit(ss, 'TEACHER_APP', 'OPEN_ROUND_2', classId, p2SessionId + ' (' + round2Mins + 'm, ' + p2QrMode + ')');
   } else if (subAction === 'EXTEND_2M') {
     const curPresent = parseSheetTimeMs(rowVals[4]);
     const curClose   = parseSheetTimeMs(rowVals[5]);
@@ -1665,6 +1918,14 @@ function handleTeacherControlSession(ss, body) {
     }
     invalidateClassCache(classId);
   } else if (subAction === 'REOPEN_5M') {
+    const todayBundle = getTodayClassSessionsBundle_(ss, classId, todayDayKey);
+    if (todayBundle.round2OpenedToday || isRound2Session_(targetSesId, rowVals[2])) {
+      return jsonResponse({
+        ok: false,
+        code: 'ERR_REOPEN_BLOCKED_BY_P2',
+        message: 'Không thể mở lại Phiên 1 vì Phiên 2 đã được mở trong buổi học này.'
+      });
+    }
     const newPresent = nowMs + 5 * 60 * 1000;
     const newClose   = newPresent;
     sesSheet.getRange(targetRow, 5, 1, 3).setValues([[formatIso(newPresent), formatIso(newClose), '']]);
@@ -1748,20 +2009,41 @@ function handleTeacherManualMark(ss, body) {
         return jsonResponse({ ok: false, code: 'ERR_NO_SESSION', message: 'Past session not found for the selected date.' });
       }
     } else {
-      const session = getLatestSessionForDashboard(ss, classId, false) || getLatestSessionForDashboard(ss, classId, true);
       const todayDayKey = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
-      const sesDayKey = (session && session.openedAtMs > 0)
-        ? Utilities.formatDate(new Date(session.openedAtMs), TIMEZONE, 'yyyy-MM-dd')
-        : '';
-      if (!session || (!session.isOpen && sesDayKey !== todayDayKey)) {
+      const todayBundle = getTodayClassSessionsBundle_(ss, classId, todayDayKey);
+      const targetRound = String(body.targetRound || '').trim().toUpperCase();
+
+      if (!todayBundle.p1Session && !todayBundle.p2Session) {
         return jsonResponse({
           ok: false,
           code: 'ERR_NO_SESSION',
           message: 'Hôm nay chưa mở phiên điểm danh cho lớp này. Vui lòng mở phiên trước hoặc vào mục Lịch sử để sửa buổi cũ.'
         });
       }
-      primarySessionId = session.sessionId;
-      targetSessionIds = [primarySessionId];
+
+      if (targetRound === 'FINAL' || (todayBundle.round2OpenedToday && targetRound !== 'P1' && targetRound !== 'P2')) {
+        return jsonResponse({
+          ok: false,
+          code: 'ERR_FINAL_READ_ONLY',
+          message: 'Tab Kết quả cuối chỉ dùng để xem. Vui lòng chuyển sang tab Phiên 1 hoặc Phiên 2 để chấm tay.'
+        });
+      }
+
+      if (targetRound === 'P2') {
+        if (!todayBundle.p2Session) {
+          return jsonResponse({
+            ok: false,
+            code: 'ERR_NO_P2_SESSION',
+            message: 'Phiên 2 chưa được mở nên chưa thể chấm tay Phiên 2.'
+          });
+        }
+        primarySessionId = todayBundle.p2Session.sessionId;
+        targetSessionIds = [primarySessionId];
+      } else {
+        const p1Ses = todayBundle.p1Session || todayBundle.activeSession;
+        primarySessionId = p1Ses.sessionId;
+        targetSessionIds = [primarySessionId];
+      }
     }
 
     const attSheet = ss.getSheetByName(TAB_ATTEND);
@@ -2005,7 +2287,120 @@ function invalidateClassAttendanceStatsCache_(classId) {
   } catch (e) {}
 }
 
-function verifyClassroomQr(scannedText, classConfig, activeSession) {
+function logPinCheckAttempt_(ss, activeSession, classConfig, studentId, submittedPin, serverBucket, studentBucket, offsetIntoBucketMs, deltaMs, graceMs, resultLabel) {
+  try {
+    const doc = ss || SpreadsheetApp.getActiveSpreadsheet();
+    if (!doc) return;
+    let pinSheet = doc.getSheetByName(TAB_PIN_LOG);
+    if (!pinSheet) {
+      pinSheet = doc.insertSheet(TAB_PIN_LOG);
+      pinSheet.appendRow(['Timestamp', 'Session_ID', 'Class_ID', 'Student_ID', 'Submitted_PIN', 'Server_Bucket', 'Student_Bucket', 'Offset_Into_Bucket_ms', 'Delta_Ms', 'PIN_Grace_Ms', 'Result']);
+    } else if (pinSheet.getLastRow() === 0) {
+      pinSheet.appendRow(['Timestamp', 'Session_ID', 'Class_ID', 'Student_ID', 'Submitted_PIN', 'Server_Bucket', 'Student_Bucket', 'Offset_Into_Bucket_ms', 'Delta_Ms', 'PIN_Grace_Ms', 'Result']);
+    }
+    pinSheet.appendRow([
+      formatIsoNow(),
+      activeSession ? String(activeSession.sessionId || '') : '',
+      classConfig ? String(classConfig.classId || '') : '',
+      String(studentId || ''),
+      String(submittedPin || ''),
+      serverBucket,
+      studentBucket === null || studentBucket === undefined ? '' : studentBucket,
+      offsetIntoBucketMs,
+      deltaMs === null || deltaMs === undefined ? '' : deltaMs,
+      graceMs,
+      String(resultLabel || '')
+    ]);
+  } catch (e) {}
+}
+
+function evaluateRound2Pin10s_(ss, scannedText, classConfig, activeSession, checkMs, studentId) {
+  const secret = classConfig.activeQrSecret;
+  const rawStr = String(scannedText || '').trim();
+  const cleanedPin = rawStr.replace(/^PIN10:/i, '').trim();
+  const graceMs = (typeof PIN_GRACE_MS === 'number' && !isNaN(PIN_GRACE_MS)) ? PIN_GRACE_MS : 1500;
+  const serverBucket = Math.floor(checkMs / 10000);
+  const offsetIntoBucketMs = ((checkMs % 10000) + 10000) % 10000;
+
+  if (!/^\d{4}$/.test(cleanedPin)) {
+    const resInvalid = {
+      ok: false,
+      code: 'PIN_WRONG',
+      serverBucket: serverBucket,
+      studentBucket: null,
+      offsetIntoBucketMs: offsetIntoBucketMs,
+      deltaMs: null,
+      graceMs: graceMs,
+      result: 'PIN_WRONG'
+    };
+    logPinCheckAttempt_(ss, activeSession, classConfig, studentId, cleanedPin, serverBucket, '', offsetIntoBucketMs, '', graceMs, 'PIN_WRONG');
+    return resInvalid;
+  }
+
+  const seed = getRound2PinSeed_(secret, activeSession.sessionId);
+  let matchedBucket = null;
+  const searchOffsets = [0, -1, 1, -2, -3, -4, -5, -6, 2];
+  for (let i = 0; i < searchOffsets.length; i++) {
+    const candBucket = serverBucket + searchOffsets[i];
+    if (computePin4FromSeed(seed, candBucket) === cleanedPin) {
+      matchedBucket = candBucket;
+      break;
+    }
+  }
+
+  let ok = false;
+  let code = 'PIN_WRONG';
+  let deltaMs = null;
+
+  if (matchedBucket === serverBucket) {
+    ok = true;
+    code = 'PIN_OK';
+    deltaMs = 0;
+  } else if (matchedBucket === (serverBucket - 1)) {
+    deltaMs = offsetIntoBucketMs;
+    if (offsetIntoBucketMs <= graceMs) {
+      ok = true;
+      code = 'PIN_OK';
+    } else {
+      ok = false;
+      code = 'PIN_EXPIRED';
+    }
+  } else if (matchedBucket !== null && matchedBucket < (serverBucket - 1)) {
+    deltaMs = (serverBucket - (matchedBucket + 1)) * 10000 + offsetIntoBucketMs;
+    ok = false;
+    code = 'PIN_EXPIRED';
+  } else if (matchedBucket === (serverBucket + 1) && (10000 - offsetIntoBucketMs) <= graceMs) {
+    deltaMs = -(10000 - offsetIntoBucketMs);
+    ok = true;
+    code = 'PIN_OK';
+  } else {
+    ok = false;
+    code = 'PIN_WRONG';
+  }
+
+  logPinCheckAttempt_(ss, activeSession, classConfig, studentId, cleanedPin, serverBucket, matchedBucket, offsetIntoBucketMs, deltaMs, graceMs, code);
+  return {
+    ok: ok,
+    code: code,
+    serverBucket: serverBucket,
+    studentBucket: matchedBucket,
+    offsetIntoBucketMs: offsetIntoBucketMs,
+    deltaMs: deltaMs,
+    graceMs: graceMs,
+    result: code
+  };
+}
+
+function verifyClassroomQr(scannedText, classConfig, activeSession, overrideNowMs, ss, studentId) {
+  const secret = classConfig.activeQrSecret;
+  const checkMs = typeof overrideNowMs === 'number' && overrideNowMs > 0 ? overrideNowMs : Date.now();
+
+  if (activeSession && activeSession.qrMode === 'PIN_10S') {
+    const evalRes = evaluateRound2Pin10s_(ss, scannedText, classConfig, activeSession, checkMs, studentId);
+    activeSession._lastPinEval = evalRes;
+    return evalRes.ok;
+  }
+
   let parsed = null;
   try {
     parsed = JSON.parse(scannedText);
@@ -2013,14 +2408,13 @@ function verifyClassroomQr(scannedText, classConfig, activeSession) {
     parsed = null;
   }
 
-  const secret = classConfig.activeQrSecret;
-
   if (!parsed) {
     if (activeSession.qrMode === 'ROTATING') return false;
     const prefix = 'QR_' + classConfig.classId.toUpperCase() + '_';
     return (
       scannedText === secret ||
       scannedText === 'BUTTON_GPS_CHECKIN' ||
+      /^PIN10:\d{4}$/i.test(String(scannedText || '').trim()) ||
       scannedText.toUpperCase().indexOf(prefix) === 0
     );
   }
@@ -2028,7 +2422,7 @@ function verifyClassroomQr(scannedText, classConfig, activeSession) {
   if (parsed.cid && parsed.cid !== classConfig.classId) return false;
 
   if (parsed.mode === 'ROTATING') {
-    const bucketNow = Math.floor(Date.now() / 15000);
+    const bucketNow = Math.floor(checkMs / 15000);
     const expectedNow  = sha256Hex(secret + '|' + bucketNow).slice(0, 12);
     const expectedPrev = sha256Hex(secret + '|' + (bucketNow - 1)).slice(0, 12);
     return parsed.tok === expectedNow || parsed.tok === expectedPrev;
@@ -2202,8 +2596,15 @@ function buildGroupedClassDayRecords_(ss, classId) {
             label: lbl,
             latestSessionId: histSesId,
             sessionIds: [histSesId],
+            p1SessionIds: [histSesId],
+            p2SessionIds: [],
+            p2Opened: false,
+            hasOpenP1: false,
+            hasOpenP2: false,
             hasOpenSession: false,
             hasValidCheckIn: true,
+            p1Marks: Object.assign({}, marksCopy),
+            p2Marks: {},
             marks: marksCopy,
             manualLocked: {}
           };
@@ -2222,6 +2623,8 @@ function buildGroupedClassDayRecords_(ss, classId) {
     const closesMs = parseSheetTimeMs(r[5]);
     const closedManual = String(r[6] || '').trim();
     const isOpen = !closedManual && nowMs <= closesMs;
+    const isR2 = isRound2Session_(sesId, label);
+    const cleanLabel = label.replace(/_P2$/i, '');
 
     let dayKey = '';
     let displayDate = '';
@@ -2229,8 +2632,8 @@ function buildGroupedClassDayRecords_(ss, classId) {
       const dt = new Date(openedMs);
       dayKey = Utilities.formatDate(dt, TIMEZONE, 'yyyy-MM-dd');
       displayDate = Utilities.formatDate(dt, TIMEZONE, 'dd/MM/yyyy');
-    } else if (label) {
-      dayKey = label.split('_')[0] || sesId;
+    } else if (cleanLabel) {
+      dayKey = cleanLabel.split('_')[0] || sesId;
       displayDate = dayKey;
     } else {
       dayKey = sesId;
@@ -2241,11 +2644,18 @@ function buildGroupedClassDayRecords_(ss, classId) {
       dayGroups[dayKey] = {
         dayKey: dayKey,
         displayDate: displayDate,
-        label: label || dayKey,
+        label: cleanLabel || dayKey,
         latestSessionId: sesId,
         sessionIds: [sesId],
+        p1SessionIds: isR2 ? [] : [sesId],
+        p2SessionIds: isR2 ? [sesId] : [],
+        p2Opened: isR2,
+        hasOpenP1: !isR2 && isOpen,
+        hasOpenP2: isR2 && isOpen,
         hasOpenSession: isOpen,
         hasValidCheckIn: false,
+        p1Marks: {},
+        p2Marks: {},
         marks: {},
         manualLocked: {}
       };
@@ -2254,8 +2664,20 @@ function buildGroupedClassDayRecords_(ss, classId) {
       if (dayGroups[dayKey].sessionIds.indexOf(sesId) === -1) {
         dayGroups[dayKey].sessionIds.push(sesId);
       }
+      if (isR2) {
+        if (dayGroups[dayKey].p2SessionIds.indexOf(sesId) === -1) {
+          dayGroups[dayKey].p2SessionIds.push(sesId);
+        }
+        dayGroups[dayKey].p2Opened = true;
+        if (isOpen) dayGroups[dayKey].hasOpenP2 = true;
+      } else {
+        if (dayGroups[dayKey].p1SessionIds.indexOf(sesId) === -1) {
+          dayGroups[dayKey].p1SessionIds.push(sesId);
+        }
+        if (cleanLabel) dayGroups[dayKey].label = cleanLabel;
+        if (isOpen) dayGroups[dayKey].hasOpenP1 = true;
+      }
       dayGroups[dayKey].latestSessionId = sesId;
-      if (label) dayGroups[dayKey].label = label;
       if (isOpen) dayGroups[dayKey].hasOpenSession = true;
     }
     sessionToDayKey[sesId] = dayKey;
@@ -2284,31 +2706,68 @@ function buildGroupedClassDayRecords_(ss, classId) {
       if (!sid) return;
 
       const isManual = (src === 'TEACHER_MANUAL');
-      if (isManual) {
-        grp.marks[sid] = (st === '-') ? 'A_MANUAL' : st;
-        grp.manualLocked[sid] = true;
-      } else if (!grp.manualLocked[sid]) {
-        const cur = grp.marks[sid];
-        if (st === 'P') {
-          grp.marks[sid] = 'P';
-        } else if (st === 'E' && cur !== 'P') {
-          grp.marks[sid] = 'E';
-        } else if (st === 'L' && cur !== 'P' && cur !== 'E') {
-          grp.marks[sid] = 'L';
+      const isR2 = isRound2Session_(sesId, '') || (grp.p2SessionIds && grp.p2SessionIds.indexOf(sesId) !== -1);
+      if (!grp.p1Manual) grp.p1Manual = {};
+      if (!grp.p2Manual) grp.p2Manual = {};
+
+      if (isR2) {
+        if (isManual) {
+          grp.p2Marks[sid] = (st === 'P' || st === 'L') ? 'P' : (st === 'E' ? 'E' : '-');
+          grp.p2Manual[sid] = true;
+        } else if (!grp.p2Manual[sid] && !grp.p2Marks[sid]) {
+          // Edge Case E.3: Only record the first P2 scan for a student; P2 'L' counts as 'P'
+          grp.p2Marks[sid] = (st === 'P' || st === 'L') ? 'P' : (st === 'E' ? 'E' : '-');
+        }
+      } else {
+        if (isManual) {
+          grp.p1Marks[sid] = (st === 'P' || st === 'L' || st === 'E') ? st : '-';
+          grp.p1Manual[sid] = true;
+        } else if (!grp.p1Manual[sid]) {
+          const cur = grp.p1Marks[sid];
+          if (st === 'P') {
+            grp.p1Marks[sid] = 'P';
+          } else if (st === 'E' && cur !== 'P') {
+            grp.p1Marks[sid] = 'E';
+          } else if (st === 'L' && cur !== 'P' && cur !== 'E') {
+            grp.p1Marks[sid] = 'L';
+          }
         }
       }
     });
-
-    Object.keys(dayGroups).forEach(dk => {
-      const grp = dayGroups[dk];
-      if (!grp.hasValidCheckIn) {
-        grp.hasValidCheckIn = Object.keys(grp.marks).some(sid => {
-          const m = grp.marks[sid];
-          return m === 'P' || m === 'L' || m === 'E';
-        });
-      }
-    });
   }
+
+  const rosterMapForClass = getClassRosterMap(ss, classId, false);
+  const rosterStudentIds = Object.keys(rosterMapForClass || {});
+
+  Object.keys(dayGroups).forEach(dk => {
+    const grp = dayGroups[dk];
+    const allSidMap = {};
+    rosterStudentIds.forEach(id => { allSidMap[id] = true; });
+    Object.keys(grp.p1Marks || {}).forEach(id => { allSidMap[id] = true; });
+    Object.keys(grp.p2Marks || {}).forEach(id => { allSidMap[id] = true; });
+
+    Object.keys(allSidMap).forEach(sid => {
+      const p1St = (grp.p1Marks && grp.p1Marks[sid]) ? grp.p1Marks[sid] : '-';
+      const p2St = grp.p2Opened ? ((grp.p2Marks && grp.p2Marks[sid]) ? grp.p2Marks[sid] : '-') : '';
+      grp.p1Marks[sid] = p1St;
+      grp.p2Marks[sid] = p2St;
+      const mergedFinal = mergeAttendance(p1St, p2St, grp.p2Opened);
+      const isExplicitManualRevoke =
+        (!grp.p2Opened && grp.p1Manual && grp.p1Manual[sid] && p1St === '-') ||
+        (grp.p2Opened && grp.p2Manual && grp.p2Manual[sid] && p2St === '-');
+      grp.marks[sid] = (mergedFinal === '-' && isExplicitManualRevoke) ? 'A_MANUAL' : mergedFinal;
+    });
+
+    if (!grp.hasValidCheckIn) {
+      grp.hasValidCheckIn = Boolean(grp.p2Opened) || Object.keys(grp.p1Marks).some(sid => {
+        const m = grp.p1Marks[sid];
+        return m === 'P' || m === 'L' || m === 'E';
+      }) || Object.keys(grp.marks).some(sid => {
+        const m = grp.marks[sid];
+        return m === 'P' || m === 'L' || m === 'E';
+      });
+    }
+  });
 
   // Check official Sheet sessionDates (if available) so accidental wrong-class sessions on unscheduled dates are ignored once closed
   const allowedSheetDates = {};
@@ -2337,14 +2796,14 @@ function buildGroupedClassDayRecords_(ss, classId) {
   } catch (e) {}
 
   // Sort chronologically by dayKey and filter out:
-  //  (a) closed ghost/test sessions where 0 students had any valid check-in
+  //  (a) closed ghost/test sessions where 0 students had any valid check-in (unless P2 was opened)
   //  (b) closed accidental sessions opened on a date that does NOT exist on the class Sheet
   return dayOrder
     .slice()
     .sort((a, b) => String(a).localeCompare(String(b)))
     .map(k => dayGroups[k])
     .filter(grp => {
-      if (grp.hasOpenSession) return true;
+      if (grp.hasOpenSession || grp.p2Opened) return true;
       if (!grp.hasValidCheckIn) return false;
       if (hasSheetSchedule) {
         const dk = String(grp.dayKey || '');
@@ -2365,19 +2824,28 @@ function rebuildSingleClassGrid(ss, classId) {
   const numStudents = rosterSheet.getLastRow() - 1;
   const studentRows = rosterSheet.getRange(2, 1, numStudents, 3).getValues();
 
-  const headers = ['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']
-    .concat(validDays.map((d, idx) => 'S' + (idx + 1) + '_' + d.label));
+  const sessionHeaders = [];
+  validDays.forEach((d, idx) => {
+    const prefix = 'S' + (idx + 1) + '_' + d.label;
+    sessionHeaders.push(prefix + '_P1');
+    sessionHeaders.push(prefix + '_Trạng_thái_P2');
+    sessionHeaders.push(prefix + '_Kết_quả_cuối');
+  });
+  const headers = ['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late'].concat(sessionHeaders);
 
   const outRows = studentRows.map(sRow => {
     const stId = normalizeId(sRow[1]);
     let pCount = 0;
     let lCount = 0;
-    const sessionCells = validDays.map(grp => {
-      const rawMark = grp.marks[stId] || '-';
-      const st = (rawMark === 'A_MANUAL') ? '-' : rawMark;
-      if (st === 'P') pCount++;
-      if (st === 'L') lCount++;
-      return st;
+    const sessionCells = [];
+    validDays.forEach(grp => {
+      const p1Cell = (grp.p1Marks && grp.p1Marks[stId]) ? grp.p1Marks[stId] : '-';
+      const p2Cell = grp.p2Opened ? ((grp.p2Marks && grp.p2Marks[stId]) ? grp.p2Marks[stId] : '-') : '';
+      const rawFinal = grp.marks[stId] || mergeAttendance(p1Cell, p2Cell, grp.p2Opened);
+      const finalSt = (rawFinal === 'A_MANUAL') ? '-' : rawFinal;
+      if (finalSt === 'P') pCount++;
+      if (finalSt === 'L') lCount++;
+      sessionCells.push(p1Cell, p2Cell, finalSt);
     });
     return [sRow[0], stId, sRow[2], pCount, lCount].concat(sessionCells);
   });
@@ -2691,6 +3159,7 @@ function getClassAttendanceStatsMap_(ss, classId, bypassCache) {
     if (classSheet && classSheet.getLastRow() > 1) {
       const numRows = classSheet.getLastRow() - 1;
       const lastCol = Math.max(3, classSheet.getLastColumn());
+      const headerRow = classSheet.getRange(1, 1, 1, lastCol).getValues()[0];
       const vals = classSheet.getRange(2, 1, numRows, lastCol).getValues();
       const bgs = classSheet.getRange(2, 1, numRows, lastCol).getBackgrounds();
       const fgs = classSheet.getRange(2, 1, numRows, 3).getFontColors();
@@ -2709,12 +3178,15 @@ function getClassAttendanceStatsMap_(ss, classId, bypassCache) {
           manualBanMap[sid] = true;
         }
 
-        // Also inspect session columns (col index 5+, i.e. Column F onward) for direct sheet color/text edits
+        // Inspect final session columns (col index 5+, skipping _P1 and _Trạng_thái_P2 helper columns)
         if (lastCol > 5) {
           for (let c = 5; c < lastCol; c++) {
+            const hdr = String(headerRow[c] || '').trim();
+            if (/_P1$|_Trạng_thái_P2$/i.test(hdr)) continue;
+            const mS = hdr.match(/^S(\d+)_/i);
+            const dayIdx = mS ? (parseInt(mS[1], 10) - 1) : (c - 5);
             const cellBgClass = classifySheetCellColorLocal_(bgs[r][c]);
             const cellText = String(vals[r][c] || '').trim().toUpperCase();
-            const dayIdx = c - 5;
             if (cellBgClass === 'ORANGE' || cellText === 'E' || cellText === 'P_EXCUSED') {
               if (!sheetCellOverrides[sid]) sheetCellOverrides[sid] = {};
               sheetCellOverrides[sid][dayIdx] = 'E';
@@ -2782,6 +3254,10 @@ function getClassAttendanceStatsMap_(ss, classId, bypassCache) {
         date: grp.displayDate,
         label: grp.label,
         sessionId: grp.latestSessionId,
+        p1Status: (grp.p1Marks && grp.p1Marks[sid]) ? grp.p1Marks[sid] : '-',
+        p2Status: grp.p2Opened ? ((grp.p2Marks && grp.p2Marks[sid]) ? grp.p2Marks[sid] : '-') : '',
+        p2Opened: Boolean(grp.p2Opened),
+        finalStatus: histStatus,
         status: histStatus
       });
     });
