@@ -11,11 +11,8 @@
   <meta http-equiv="Expires" content="0" />
   <title>ClassCheck — Hệ Thống Điểm Danh Định Vị</title>
 
-  <!-- Version-Pinned QR Scanner Library (Sheet Course & Lecturer Pairing QR) -->
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.7.0" />
+  <link rel="stylesheet" href="css/styles.css?v=3.7.1" />
 </head>
 <body>
 
@@ -31,12 +28,6 @@
       <line x1="6" y1="12" x2="2" y2="12"></line>
       <line x1="12" y1="6" x2="12" y2="2"></line>
       <line x1="12" y1="22" x2="12" y2="18"></line>
-    </symbol>
-    <symbol id="ic-qr" viewBox="0 0 24 24">
-      <rect x="3" y="3" width="7" height="7"></rect>
-      <rect x="14" y="3" width="7" height="7"></rect>
-      <rect x="14" y="14" width="7" height="7"></rect>
-      <rect x="3" y="14" width="7" height="7"></rect>
     </symbol>
     <symbol id="ic-user" viewBox="0 0 24 24">
       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
@@ -140,18 +131,6 @@
     <!-- GLOBAL STATUS / RECEIPT ALERT -->
     <div id="status-box" class="alert hidden"></div>
 
-    <!-- SHARED CAMERA CONTAINER -->
-    <div id="camera-modal-box" class="card hidden">
-      <div class="card-header">
-        <div class="card-title">
-          <svg class="icon"><use href="#ic-qr"></use></svg>
-          <span data-i18n="cam_modal_title">Quét mã QR</span>
-        </div>
-        <button id="btn-stop-camera" class="btn btn-outline btn-sm" onclick="stopCameraScanner()" data-i18n="btn_cancel_scan">Đóng</button>
-      </div>
-      <div id="qr-reader"></div>
-    </div>
-
     <!-- ================================================================== -->
     <!-- VIEW 1: STUDENT MODE                                               -->
     <!-- ================================================================== -->
@@ -202,23 +181,6 @@
 
           <!-- INLINE CONTEXTUAL FEEDBACK FOR ONBOARDING -->
           <div id="onboard-inline-status" class="inline-feedback hidden"></div>
-
-          <div style="margin-top:6px; text-align:right;">
-            <a href="javascript:void(0)" style="font-size:0.75rem; color:var(--muted); text-decoration:none;" onclick="toggleAdvancedApiBox()" data-i18n="stu_toggle_api_link">
-              Cài đặt kết nối nâng cao
-            </a>
-          </div>
-
-          <div id="box-advanced-api" class="hidden" style="margin-top:6px;">
-            <div class="btn-row" style="margin-bottom:6px;">
-              <button class="btn btn-outline btn-sm" onclick="startCameraScanner('ONBOARD')">
-                <svg class="icon icon-sm"><use href="#ic-qr"></use></svg>
-                <span data-i18n="stu_scan_onboard_qr">Quét mã QR Khóa học</span>
-              </button>
-            </div>
-            <label for="inp-onboard-api" data-i18n="stu_api_url_label">Đường dẫn máy chủ (Web App URL):</label>
-            <input type="text" id="inp-onboard-api" placeholder="https://script.google.com/macros/s/.../exec" />
-          </div>
         </div>
       </div>
 
@@ -337,7 +299,7 @@
         </p>
 
         <label for="inp-tea-token" data-i18n="tea_token_label">Mã phiên (6 chữ số) hoặc Khóa chính (Master Key):</label>
-        <input type="password" id="inp-tea-token" data-i18n-placeholder="tea_token_placeholder" placeholder="Nhập mã phiên 6 chữ số hoặc Master Key..." autocomplete="off" />
+        <input type="password" id="inp-tea-token" data-i18n-placeholder="tea_token_placeholder" placeholder="Nhập mã phiên 6 chữ số hoặc Master Key..." autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();loginTeacher();}" />
 
         <label for="sel-tea-persistence" data-i18n="tea_session_type_label">Chế độ lưu đăng nhập:</label>
         <select id="sel-tea-persistence">
@@ -348,11 +310,7 @@
         <button id="btn-tea-login" class="btn btn-primary" onclick="loginTeacher()" data-i18n="tea_login_btn">Đăng nhập Giảng viên</button>
         <div id="tea-login-inline-status" class="inline-feedback hidden"></div>
 
-        <div style="margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
-          <button class="btn btn-outline btn-sm" onclick="startCameraScanner('TEACHER_PAIR')">
-            <svg class="icon icon-sm"><use href="#ic-qr"></use></svg>
-            <span data-i18n="tea_scan_pair_qr">Quét mã QR Ghép nối</span>
-          </button>
+        <div style="margin-top:10px; display:flex; justify-content:flex-end; align-items:center;">
           <a href="javascript:void(0)" style="font-size:0.76rem; color:var(--muted); text-decoration:none;" onclick="toggleTeacherApiBox()" data-i18n="tea_config_url_link">
             Cấu hình đường dẫn kết nối
           </a>
@@ -425,8 +383,13 @@
                 </div>
 
                 <!-- Live 10-Second Rotating PIN Projector Box (Shown when Round 2 is open with PIN_10S) -->
-                <div id="tea-p2-pin-projector-box" class="p2-projector-pin-card hidden">
+                <div id="tea-p2-pin-projector-box" class="p2-projector-pin-card hidden" ondblclick="togglePinSpotlightMode(event)" title="Nhấp đúp chuột (Double-click) để phóng to PIN toàn màn hình">
                   <div class="p2-projector-pin-title" id="lbl-tea-pin-projector-title">MÃ PIN ĐIỂM DANH LẦN 2 (ĐỔI MỖI 10 GIÂY)</div>
+                  <div class="p2-pin-spotlight-meta" id="tea-pin-spotlight-meta">
+                    <span id="tea-pin-spot-timer">00:00</span>
+                    <span class="spot-meta-sep">•</span>
+                    <span id="tea-pin-spot-count">0 / 0 Có mặt</span>
+                  </div>
                   <div class="p2-projector-pin-digits" id="tea-pin10s-digits">
                     <span class="p2-pin-digit" id="tea-pin10s-d0">-</span>
                     <span class="p2-pin-digit" id="tea-pin10s-d1">-</span>
@@ -438,9 +401,12 @@
                   </div>
                   <div class="p2-projector-pin-footer">
                     <span id="tea-pin10s-sub">Đổi mã mới sau: 10s</span>
-                    <button type="button" id="btn-tea-switch-1tap" class="btn btn-outline btn-sm p2-switch-1tap-btn" onclick="switchRound2QrMode('STATIC')" data-i18n="tea_switch_1tap_btn">
+                    <button type="button" id="btn-tea-switch-1tap" class="btn btn-outline btn-sm p2-switch-1tap-btn" onclick="switchRound2QrMode('STATIC')" ondblclick="event.stopPropagation()" data-i18n="tea_switch_1tap_btn">
                       Chuyển về 1-Chạm (Không PIN)
                     </button>
+                  </div>
+                  <div class="p2-pin-spotlight-hint" id="tea-pin-spotlight-hint">
+                    Nhấp đúp vào khung PIN để phóng to toàn màn hình • Nhấn Esc để thu nhỏ
                   </div>
                 </div>
 
@@ -584,8 +550,8 @@
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/schedule-config.js?v=3.7.0"></script>
-  <script src="js/student.js?v=3.7.0"></script>
-  <script src="js/teacher.js?v=3.7.0"></script>
+  <script src="js/schedule-config.js?v=3.7.1"></script>
+  <script src="js/student.js?v=3.7.1"></script>
+  <script src="js/teacher.js?v=3.7.1"></script>
 </body>
 </html>

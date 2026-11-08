@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.7.0)
+ * STUDENT CONTROLLER (js/student.js — v3.7.1)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Official Attendance Score (Base 10.0), Same-Day Session Merging, Near-Limit Warning & Exam Ban (CẤM THI)
  *  - Live Classroom Group Assignment Card (#stu-group-card)
@@ -23,9 +23,7 @@ window.addEventListener('DOMContentLoaded', () => {
   getOrCreateDeviceCredential();
   migrateStoredUrls();
 
-  const onboardApiInput = document.getElementById('inp-onboard-api');
   const teaApiInput = document.getElementById('inp-tea-api');
-  if (onboardApiInput) onboardApiInput.value = DEFAULT_LECTURER_API;
   if (teaApiInput) teaApiInput.value = DEFAULT_LECTURER_API;
 
   applyLanguage();
@@ -722,11 +720,6 @@ function toggleAddCourseBox() {
   syncStudentViewportScrollLock();
 }
 
-function toggleAdvancedApiBox() {
-  document.getElementById('box-advanced-api').classList.toggle('hidden');
-  syncStudentViewportScrollLock();
-}
-
 /**
  * ============================================================================
  * REQUIREMENT 3: PRE-CHECK & ACTIVATE GPS PANEL (#gps-panel)
@@ -891,7 +884,7 @@ async function submitStudentOnboarding() {
     return false;
   }
 
-  const apiUrl = normalizeApiUrl(document.getElementById('inp-onboard-api').value);
+  const apiUrl = normalizeApiUrl(window.customOnboardApiUrl || DEFAULT_LECTURER_API);
   const studentId = document.getElementById('inp-student-id').value.trim().toUpperCase();
 
   if (!studentId) {

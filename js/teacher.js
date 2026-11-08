@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.7.0)
+ * LECTURER CONTROLLER (js/teacher.js — v3.7.1)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -59,7 +59,50 @@ async function syncTeacherServerClockOffset() {
   } catch (e) {}
 }
 
+function exitPinSpotlightMode() {
+  const box = document.getElementById('tea-p2-pin-projector-box');
+  if (!box || !box.classList.contains('pin-spotlight-active')) return;
+  box.classList.remove('pin-spotlight-active');
+  if (document.fullscreenElement && document.exitFullscreen) {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+
+function togglePinSpotlightMode(e, forceState) {
+  if (e && e.target && e.target.closest && e.target.closest('button')) return;
+  const box = document.getElementById('tea-p2-pin-projector-box');
+  if (!box || box.classList.contains('hidden')) return;
+  const nextState = typeof forceState === 'boolean'
+    ? forceState
+    : !box.classList.contains('pin-spotlight-active');
+  box.classList.toggle('pin-spotlight-active', nextState);
+  const hintEl = document.getElementById('tea-pin-spotlight-hint');
+  if (hintEl) {
+    const isEn = currentLang === 'en';
+    hintEl.textContent = nextState
+      ? (isEn ? 'Double-click anywhere or press Esc to exit full-screen PIN' : 'Nhấp đúp chuột hoặc nhấn phím Esc để thu nhỏ về bảng điều khiển')
+      : (isEn ? 'Double-click PIN box to expand full-screen • Press Esc to exit' : 'Nhấp đúp vào khung PIN để phóng to toàn màn hình • Nhấn Esc để thu nhỏ');
+  }
+  if (nextState) {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  } else if (document.fullscreenElement && document.exitFullscreen) {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const box = document.getElementById('tea-p2-pin-projector-box');
+    if (box && box.classList.contains('pin-spotlight-active')) {
+      exitPinSpotlightMode();
+    }
+  }
+});
+
 function stopTeacherPin10sProjectorLoop() {
+  exitPinSpotlightMode();
   if (teacherPin10sTicker) {
     clearInterval(teacherPin10sTicker);
     teacherPin10sTicker = null;
@@ -81,12 +124,23 @@ function updateProjectorPin10sUI() {
     String(ses.qrMode || '').toUpperCase() === 'PIN_10S'
   );
   if (!isPin10sOpen) {
+    exitPinSpotlightMode();
     box.classList.add('hidden');
     stopTeacherPin10sProjectorLoop();
     return;
   }
 
   box.classList.remove('hidden');
+  const mainTimerEl = document.getElementById('tea-countdown');
+  const spotTimerEl = document.getElementById('tea-pin-spot-timer');
+  if (mainTimerEl && spotTimerEl) {
+    spotTimerEl.textContent = mainTimerEl.textContent;
+  }
+  const mainCountEl = document.getElementById('tea-live-count');
+  const spotCountEl = document.getElementById('tea-pin-spot-count');
+  if (mainCountEl && spotCountEl) {
+    spotCountEl.textContent = mainCountEl.textContent;
+  }
   const activeCfg = (teacherState && Array.isArray(teacherState.classes))
     ? teacherState.classes.find(c => c && c.classId === selectedTeacherClassId)
     : null;
@@ -993,6 +1047,7 @@ async function openRound2Session() {
 
 async function switchRound2QrMode(newMode) {
   const mode = String(newMode || 'STATIC').trim().toUpperCase();
+  if (mode !== 'PIN_10S') exitPinSpotlightMode();
   await teacherControlSession('SET_QR_MODE', { qrMode: mode });
 }
 
@@ -2574,6 +2629,10 @@ function updateTeacherLiveCountersFromRoster() {
     countEl.textContent = isEn
       ? `${pCount + lCount} / ${roster.length} Present`
       : `${pCount + lCount} / ${roster.length} Có mặt`;
+    const spotCountEl = document.getElementById('tea-pin-spot-count');
+    if (spotCountEl) {
+      spotCountEl.textContent = countEl.textContent;
+    }
   }
   if (breakEl) {
     breakEl.textContent = `P: ${pCount} | L: ${lCount} | A: ${aCount} | E: ${eCount}`;

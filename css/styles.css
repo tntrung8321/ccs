@@ -613,15 +613,6 @@ select.unselected-warning {
   color: #15803d;
 }
 
-/* Camera Box */
-#qr-reader {
-  width: 100%;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #000000;
-  margin-bottom: 10px;
-}
-
 /* Requirement 5: Lecturer Isolated Session Control & Two-Step Confirmation */
 .teacher-class-overview {
   background: var(--surface);
@@ -2021,20 +2012,26 @@ select.unselected-warning {
 .p2-projector-pin-card {
   margin-top: 8px;
   padding: 12px 14px;
-  border-radius: 10px;
-  background: #0f172a;
-  color: #f8fafc;
-  border: 2px solid #0d9488;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
   text-align: center;
+  cursor: pointer;
+  user-select: none;
 }
 
 .p2-projector-pin-title {
-  font-size: 0.74rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  color: #5eead4;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
   text-transform: uppercase;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+}
+
+.p2-pin-spotlight-meta {
+  display: none;
 }
 
 .p2-projector-pin-digits {
@@ -2046,33 +2043,33 @@ select.unselected-warning {
 
 .p2-pin-digit {
   width: 56px;
-  height: 66px;
-  border-radius: 9px;
-  background: #1e293b;
-  border: 2px solid #38bdf8;
-  color: #ffffff;
+  height: 64px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1.5px solid var(--border);
+  color: var(--primary);
   font-family: var(--font-mono);
-  font-size: 2.25rem;
-  font-weight: 800;
+  font-size: 2.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.22);
 }
 
 .p2-projector-pin-bar-track {
   width: 100%;
-  height: 7px;
+  height: 6px;
   border-radius: 999px;
-  background: #334155;
+  background: #e2e8f0;
   overflow: hidden;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .p2-projector-pin-bar-fill {
   height: 100%;
   width: 100%;
-  background: linear-gradient(90deg, #14b8a6, #38bdf8);
+  background: var(--primary);
   transition: width 95ms linear;
 }
 
@@ -2083,20 +2080,116 @@ select.unselected-warning {
   gap: 8px;
   flex-wrap: wrap;
   font-size: 0.76rem;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .p2-switch-1tap-btn {
-  background: #1e293b !important;
-  border-color: #475569 !important;
-  color: #f8fafc !important;
-  font-size: 0.73rem !important;
-  padding: 4px 9px !important;
+  background: #ffffff !important;
+  border-color: var(--border) !important;
+  color: var(--text-secondary) !important;
+  font-family: var(--font-sans) !important;
+  font-size: 0.74rem !important;
+  padding: 5px 10px !important;
 }
 
 .p2-switch-1tap-btn:hover {
-  background: #334155 !important;
+  background: #e2e8f0 !important;
+  color: var(--text) !important;
+}
+
+.p2-pin-spotlight-hint {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--border-subtle);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.p2-projector-pin-card.pin-spotlight-active {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  cursor: zoom-out;
+}
+
+.p2-projector-pin-card.pin-spotlight-active .p2-projector-pin-title {
+  font-size: clamp(1rem, 1.8vw, 1.35rem);
+  letter-spacing: 0.05em;
+  margin-bottom: 14px;
+  color: var(--text-secondary);
+}
+
+.p2-projector-pin-card.pin-spotlight-active .p2-pin-spotlight-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 20px;
+  margin-bottom: 28px;
+  font-family: var(--font-mono);
+  font-size: clamp(1rem, 1.6vw, 1.25rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+}
+
+.p2-projector-pin-card.pin-spotlight-active .spot-meta-sep {
+  color: var(--border);
+}
+
+.p2-projector-pin-card.pin-spotlight-active .p2-projector-pin-digits {
+  gap: clamp(14px, 2.2vw, 24px);
+  margin-bottom: 26px;
+}
+
+.p2-projector-pin-card.pin-spotlight-active .p2-pin-digit {
+  width: clamp(92px, 13vw, 146px);
+  height: clamp(112px, 16vw, 174px);
+  font-size: clamp(3.4rem, 7vw, 5.4rem);
+  border-radius: 10px;
+  border: 2px solid var(--primary);
+  background: #ffffff;
+  color: var(--primary);
+}
+
+.p2-projector-pin-card.pin-spotlight-active .p2-projector-pin-bar-track {
+  max-width: min(620px, 86vw);
+  height: 8px;
+  background: #cbd5e1;
+  margin-bottom: 18px;
+}
+
+.p2-projector-pin-card.pin-spotlight-active .p2-projector-pin-footer {
+  width: 100%;
+  max-width: min(620px, 86vw);
+  font-size: clamp(0.92rem, 1.3vw, 1.08rem);
+  color: var(--text-secondary);
+}
+
+.p2-projector-pin-card.pin-spotlight-active .p2-switch-1tap-btn {
+  font-size: 0.85rem !important;
+  padding: 7px 14px !important;
+}
+
+.p2-projector-pin-card.pin-spotlight-active .p2-pin-spotlight-hint {
+  margin-top: 24px;
+  padding-top: 0;
+  border-top: none;
+  font-size: 0.82rem;
+  color: var(--muted);
 }
 
 .round-segmented {
@@ -2163,17 +2256,17 @@ select.unselected-warning {
 
 .stu-p2-pin-box {
   margin-top: 8px;
-  padding: 10px 12px;
-  border-radius: 9px;
-  border: 1.5px solid #0d9488;
-  background: #f0fdfa;
+  padding: 11px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
   text-align: center;
 }
 
 .stu-p2-pin-gps-banner {
   font-size: 0.76rem;
-  font-weight: 700;
-  color: #0f766e;
+  font-weight: 600;
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 
@@ -2186,28 +2279,29 @@ select.unselected-warning {
 }
 
 .stu-pin-slot {
-  width: 46px;
-  height: 52px;
+  width: 48px;
+  height: 54px;
   border-radius: 8px;
-  border: 2px solid #94a3b8;
+  border: 1.5px solid var(--border);
   background: #ffffff;
   font-family: var(--font-mono);
   font-size: 1.55rem;
-  font-weight: 800;
-  color: #0f172a;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .stu-pin-slot.active {
-  border-color: #0d9488;
-  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.18);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(30, 58, 138, 0.14);
 }
 
 .stu-pin-slot.filled {
-  border-color: #0f766e;
-  background: #ccfbf1;
+  border-color: var(--primary);
+  background: var(--primary-subtle);
 }
 
 .stu-pin-hidden-input {
@@ -2235,6 +2329,49 @@ select.unselected-warning {
 
 .pin-shake {
   animation: ccsPinShake 260ms ease-in-out;
+}
+
+/* Desktop & Laptop 2-Column Split-View for Lecturer Mode (>= 960px) */
+@media (min-width: 960px) {
+  #main-container:has(#view-teacher:not(.hidden)) {
+    max-width: 1140px;
+  }
+
+  #view-teacher #card-teacher-login {
+    max-width: 500px;
+    margin: 0 auto 14px auto;
+  }
+
+  #box-teacher-dashboard:not(.hidden) {
+    display: grid;
+    grid-template-columns: 420px minmax(0, 1fr);
+    grid-template-areas:
+      "panel-session panel-roster"
+      "panel-admin   panel-roster";
+    gap: 16px;
+    align-items: start;
+  }
+
+  #box-teacher-dashboard > .card:nth-child(1) {
+    grid-area: panel-session;
+    margin-bottom: 0;
+  }
+
+  #box-teacher-dashboard > .card:nth-child(2) {
+    grid-area: panel-roster;
+    margin-bottom: 0;
+    position: sticky;
+    top: 12px;
+  }
+
+  #box-teacher-dashboard > .card:nth-child(3) {
+    grid-area: panel-admin;
+    margin-bottom: 0;
+  }
+
+  #box-teacher-dashboard .roster-list {
+    max-height: calc(100dvh - 235px);
+  }
 }
 
 @media print {

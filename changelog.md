@@ -2,6 +2,21 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### ✨ Version `v3.7.1` — *Desktop/Laptop 2-Column Split-View Lecturer UX (`>= 960px`), Double-Click Floating PIN Spotlight Mode (`Option A`), Legacy Camera QR Scanner Cleanup & Automated In-Place Apps Script Deployment (`appscript-deploy`)*
+* **Desktop/Laptop 2-Column Split-View Lecturer Dashboard (`>= 960px`) & `Enter`-to-Login (`index.html`, `css/styles.css`)**:
+  * Expanded `#main-container:has(#view-teacher:not(.hidden))` to `max-width: 1140px` on desktop/laptop screens (`@media (min-width: 960px)`) while keeping mobile (`< 960px`) and Student View (`540px`) 100% untouched.
+  * Arranged `#box-teacher-dashboard:not(.hidden)` into a 2-column CSS Grid (`420px minmax(0, 1fr)`): Left column holds **Panel 1 (Session Control)** + **Panel 3 (Admin & Sync)**; Right column (`sticky`, `.roster-list` `max-height: calc(100dvh - 235px)`) displays **15–18 students simultaneously** without pushing the roster below the fold.
+  * Added `Enter` keydown login support on `#inp-tea-token` for instant keyboard sign-in on classroom PCs and laptops.
+* **Double-Click Floating PIN Spotlight Mode & Utilitarian Academic (`taste`) PIN Redesign (`Option A` in `index.html`, `js/teacher.js`, `css/styles.css`)**:
+  * Redesigned `.p2-projector-pin-card`, `.p2-pin-digit`, and `.stu-p2-pin-box` to match the Utilitarian Academic (`taste`) Slate & Navy light palette (`var(--surface)`, `#ffffff` cards, `var(--primary)` `#1e3a8a` typography, zero neon glows/gradients, zero emojis).
+  * Double-clicking `#tea-p2-pin-projector-box` toggles `.pin-spotlight-active`: a full-screen academic light canvas (`z-index: 9999`) that masks the underlying student roster, requests browser Fullscreen, displays a live status pill (`#tea-pin-spotlight-meta`: `MM:SS • X / Y Có mặt`), and scales the 4 rotating PIN digits to `clamp(3.4rem, 7vw, 5.4rem)` for back-row classroom visibility.
+  * Exits cleanly via double-click, `Escape` key, or automatically whenever Round 2 closes or switches to `1-Chạm (Không PIN)`.
+* **Legacy In-App Camera QR Scanner Removal & Student URL Hardening (`index.html`, `js/schedule-config.js`, `js/student.js`, `css/styles.css`)**:
+  * Removed the unused in-app camera QR scanner (`html5-qrcode.min.js` ~350KB script, `<symbol id="ic-qr">`, `#camera-modal-box`, `#qr-reader`, `html5QrScanner`, `activeScanPurpose`, `startCameraScanner()`, `stopCameraScanner()`, `handleScannedQrText()`).
+  * Removed the Student `Cài đặt kết nối nâng cao` box (`#box-advanced-api`, `#inp-onboard-api`, `toggleAdvancedApiBox()`) so students cannot accidentally overwrite the default Web App URL, while preserving `?onboard=` and `?pair=` URL deep-link support (`window.customOnboardApiUrl`) and keeping the Lecturer `Cấu hình đường dẫn kết nối` (`#box-tea-api-advanced`) intact.
+* **Automated Google Apps Script In-Place Deployment Skill (`appscript-deploy`)**:
+  * Added `@google/clasp` automation (`.agent/skills/appscript-deploy/scripts/deploy-appscript.js`) linked to Script ID `1KL0rnBXXhflTa1ErNuKt461lVxyX7gKx80qWq9V_VFrVGeN82jzuKKnF` and locked to Deployment ID `AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q` so backend updates push `Code.gs` + `Sync.gs` and create a new version in-place without ever changing the `/exec` URL.
+
 ### ✨ Version `v3.7.0` — *Round 2 Spot-Check Attendance (`P2`), Strict Truth Table `mergeAttendance`, Read-Only `Kết quả cuối` Tab, 10-Second Rotating PIN (`PIN_10S` + `clockOffset` + `PIN_GRACE_MS` + `Pin_Check_Log`) & 3-Column Sheet Breakdown*
 * **Strict Truth-Table Attendance Merging (`mergeAttendance(p1, p2, p2Opened)` in `code3.7.0.text`, `sync.txt`, `js/schedule-config.js`)**:
   * **No Round 2 (`p2Opened === false`)**: Preserves 100% of Round 1 status (`P -> P`, `L -> L`, `E -> E`, `- -> -`).
@@ -269,6 +284,21 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### ✨ Version `v3.7.1` — *Giao Diện Giảng Viên 2 Cột (`Split-View`) Trên Laptop/PC (`>= 960px`), Chế Độ Nhấp Đúp Phóng To Mã PIN Toàn Màn Hình (`Floating PIN Spotlight`), Xóa Bỏ Cụm Camera QR Cũ & Tự Động Deploy Apps Script Tại Chỗ (`appscript-deploy`)*
+* **Giao Diện Giảng Viên 2 Cột (`Split-View`) Trên Laptop/PC (`>= 960px`) & Nhấn `Enter` Đăng Nhập (`index.html`, `css/styles.css`)**:
+  * Tự động mở rộng khung Giảng viên (`#main-container:has(#view-teacher:not(.hidden))`) lên `max-width: 1140px` trên màn hình máy tính (`@media (min-width: 960px)`), giữ nguyên 100% bố cục 1 cột trên điện thoại (`< 960px`) và màn hình Sinh viên (`540px`).
+  * Chia `#box-teacher-dashboard:not(.hidden)` thành lưới 2 cột (`420px minmax(0, 1fr)`): **Cột trái (`420px`)** gom gọn *1. Điều khiển Phiên điểm danh* và *3. Quản trị và Đồng bộ dữ liệu*; **Cột phải (`1fr`, ghim `sticky`)** dành trọn cho *2. Danh sách Sinh viên* với chiều cao `calc(100dvh - 235px)`, hiển thị **15–18 sinh viên cùng lúc** mà không bị đẩy khuất xuống dưới.
+  * Bổ sung sự kiện nhấn phím `Enter` tại ô `#inp-tea-token` giúp Giảng viên đăng nhập ngay từ bàn phím máy tính.
+* **Chế Độ Double-Click Floating PIN Spotlight & Chuẩn Hóa Giao Diện PIN Học Thuật Tối Giản (`taste`) (`Phương án A` trong `index.html`, `js/teacher.js`, `css/styles.css`)**:
+  * Thiết kế lại toàn bộ khung PIN (`.p2-projector-pin-card`, `.p2-pin-digit`, `.stu-p2-pin-box`) đồng bộ 100% với bảng màu Học thuật Tối giản (`taste` Slate & Academic Navy `#1e3a8a` trên nền sáng `#f1f5f9` / `#ffffff`, loại bỏ hoàn toàn nền tối neon/gradient và icon cảm xúc).
+  * Nhấp đúp chuột (`Double-click`) vào khung Mã PIN 10 giây (`#tea-p2-pin-projector-box`) bật chế độ **Floating PIN Spotlight** (`.pin-spotlight-active`): phủ nền sáng học thuật toàn màn hình (`z-index: 9999`) che kín danh sách sinh viên phía sau, tự động gọi `Fullscreen`, hiển thị thanh trạng thái trực tiếp (`#tea-pin-spotlight-meta`: `MM:SS • X / Y Có mặt` nhảy số theo thời gian thực) và phóng đại 4 ô số PIN lên cỡ cực đại (`clamp(3.4rem, 7vw, 5.4rem)`) giúp sinh viên cuối giảng đường nhìn rõ tuyệt đối.
+  * Thoát nhanh bằng **Double-click lần nữa**, nhấn phím **`Esc`**, hoặc tự động thoát ngay khi Phiên 2 kết thúc / chuyển về `1-Chạm (Không PIN)`.
+* **Xóa Sạch Giao Diện & Mã Nguồn Quét Camera QR Cũ + Ẩn Ô URL Bên Sinh Viên (`index.html`, `js/schedule-config.js`, `js/student.js`, `css/styles.css`)**:
+  * Xóa hoàn toàn thư viện `html5-qrcode.min.js` (~350KB), `<symbol id="ic-qr">`, `#camera-modal-box`, `#qr-reader`, biến `html5QrScanner`, `activeScanPurpose` và các hàm `startCameraScanner()`, `stopCameraScanner()`, `handleScannedQrText()`.
+  * Xóa mục `Cài đặt kết nối nâng cao` bên Sinh viên (`#box-advanced-api`, `#inp-onboard-api`, `toggleAdvancedApiBox()`) để sinh viên không bấm nhầm làm lệch link máy chủ, đồng thời vẫn giữ nguyên xử lý link `?onboard=` / `?pair=` (`window.customOnboardApiUrl`) và giữ nguyên mục `Cấu hình đường dẫn kết nối` (`#box-tea-api-advanced`) cho Giảng viên.
+* **Tự Động Đẩy Code & Deploy Google Apps Script Tại Chỗ (`appscript-deploy`)**:
+  * Tích hợp công cụ tự động hóa `@google/clasp` (`.agent/skills/appscript-deploy/scripts/deploy-appscript.js`) kết nối trực tiếp với Script ID `1KL0rnBXXhflTa1ErNuKt461lVxyX7gKx80qWq9V_VFrVGeN82jzuKKnF` và khóa cứng Deployment ID `AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q` để tự động cập nhật `Code.gs` + `Sync.gs` lên phiên bản mới (`New version`) mà không bao giờ làm thay đổi đường dẫn `/exec`.
+
 ### ✨ Version `v3.7.0` — *Điểm Danh Phiên 2 Kiểm Tra Giữa/Cuối Giờ (`P2`), Bảng Sự Thật `mergeAttendance`, Khóa Chỉ Xem Tab `Kết quả cuối`, Mã PIN Xoay Vòng 10 Giây (`PIN_10S` + `clockOffset` + `PIN_GRACE_MS` + `Pin_Check_Log`) & Xuất 3 Cột Sheet (`P1 / P2 / Chốt`)*
 * **Hàm Hợp Nhất Điểm Danh 2 Phiên Chuẩn Bảng Sự Thật (`mergeAttendance(p1, p2, p2Opened)` trong `code3.7.0.text`, `sync.txt`, `js/schedule-config.js`)**:
   * **Không mở Phiên 2 (`p2Opened === false`)**: Giữ nguyên 100% kết quả Phiên 1 (`P -> P`, `L -> L`, `E -> E`, `- -> -`).
@@ -516,18 +546,18 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.6.6`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.1`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.0` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.1` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.6.6`) on `tntrung8321.github.io/ccs/`** |
-| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **`taste` Utilitarian UI (Zero AI Icons), Permanent Today Check-In Button Lock (`P` Emerald / `L` Amber), Cohesive `Pulse to Confirm` (`success` / `warn` / `danger` / `neutral` + Manual Marks), Compact Anti-Zalo & iOS Code Scanner Walkthrough, Official Attendance Score & `CẤM THI`** |
-| **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Synchronous `getCurrentPosition` Prompt + Live `watchPosition` Warm-Up (`cachedGPS = null`, `maximumAge: 0`) + Same-Day Session Merging** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.1`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), Double-Click Floating PIN Spotlight Mode (`Option A`), `taste` Utilitarian UI, Cohesive `Pulse to Confirm`, Official Attendance Score & `CẤM THI`** |
+| **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `clockOffset` & `PIN_GRACE_MS = 1500`) + Strict `mergeAttendance` Truth Table** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Backend Open-Session Auto-Fallback)** |
-| **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + Legacy URL Auto-Migration** |
-| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **Automatic Calendar-Day Session UI Reset (Past-Day Isolation vs. Same-Day Closed Retention) + `0.01s` Optimistic Manual Marking (`P/L/E/-`) + Calendar-Based History (`Lịch sử`) + Random Caller & Group Maker** |
+| **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + In-Place Automated `clasp` Deployment (`appscript-deploy`)** |
+| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **2-Column Laptop Dashboard + Double-Click Fullscreen PIN Spotlight + `Enter`-to-Login + 3-Tab (`P1` / `P2` / Read-Only `Kết quả cuối`) + `0.01s` Optimistic Manual Marking** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-Extra-Load RAM `CacheService` (`ALL_LATEST_SES_V35`, `SES_ATT_MAP_V35_`, `CLASS_ATT_STATS_V35_`, `GROUP_SPLIT_`)** |
-| **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Zalo/Social WebView & iPhone Code Scanner Block + Multi-Browser (`Safari+Chrome`), F12, Fresh GPS Timestamp & Spot-Check Lock** |
-| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **Customizable `P/L/E/-` Marks + Smart Color-Family Detection (All Shades of Orange/Yellow/Red) + Ghost Session Filtering** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.6.6`) / Luôn tải bản mới tức thì** |
+| **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Zalo/Social WebView & iPhone Code Scanner Block + 10s Rotating PIN (`Pin_Check_Log`) + Multi-Browser (`Safari+Chrome`), F12 & Spot-Check Lock** |
+| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Smart Color-Family Detection + Ghost Session Filtering** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.1`) / Luôn tải bản mới tức thì** |

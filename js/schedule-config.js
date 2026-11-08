@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.0)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.1)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -920,8 +920,6 @@ function migrateStoredUrls() {
 
 let currentLang = safeGetLocal('cc_lang', 'vi');
 let currentMode = 'STUDENT';
-let html5QrScanner = null;
-let activeScanPurpose = null;
 
 function getOrCreateDeviceCredential() {
   let cred = safeGetLocal('cc_device_cred', '');
@@ -1113,94 +1111,6 @@ async function callBackend(apiUrl, payload, retries = 2) {
       }
       await new Promise(r => setTimeout(r, 900));
     }
-  }
-}
-
-async function startCameraScanner(purpose) {
-  activeScanPurpose = purpose;
-  const modalBox = document.getElementById('camera-modal-box');
-  modalBox.classList.remove('hidden');
-
-  if (html5QrScanner) {
-    try { await html5QrScanner.stop(); } catch (e) {}
-  }
-
-  html5QrScanner = new Html5Qrcode('qr-reader');
-  try {
-    await html5QrScanner.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 240, height: 240 } },
-      async (decodedText) => {
-        await stopCameraScanner();
-        handleScannedQrText(decodedText, purpose);
-      },
-      () => {}
-    );
-  } catch (err) {
-    modalBox.classList.add('hidden');
-    showStatus(
-      currentLang === 'en'
-        ? 'Unable to open camera. Please grant camera permission in your browser.'
-        : 'Không mở được máy ảnh. Vui lòng cấp quyền máy ảnh cho trình duyệt.',
-      'warn'
-    );
-  }
-}
-
-async function stopCameraScanner() {
-  const modalBox = document.getElementById('camera-modal-box');
-  if (modalBox) modalBox.classList.add('hidden');
-  if (html5QrScanner) {
-    try { await html5QrScanner.stop(); } catch (e) {}
-  }
-}
-
-function handleScannedQrText(text, purpose) {
-  const isEn = currentLang === 'en';
-  if (text.includes('?onboard=') || text.includes('?pair=')) {
-    try {
-      const url = new URL(text);
-      if (url.searchParams.get('onboard')) {
-        const obj = JSON.parse(atob(url.searchParams.get('onboard').replace(/-/g, '+').replace(/_/g, '/')));
-        document.getElementById('inp-onboard-api').value = normalizeApiUrl(obj.api);
-        showStatus(
-          isEn ? 'Course configuration loaded. Please enter your Student ID.' : 'Đã nạp cấu hình khóa học. Vui lòng nhập mã số sinh viên.',
-          'success'
-        );
-        return;
-      }
-      if (url.searchParams.get('pair')) {
-        const obj = JSON.parse(atob(url.searchParams.get('pair').replace(/-/g, '+').replace(/_/g, '/')));
-        document.getElementById('inp-tea-api').value = normalizeApiUrl(obj.api);
-        document.getElementById('inp-tea-token').value = obj.tkey || '';
-        loginTeacher();
-        return;
-      }
-    } catch (e) {}
-  }
-
-  try {
-    const obj = JSON.parse(text);
-    if (obj.type === 'ONBOARD' && obj.api) {
-      document.getElementById('inp-onboard-api').value = normalizeApiUrl(obj.api);
-      showStatus(
-        isEn ? 'Course configuration loaded. Please enter your Student ID.' : 'Đã nạp cấu hình khóa học. Vui lòng nhập mã số sinh viên.',
-        'success'
-      );
-      return;
-    }
-    if (obj.type === 'TEACHER_PAIR' && obj.api && obj.tkey) {
-      document.getElementById('inp-tea-api').value = normalizeApiUrl(obj.api);
-      document.getElementById('inp-tea-token').value = obj.tkey;
-      loginTeacher();
-      return;
-    }
-  } catch (e) {}
-
-  if (purpose === 'CHECKIN') {
-    executeStudentCheckIn(text);
-  } else {
-    showStatus(isEn ? 'Invalid QR code.' : 'Mã QR không hợp lệ.', 'warn');
   }
 }
 
@@ -1695,7 +1605,6 @@ function syncStudentViewportScrollLock() {
 function switchMode(mode) {
   currentMode = mode;
   safeSetLocal('cc_active_mode', mode);
-  stopCameraScanner();
   hideStatus();
   checkIosStandaloneNotice();
 
@@ -1830,8 +1739,7 @@ function handleUrlDeepLinks() {
       const decoded = JSON.parse(atob(onboardB64.replace(/-/g, '+').replace(/_/g, '/')));
       if (decoded.api) {
         const normApi = normalizeApiUrl(decoded.api);
-        const onboardInput = document.getElementById('inp-onboard-api');
-        if (onboardInput) onboardInput.value = normApi;
+        window.customOnboardApiUrl = normApi;
         const profiles = getStudentProfiles();
         const instIds = Object.keys(profiles);
         if (instIds.length === 0) {
