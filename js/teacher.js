@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.7.2)
+ * LECTURER CONTROLLER (js/teacher.js — v3.7.3)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -15,6 +15,7 @@ let teacherState = null;
 let teacherPollTimer = null;
 let teacherCountdownTimer = null;
 let isPollingTeacher = false;
+let teacherControlInFlightCount = 0;
 let showRosterNames = true;
 let activeRosterFilter = 'ALL'; // 'ALL' | 'PRESENT' | 'ABSENT' | 'SUSPECT'
 let teacherHasManuallySelectedClass = false;
@@ -23,7 +24,6 @@ let pendingManualMarks = {}; // Optimistic UI locks keyed by studentId so rapid 
 let lastPulsedManualMark = null; // { studentId, status, dayKey, expiresAt } for P/L/E/- button pulse across re-renders
 let randomCallerVisitedByClass = {}; // Per-class shuffle bag Set of studentIds already called
 let currentDraftGroups = [];
-let reopen5mCapBySession = {}; // Maps sessionId -> presentUntilMs cap when Reopen 5m is clicked
 let currentDraftGroupSize = 4;
 let activeRosterRoundView = 'FINAL'; // 'P1' | 'P2' | 'FINAL'
 let expandedP2DetailStudentIds = {}; // studentId -> boolean
@@ -50,10 +50,11 @@ async function syncTeacherServerClockOffset() {
   const apiUrl = auth && auth.apiUrl ? auth.apiUrl : DEFAULT_LECTURER_API;
   const t0 = Date.now();
   try {
-    const res = await callBackend(apiUrl, { action: 'PING' }, 1);
+    const res = await callBackend(apiUrl, { action: 'PING', clockOnly: true }, 1);
     const t1 = Date.now();
-    if (res && res.ok && (res.serverNowMs || res.serverTimeMs)) {
-      updateTeacherClockOffsetFromServer(res.serverNowMs || res.serverTimeMs, t1 - t0);
+    const srvMs = res ? Number(res.serverNowMs || res.serverTimeMs || (res.serverTime ? new Date(res.serverTime).getTime() : 0)) : 0;
+    if (res && res.ok && srvMs > 0) {
+      updateTeacherClockOffsetFromServer(srvMs, t1 - t0);
       updateProjectorPin10sUI();
     }
   } catch (e) {}
@@ -151,7 +152,8 @@ function updateProjectorPin10sUI() {
     (ses && ses.sessionId) ||
     ''
   );
-  const syncedNowMs = getTeacherSyncedNowMs();
+  const PROJECTOR_PIN_LEAD_MS = 600;
+  const syncedNowMs = getTeacherSyncedNowMs() + PROJECTOR_PIN_LEAD_MS;
   const bucket10s = Math.floor(syncedNowMs / 10000);
   const pin4 = typeof computePin4FromSeed === 'function'
     ? computePin4FromSeed(seed, bucket10s)
@@ -202,7 +204,7 @@ function syncProjectorPin10sLifecycle(ses) {
     teacherPin10sTicker = setInterval(updateProjectorPin10sUI, 100);
   }
   if (!teacherClockSyncTimer) {
-    teacherClockSyncTimer = setInterval(syncTeacherServerClockOffset, 60000);
+    teacherClockSyncTimer = setInterval(syncTeacherServerClockOffset, 25000);
   }
 }
 
@@ -330,7 +332,7 @@ function logoutTeacher() {
 async function refreshTeacherState(force = false) {
   const auth = getTeacherAuth();
   if (!auth || document.hidden) return;
-  if (isPollingTeacher && !force) return;
+  if ((isPollingTeacher || teacherControlInFlightCount > 0) && !force) return;
 
   const selEl = document.getElementById('sel-tea-class');
   const selClass = (selEl && selEl.value) ? selEl.value : selectedTeacherClassId;
@@ -342,6 +344,8 @@ async function refreshTeacherState(force = false) {
       teacherToken: auth.token,
       classId: selClass
     }, 1);
+
+    if (teacherControlInFlightCount > 0 && !force) return;
 
     if (res && res.ok) {
       await applyTeacherState(res, false);
@@ -399,7 +403,10 @@ function compareStudentsVietnameseAZ(a, b) {
 async function applyTeacherState(state, isInitialLoad = false, isFromCache = false) {
   if (!state) return;
   if (!isFromCache && (state.serverNowMs || state.serverTimeMs)) {
-    updateTeacherClockOffsetFromServer(state.serverNowMs || state.serverTimeMs, 0);
+    if (!teacherLastClockSyncAtMs) {
+      updateTeacherClockOffsetFromServer(state.serverNowMs || state.serverTimeMs, 500);
+      syncTeacherServerClockOffset();
+    }
   }
   ingestServerScheduleData(state);
 
@@ -438,15 +445,6 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
           st.p2Source = '';
         });
       }
-    }
-  }
-
-  if (state.activeSession && state.activeSession.sessionId && reopen5mCapBySession[state.activeSession.sessionId]) {
-    const capMs = reopen5mCapBySession[state.activeSession.sessionId];
-    if (Date.now() <= capMs) {
-      state.activeSession.closesAtMs = capMs;
-    } else {
-      delete reopen5mCapBySession[state.activeSession.sessionId];
     }
   }
 
@@ -601,6 +599,17 @@ function updateTeacherClassOverviewUI(activeCfg, ses, scheduleMatch) {
  * ============================================================================
  */
 function promptOpenSessionConfirm() {
+  const activeSes = teacherState && teacherState.activeSession;
+  if (
+    activeSes &&
+    activeSes.isOpen &&
+    Number(activeSes.round || 1) === 2 &&
+    String(activeSes.qrMode || '').toUpperCase() !== 'PIN_10S'
+  ) {
+    switchRound2QrMode('PIN_10S');
+    return;
+  }
+
   const classId = document.getElementById('sel-tea-class').value;
   const isEn = currentLang === 'en';
   if (!classId) {
@@ -738,7 +747,6 @@ function syncSessionControlButtonsState(ses, hasSelectedClass = true) {
   const confirmBox = document.getElementById('tea-open-confirm-bar');
   const p2LaunchStrip = document.getElementById('tea-p2-launch-strip');
   const btnExtend = document.getElementById('btn-tea-extend');
-  const btnReopen = document.getElementById('btn-tea-reopen');
   const btnCancelMistaken = document.getElementById('btn-tea-cancel-mistaken');
   const btnClose = document.getElementById('btn-tea-close');
   const isEn = currentLang === 'en';
@@ -755,13 +763,19 @@ function syncSessionControlButtonsState(ses, hasSelectedClass = true) {
 
   if (p2LaunchStrip && btnOpenTrigger) {
     const isConfirmVisible = Boolean(confirmBox && !confirmBox.classList.contains('hidden'));
-    const isPinProjectorActive = Boolean(isOpenNow && Number(ses.round || 1) === 2 && String(ses.qrMode || '').toUpperCase() === 'PIN_10S');
+    const isRound2Open = Boolean(isOpenNow && Number(ses.round || 1) === 2);
+    const isPinProjectorActive = Boolean(isRound2Open && String(ses.qrMode || '').toUpperCase() === 'PIN_10S');
     if (isP1ClosedReadyForP2 && !isConfirmVisible) {
       btnOpenTrigger.classList.add('hidden');
       p2LaunchStrip.classList.remove('hidden');
     } else if (isPinProjectorActive) {
       p2LaunchStrip.classList.add('hidden');
       btnOpenTrigger.classList.add('hidden');
+    } else if (isRound2Open) {
+      p2LaunchStrip.classList.add('hidden');
+      btnOpenTrigger.classList.remove('hidden', 'btn-pulse-success', 'btn-pulse-warn', 'btn-pulse-danger');
+      btnOpenTrigger.disabled = false;
+      btnOpenTrigger.innerHTML = '<svg class="icon"><use href="#ic-check"></use></svg><span>' + (isEn ? 'Round 2 Open: 1-Tap GPS (Tap to re-enable 10s PIN)' : 'Đang mở Phiên 2: 1-Chạm GPS (Bấm để bật lại Mã PIN 10s)') + '</span>';
     } else {
       p2LaunchStrip.classList.add('hidden');
       if (!isConfirmVisible) {
@@ -771,24 +785,13 @@ function syncSessionControlButtonsState(ses, hasSelectedClass = true) {
       if (hasTodaySession && !isOpenNow && p2Opened) {
         btnOpenTrigger.classList.remove('btn-pulse-success', 'btn-pulse-warn', 'btn-pulse-danger');
         btnOpenTrigger.innerHTML = '<svg class="icon"><use href="#ic-check"></use></svg><span>' + (isEn ? 'Completed Round 1 & Round 2 Today' : 'Đã hoàn tất Phiên 1 & Phiên 2 hôm nay') + '</span>';
+      } else {
+        btnOpenTrigger.innerHTML = '<svg class="icon"><use href="#ic-check"></use></svg><span data-i18n="tea_open_trigger_btn">' + (isEn ? 'Open Attendance Session' : 'Mở phiên điểm danh') + '</span>';
       }
     }
   }
 
   if (btnExtend) btnExtend.disabled = !hasTodaySession;
-  if (btnReopen) {
-    if (p2Opened) {
-      btnReopen.disabled = true;
-      btnReopen.title = isEn
-        ? 'Cannot reopen Round 1 because Round 2 has already been opened today'
-        : 'Không thể mở lại Phiên 1 vì Phiên 2 đã được mở trong buổi học này';
-      btnReopen.textContent = isEn ? 'Reopen P1 (Locked: P2 opened)' : 'Mở lại 5p (Khóa: Đã mở P2)';
-    } else {
-      btnReopen.disabled = !hasTodaySession;
-      btnReopen.title = '';
-      btnReopen.textContent = isEn ? 'Reopen 5 Mins' : 'Mở lại 5 phút';
-    }
-  }
   if (btnCancelMistaken) btnCancelMistaken.disabled = !hasTodaySession;
   if (btnClose) btnClose.disabled = !isOpenNow;
 
@@ -828,25 +831,19 @@ function setupTeacherCountdown(ses, hasSelectedClass = true) {
   }
 
   const updateTick = () => {
-    const now = Date.now();
+    const now = getTeacherSyncedNowMs();
     const enNow = currentLang === 'en';
     const isR2 = Number(ses.round || 1) === 2;
     if (now > ses.closesAtMs) {
-      const wasReopen5mCapped = Boolean(ses.sessionId && reopen5mCapBySession[ses.sessionId]);
-      if (ses.sessionId) delete reopen5mCapBySession[ses.sessionId];
       ses.isOpen = false;
-      syncSessionControlButtonsState(ses, hasSelectedClass);
       badge.className = 'badge-err';
       badge.textContent = isR2
         ? (enNow ? 'ROUND 2 CLOSED' : 'ĐÃ ĐÓNG PHIÊN 2')
         : (enNow ? 'ROUND 1 CLOSED' : 'ĐÃ ĐÓNG PHIÊN 1');
       timerEl.textContent = '00:00';
+      syncSessionControlButtonsState(ses, hasSelectedClass);
       clearInterval(teacherCountdownTimer);
-      if (wasReopen5mCapped) {
-        teacherControlSession('CLOSE_NOW');
-      } else {
-        setTimeout(() => refreshTeacherState(true), 1200);
-      }
+      setTimeout(() => refreshTeacherState(true), 1200);
       return;
     }
     if (isR2) {
@@ -1041,14 +1038,36 @@ async function openRound2Session() {
   }
   await teacherControlSession('OPEN_ROUND_2', {
     durationMinutes: durationMinutes,
+    round2Mins: durationMinutes,
     qrMode: qrMode
   });
 }
 
 async function switchRound2QrMode(newMode) {
   const mode = String(newMode || 'STATIC').trim().toUpperCase();
-  if (mode !== 'PIN_10S') exitPinSpotlightMode();
-  await teacherControlSession('SET_QR_MODE', { qrMode: mode });
+  const btnSwitch1Tap = document.getElementById('btn-tea-switch-1tap');
+  if (mode !== 'PIN_10S' && btnSwitch1Tap && btnSwitch1Tap.disabled) {
+    return;
+  }
+  if (btnSwitch1Tap && mode !== 'PIN_10S') {
+    btnSwitch1Tap.disabled = true;
+  }
+  if (mode !== 'PIN_10S') {
+    exitPinSpotlightMode();
+  } else {
+    syncTeacherServerClockOffset();
+  }
+  if (teacherState && teacherState.activeSession) {
+    teacherState.activeSession.qrMode = mode;
+    const selEl = document.getElementById('sel-tea-class');
+    const hasCls = Boolean((selEl && selEl.value) || selectedTeacherClassId);
+    syncSessionControlButtonsState(teacherState.activeSession, hasCls);
+  }
+  try {
+    await teacherControlSession('SET_QR_MODE', { qrMode: mode });
+  } finally {
+    if (btnSwitch1Tap) btnSwitch1Tap.disabled = false;
+  }
 }
 
 async function teacherControlSession(subAction, extra = {}) {
@@ -1059,132 +1078,132 @@ async function teacherControlSession(subAction, extra = {}) {
     showStatus(isEn ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.', 'warn');
     return;
   }
-  if (subAction === 'REOPEN_5M' && teacherState && teacherState.round2OpenedToday) {
-    showStatus(
-      formatServerMessage('ERR_REOPEN_BLOCKED_BY_P2', {}, isEn
-        ? 'Cannot reopen Round 1 because Round 2 has already been opened today.'
-        : 'Không thể mở lại Phiên 1 vì Phiên 2 đã được mở trong buổi học này.'),
-      'err',
-      'tea-session-inline-status'
-    );
+  const btnExtend = document.getElementById('btn-tea-extend');
+  if (subAction === 'EXTEND_2M' && btnExtend && btnExtend.disabled) {
     return;
   }
   const prevSesId = (teacherState && teacherState.activeSession && teacherState.activeSession.sessionId)
     ? String(teacherState.activeSession.sessionId)
     : '';
   cancelOpenSessionConfirm();
-  let res = await callBackend(auth.apiUrl, Object.assign({
-    action: 'TEACHER_CONTROL_SESSION',
-    teacherToken: auth.token,
-    classId: classId,
-    subAction: subAction
-  }, extra));
-  if (res && res.ok) {
-    // Fallback if the deployed Google Apps Script Web App is still on an older Code.gs (< v3.6.1) that ignored CANCEL_MISTAKEN_SESSION
-    if (
-      subAction === 'CANCEL_MISTAKEN_SESSION' &&
-      prevSesId &&
-      res.activeSession &&
-      String(res.activeSession.sessionId) === prevSesId
-    ) {
-      const markedStudents = Array.isArray(res.roster)
-        ? res.roster.filter(s => s && s.studentId && s.status && s.status !== '-')
-        : [];
-      for (let i = 0; i < markedStudents.length; i++) {
-        await callBackend(auth.apiUrl, {
-          action: 'TEACHER_MANUAL_MARK',
-          teacherToken: auth.token,
-          classId: classId,
-          studentId: markedStudents[i].studentId,
-          status: '-',
-          targetSessionId: prevSesId
-        });
+  if (subAction === 'EXTEND_2M' && btnExtend) {
+    btnExtend.disabled = true;
+  }
+  teacherControlInFlightCount++;
+  try {
+    let res = await callBackend(auth.apiUrl, Object.assign({
+      action: 'TEACHER_CONTROL_SESSION',
+      teacherToken: auth.token,
+      classId: classId,
+      subAction: subAction
+    }, extra));
+    if (res && res.ok) {
+      // Fallback if the deployed Google Apps Script Web App is still on an older Code.gs (< v3.6.1) that ignored CANCEL_MISTAKEN_SESSION
+      if (
+        subAction === 'CANCEL_MISTAKEN_SESSION' &&
+        prevSesId &&
+        res.activeSession &&
+        String(res.activeSession.sessionId) === prevSesId
+      ) {
+        const markedStudents = Array.isArray(res.roster)
+          ? res.roster.filter(s => s && s.studentId && s.status && s.status !== '-')
+          : [];
+        for (let i = 0; i < markedStudents.length; i++) {
+          await callBackend(auth.apiUrl, {
+            action: 'TEACHER_MANUAL_MARK',
+            teacherToken: auth.token,
+            classId: classId,
+            studentId: markedStudents[i].studentId,
+            status: '-',
+            targetSessionId: prevSesId
+          });
+        }
+        if (res.activeSession.isOpen) {
+          res = await callBackend(auth.apiUrl, {
+            action: 'TEACHER_CONTROL_SESSION',
+            teacherToken: auth.token,
+            classId: classId,
+            subAction: 'CLOSE_NOW'
+          }) || res;
+        } else {
+          await callBackend(auth.apiUrl, {
+            action: 'TEACHER_REBUILD_SHEET',
+            teacherToken: auth.token,
+            classId: classId
+          });
+        }
+        if (res && Array.isArray(res.roster)) {
+          res.roster.forEach(s => {
+            s.status = '-';
+            s.time = '';
+            s.distance = '';
+          });
+        }
+        if (res && res.activeSession) {
+          res.activeSession.isOpen = false;
+        }
+        await applyTeacherState(res, false);
+        showStatus(
+          isEn
+            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.6.6.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.6.6.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+          'warn',
+          'tea-session-inline-status'
+        );
+        return;
       }
-      if (res.activeSession.isOpen) {
-        res = await callBackend(auth.apiUrl, {
-          action: 'TEACHER_CONTROL_SESSION',
-          teacherToken: auth.token,
-          classId: classId,
-          subAction: 'CLOSE_NOW'
-        }) || res;
-      } else {
-        await callBackend(auth.apiUrl, {
-          action: 'TEACHER_REBUILD_SHEET',
-          teacherToken: auth.token,
-          classId: classId
-        });
-      }
-      if (res && Array.isArray(res.roster)) {
-        res.roster.forEach(s => {
-          s.status = '-';
-          s.time = '';
-          s.distance = '';
-        });
-      }
-      if (res && res.activeSession) {
-        res.activeSession.isOpen = false;
-      }
-      await applyTeacherState(res, false);
-      showStatus(
-        isEn
-          ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.6.6.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
-          : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.6.6.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
-        'warn',
-        'tea-session-inline-status'
-      );
-      return;
-    }
 
-    if (subAction === 'REOPEN_5M' && res.activeSession && res.activeSession.sessionId) {
-      const targetEndMs = Number(res.activeSession.presentUntilMs || (Date.now() + 5 * 60 * 1000));
-      reopen5mCapBySession[res.activeSession.sessionId] = targetEndMs;
-      res.activeSession.closesAtMs = targetEndMs;
-    } else if ((subAction === 'CLOSE_NOW' || subAction === 'CANCEL_MISTAKEN_SESSION') && prevSesId) {
-      delete reopen5mCapBySession[prevSesId];
-    }
-    await applyTeacherState(res, false);
-    if (typeof pulseButtonConfirm === 'function') {
-      if (subAction === 'EXTEND_2M') {
-        pulseButtonConfirm('btn-tea-extend', isEn ? '+2 MINS ADDED' : 'ĐÃ +2 PHÚT', 'success', 1200);
-      } else if (subAction === 'REOPEN_5M') {
-        pulseButtonConfirm('btn-tea-reopen', isEn ? 'REOPENED 5M' : 'ĐÃ MỞ LẠI 5 PHÚT', 'success', 1200);
-      } else if (subAction === 'OPEN_ROUND_2') {
-        showStatus(
-          isEn
-            ? `Opened Round 2 verification check-in (${extra.qrMode === 'PIN_10S' ? '10s Rotating PIN' : '1-Tap GPS'}).`
-            : `Đã mở điểm danh Lần 2 (${extra.qrMode === 'PIN_10S' ? 'Mã PIN 10 giây' : '1-Chạm GPS'}).`,
-          'success',
-          'tea-session-inline-status'
-        );
-      } else if (subAction === 'SET_QR_MODE') {
-        showStatus(
-          isEn
-            ? 'Switched Round 2 to 1-Tap GPS (No PIN required). Previous PIN check-ins are preserved.'
-            : 'Đã chuyển Phiên 2 về chế độ 1-Chạm (Không cần PIN). Sinh viên đã nhập đúng PIN trước đó được giữ nguyên.',
-          'success',
-          'tea-session-inline-status'
-        );
-      } else if (subAction === 'CLOSE_NOW') {
-        pulseButtonConfirm('btn-tea-close', isEn ? 'SESSION CLOSED' : 'ĐÃ ĐÓNG PHIÊN', 'danger', 1200);
-      } else if (subAction === 'CANCEL_MISTAKEN_SESSION') {
-        pulseButtonConfirm('btn-tea-cancel-mistaken', isEn ? 'SESSION DELETED' : 'ĐÃ HỦY PHIÊN NHẦM', 'danger', 1300);
+      await applyTeacherState(res, false);
+      if (typeof pulseButtonConfirm === 'function') {
+        if (subAction === 'EXTEND_2M') {
+          pulseButtonConfirm('btn-tea-extend', isEn ? '+2 MINS ADDED' : 'ĐÃ +2 PHÚT', 'success', 1200);
+        } else if (subAction === 'OPEN_ROUND_2') {
+          showStatus(
+            isEn
+              ? `Opened Round 2 verification check-in (${extra.qrMode === 'PIN_10S' ? '10s Rotating PIN' : '1-Tap GPS'}).`
+              : `Đã mở điểm danh Lần 2 (${extra.qrMode === 'PIN_10S' ? 'Mã PIN 10 giây' : '1-Chạm GPS'}).`,
+            'success',
+            'tea-session-inline-status'
+          );
+        } else if (subAction === 'SET_QR_MODE') {
+          const isPinMode = String(extra.qrMode || '').toUpperCase() === 'PIN_10S';
+          showStatus(
+            isPinMode
+              ? (isEn
+                  ? 'Re-enabled 10s Rotating PIN for Round 2.'
+                  : 'Đã bật lại chế độ Mã PIN 10 giây cho Phiên 2.')
+              : (isEn
+                  ? 'Switched Round 2 to 1-Tap GPS (No PIN required). Previous PIN check-ins are preserved.'
+                  : 'Đã chuyển Phiên 2 về chế độ 1-Chạm (Không cần PIN). Sinh viên đã nhập đúng PIN trước đó được giữ nguyên.'),
+            'success',
+            'tea-session-inline-status'
+          );
+        } else if (subAction === 'CLOSE_NOW') {
+          pulseButtonConfirm('btn-tea-close', isEn ? 'SESSION CLOSED' : 'ĐÃ ĐÓNG PHIÊN', 'danger', 1200);
+        } else if (subAction === 'CANCEL_MISTAKEN_SESSION') {
+          pulseButtonConfirm('btn-tea-cancel-mistaken', isEn ? 'SESSION DELETED' : 'ĐÃ HỦY PHIÊN NHẦM', 'danger', 1300);
+        }
       }
-    }
-    if (subAction === 'CANCEL_MISTAKEN_SESSION') {
+      if (subAction === 'CANCEL_MISTAKEN_SESSION') {
+        showStatus(
+          isEn
+            ? `Cancelled and removed the mistaken session for ${classId}.`
+            : `Đã hủy và xóa bỏ hoàn toàn phiên mở nhầm của lớp ${classId}.`,
+          'success',
+          'tea-session-inline-status'
+        );
+      }
+    } else if (res && res.code) {
       showStatus(
-        isEn
-          ? `Cancelled and removed the mistaken session for ${classId}.`
-          : `Đã hủy và xóa bỏ hoàn toàn phiên mở nhầm của lớp ${classId}.`,
-        'success',
+        formatServerMessage(res.code, res.params || {}, res.message || ''),
+        'err',
         'tea-session-inline-status'
       );
     }
-  } else if (res && res.code) {
-    showStatus(
-      formatServerMessage(res.code, res.params || {}, res.message || ''),
-      'err',
-      'tea-session-inline-status'
-    );
+  } finally {
+    teacherControlInFlightCount = Math.max(0, teacherControlInFlightCount - 1);
+    const curSes = teacherState ? teacherState.activeSession : null;
+    syncSessionControlButtonsState(curSes, Boolean(classId));
   }
 }
 
@@ -1221,17 +1240,23 @@ function detectCoCheckInSuspects(roster) {
   const suspectMap = {};
   const isEn = currentLang === 'en';
   (roster || []).forEach(s => {
-    if (s.source && String(s.source).startsWith('SUSPECT_WITH_')) {
-      const parts = String(s.source).split('|');
-      const partnerId = parts[0].replace('SUSPECT_WITH_', '');
-      const defaultReason = isEn
-        ? `Duplicate device or coordinates with ${partnerId}`
-        : `Trùng thiết bị hoặc tọa độ với ${partnerId}`;
-      suspectMap[s.studentId] = parts[1] || defaultReason;
-      if (partnerId && partnerId !== 'DEVTOOLS' && !suspectMap[partnerId]) {
-        suspectMap[partnerId] = isEn
-          ? `Duplicate device or coordinates with ${s.studentId}`
-          : `Trùng thiết bị hoặc tọa độ với ${s.studentId}`;
+    const rawSources = [s.source, s.p2Source, s.p1Source];
+    for (let i = 0; i < rawSources.length; i++) {
+      const srcStr = String(rawSources[i] || '');
+      if (srcStr.startsWith('SUSPECT_WITH_') || srcStr.startsWith('SUSPECT_PIN_RELAY')) {
+        const parts = srcStr.split('|');
+        const isCoCheck = parts[0].startsWith('SUSPECT_WITH_');
+        const partnerId = isCoCheck ? parts[0].replace('SUSPECT_WITH_', '') : '';
+        const defaultReason = isEn
+          ? `Duplicate device or coordinates with ${partnerId}`
+          : `Trùng thiết bị hoặc tọa độ với ${partnerId}`;
+        suspectMap[s.studentId] = parts[1] || defaultReason;
+        if (isCoCheck && partnerId && partnerId !== 'DEVTOOLS' && partnerId !== 'PIN_RELAY' && !suspectMap[partnerId]) {
+          suspectMap[partnerId] = isEn
+            ? `Duplicate device or coordinates with ${s.studentId}`
+            : `Trùng thiết bị hoặc tọa độ với ${s.studentId}`;
+        }
+        break;
       }
     }
   });

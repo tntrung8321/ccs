@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.2)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.3)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -710,6 +710,7 @@ const I18N = {
     stu_round2_checkin_btn: "ĐIỂM DANH LẦN 2",
     PIN_EXPIRED: "[MÃ PIN HẾT HẠN] Mã PIN 10 giây vừa đổi. Vui lòng nhìn bảng chiếu và nhập lại 4 số mới.",
     PIN_WRONG: "[SAI MÃ PIN] Mã PIN 4 số không khớp với bảng chiếu. Vui lòng nhập lại.",
+    PIN_LOCKED: "[TẠM KHÓA MÃ PIN] Bạn đã nhập sai mã PIN quá nhiều lần. Vui lòng chờ {seconds} giây rồi nhìn bảng chiếu nhập lại.",
     ERR_PIN_REQUIRED: "[YÊU CẦU MÃ PIN] Phiên điểm danh Lần 2 đang bật Mã PIN 10 giây. Vui lòng nhập 4 số trên bảng chiếu.",
     ERR_P1_STILL_OPEN: "[CHƯA ĐÓNG PHIÊN 1] Vui lòng đóng Phiên 1 trước khi mở điểm danh Lần 2.",
     ERR_ROUND2_ALREADY_USED: "[ĐÃ DÙNG LẦN 2] Mỗi buổi học chỉ mở tối đa 1 lần điểm danh Lần 2.",
@@ -812,6 +813,7 @@ const I18N = {
     stu_round2_checkin_btn: "CHECK-IN ROUND 2",
     PIN_EXPIRED: "[PIN EXPIRED] The 10-second PIN just rotated. Please check the projector and enter the new 4 digits.",
     PIN_WRONG: "[WRONG PIN] The 4-digit PIN does not match the projector. Please re-enter.",
+    PIN_LOCKED: "[PIN TEMPORARILY LOCKED] Too many incorrect PIN attempts. Please wait {seconds}s and check the projector.",
     ERR_PIN_REQUIRED: "[PIN REQUIRED] Round 2 check-in requires the 10-second PIN shown on the projector.",
     ERR_P1_STILL_OPEN: "[ROUND 1 OPEN] Please close Round 1 before opening Round 2.",
     ERR_ROUND2_ALREADY_USED: "[ROUND 2 USED] Maximum 1 Round 2 session per class day.",

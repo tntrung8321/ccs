@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.2)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.3)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.7.2';
+const SYSTEM_VERSION = '3.7.3';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -20,7 +20,7 @@ const TAB_ATTEND    = 'Attendance_Log';
 const TAB_AUDIT     = 'Audit_Log';
 const TAB_PIN_LOG   = 'Pin_Check_Log';
 const SYSTEM_TABS   = [TAB_DASHBOARD, TAB_CLASSES, TAB_DEVICES, TAB_SESSIONS, TAB_ATTEND, TAB_AUDIT, TAB_PIN_LOG];
-var PIN_GRACE_MS    = 1500;
+var PIN_GRACE_MS    = 2500;
 
 /**
  * 1. GOOGLE SHEETS CUSTOM MENU
@@ -440,6 +440,7 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  const reqArrivalMs = Date.now();
   try {
     if (!e || !e.postData || !e.postData.contents) {
       return jsonResponse({ ok: false, code: 'ERR_EMPTY_BODY', message: 'Empty request payload.' });
@@ -447,6 +448,17 @@ function doPost(e) {
 
     const body = JSON.parse(e.postData.contents);
     const action = String(body.action || '').trim().toUpperCase();
+    if (action === 'PING' && body && body.clockOnly) {
+      const nowMs = Date.now();
+      return jsonResponse({
+        ok: true,
+        code: 'PONG',
+        version: SYSTEM_VERSION,
+        serverTimeMs: nowMs,
+        serverNowMs: nowMs,
+        serverTime: new Date(nowMs).toISOString()
+      });
+    }
     const ss = SpreadsheetApp.getActiveSpreadsheet();
 
     switch (action) {
@@ -455,7 +467,7 @@ function doPost(e) {
       case 'STUDENT_ONBOARD':
         return handleStudentOnboard(ss, body);
       case 'STUDENT_CHECKIN':
-        return handleStudentCheckIn(ss, body);
+        return handleStudentCheckIn(ss, body, reqArrivalMs);
       case 'CHECK_RECEIPT':
         return handleCheckReceipt(ss, body);
 
@@ -529,7 +541,18 @@ function isRound2Session_(sessionId, sessionLabel) {
 }
 
 function getRound2PinSeed_(secret, sessionId) {
-  return sha256Hex(String(secret || '') + '|R2SEED|' + String(sessionId || '')).slice(0, 24);
+  let srvSalt = '';
+  try {
+    const cache = CacheService.getScriptCache();
+    srvSalt = cache.get('SRV_PIN_SALT_V373') || '';
+    if (!srvSalt) {
+      srvSalt = PropertiesService.getScriptProperties().getProperty('TEACHER_MASTER_KEY') || 'CCS_R2_SRV_SALT';
+      cache.put('SRV_PIN_SALT_V373', srvSalt, 21600);
+    }
+  } catch (e) {
+    srvSalt = 'CCS_R2_SRV_SALT';
+  }
+  return sha256Hex(String(secret || '') + '|R2SEED|' + String(sessionId || '') + '|' + srvSalt).slice(0, 24);
 }
 
 function computePin4FromSeed(seed, bucket10s) {
@@ -642,6 +665,7 @@ function handlePing(ss, body) {
     ? getStudentAttendanceStatsMap(ss, studentId, Object.keys(classes), false)
     : undefined;
 
+  const nowPingMs = Date.now();
   return jsonResponse({
     ok: true,
     code: 'PONG',
@@ -652,7 +676,9 @@ function handlePing(ss, body) {
     studentStats: studentStats,
     calendarEvents: getTodayCalendarEventsCached(),
     classSchedules: scheduleMetaMap,
-    serverTime: new Date().toISOString()
+    serverTimeMs: nowPingMs,
+    serverNowMs: nowPingMs,
+    serverTime: new Date(nowPingMs).toISOString()
   });
 }
 
@@ -821,7 +847,7 @@ function handleStudentOnboard(ss, body) {
     }
 
     devSheet.appendRow([studentId, canonicalName, credHash, nowIso, 'ACTIVE', 0, '']);
-    cache.put('DEV_HASH_' + studentId, credHash, 180);
+    cache.put('DEV_HASH_' + studentId, credHash, 21600);
 
     return jsonResponse({
       ok: true,
@@ -836,7 +862,8 @@ function handleStudentOnboard(ss, body) {
   }
 }
 
-function handleStudentCheckIn(ss, body) {
+function handleStudentCheckIn(ss, body, reqArrivalMs) {
+  const arrivalMs  = (typeof reqArrivalMs === 'number' && reqArrivalMs > 0) ? reqArrivalMs : Date.now();
   const studentId  = normalizeId(body.studentId);
   let classId      = String(body.classId || '').trim();
   const clientCred = String(body.credential || '').trim();
@@ -944,15 +971,18 @@ function handleStudentCheckIn(ss, body) {
         });
       }
       if (rec && rec.status && rec.status !== '-') {
-        try { cache.remove(spamKey); } catch (e) {}
-        if (!rec.attendanceStats) {
-          rec.attendanceStats = getStudentClassAttendanceStats(ss, classId, studentId, false);
+        const canUpgradeLate = rec.status === 'L' && rec.source !== 'TEACHER_MANUAL' && (isRound2Session_(activeSession.sessionId, activeSession.sessionLabel) || Date.now() <= activeSession.presentUntilMs);
+        if (!canUpgradeLate) {
+          try { cache.remove(spamKey); } catch (e) {}
+          if (!rec.attendanceStats) {
+            rec.attendanceStats = getStudentClassAttendanceStats(ss, classId, studentId, false);
+          }
+          return jsonResponse({
+            ok: true,
+            code: rec.requestId === requestId ? ('CONFIRMED_' + (rec.status === 'P' ? 'PRESENT' : 'LATE')) : 'ALREADY_RECORDED',
+            receipt: rec
+          });
         }
-        return jsonResponse({
-          ok: true,
-          code: rec.requestId === requestId ? ('CONFIRMED_' + (rec.status === 'P' ? 'PRESENT' : 'LATE')) : 'ALREADY_RECORDED',
-          receipt: rec
-        });
       }
     } catch (e) {}
   }
@@ -967,16 +997,22 @@ function handleStudentCheckIn(ss, body) {
       qrMode: 'PIN_10S'
     });
   }
-  const qrValid = verifyClassroomQr(qrPayload, classConfig, activeSession, undefined, ss, studentId);
+  const qrValid = verifyClassroomQr(qrPayload, classConfig, activeSession, arrivalMs, ss, studentId);
   if (!qrValid) {
     cache.remove(spamKey);
-    const pinErrCode = (activeSession && activeSession._lastPinEval && activeSession._lastPinEval.code)
-      ? activeSession._lastPinEval.code
+    const pinEval = (activeSession && activeSession._lastPinEval) ? activeSession._lastPinEval : null;
+    if (activeSession.qrMode === 'PIN_10S' && pinEval && pinEval.code !== 'PIN_LOCKED') {
+      logPinCheckAttempt_(ss, activeSession, classConfig, studentId, pinEval.cleanedPin, pinEval.serverBucket, pinEval.studentBucket, pinEval.offsetIntoBucketMs, pinEval.deltaMs, pinEval.graceMs, pinEval.code);
+    }
+    const pinErrCode = (pinEval && pinEval.code)
+      ? pinEval.code
       : 'PIN_WRONG';
     return jsonResponse({
       ok: false,
       code: activeSession.qrMode === 'PIN_10S' ? pinErrCode : 'ERR_INVALID_QR',
-      pinEval: activeSession && activeSession._lastPinEval ? activeSession._lastPinEval : undefined
+      params: pinEval && pinEval.params ? pinEval.params : undefined,
+      message: pinEval && pinEval.message ? pinEval.message : undefined,
+      pinEval: pinEval || undefined
     });
   }
 
@@ -1110,7 +1146,7 @@ function handleStudentCheckIn(ss, body) {
             if (activeSession.rowIndex) {
               ss.getSheetByName(TAB_SESSIONS).getRange(activeSession.rowIndex, 8, 1, 2).setValues([[avgLat, avgLng]]);
             }
-            invalidateClassCache(classId);
+            cache.removeAll(['ALL_LATEST_SES_V373', 'ALL_LATEST_SES_V35']);
           } catch (e) {}
         }
       } else if (effectiveDist > activeSession.radiusMeters) {
@@ -1153,15 +1189,18 @@ function handleStudentCheckIn(ss, body) {
         });
       }
       if (existingRecord.status !== '-') {
-        if (!existingRecord.attendanceStats) {
-          existingRecord.attendanceStats = getStudentClassAttendanceStats(ss, classId, studentId, false);
+        const canUpgradeLate = existingRecord.status === 'L' && existingRecord.source !== 'TEACHER_MANUAL' && (isRound2Session_(activeSession.sessionId, activeSession.sessionLabel) || Date.now() <= activeSession.presentUntilMs);
+        if (!canUpgradeLate) {
+          if (!existingRecord.attendanceStats) {
+            existingRecord.attendanceStats = getStudentClassAttendanceStats(ss, classId, studentId, false);
+          }
+          cache.put(sesStuKey, JSON.stringify(existingRecord), 1800);
+          return jsonResponse({
+            ok: true,
+            code: existingRecord.requestId === requestId ? ('CONFIRMED_' + (existingRecord.status === 'P' ? 'PRESENT' : 'LATE')) : 'ALREADY_RECORDED',
+            receipt: existingRecord
+          });
         }
-        cache.put(sesStuKey, JSON.stringify(existingRecord), 1800);
-        return jsonResponse({
-          ok: true,
-          code: existingRecord.requestId === requestId ? ('CONFIRMED_' + (existingRecord.status === 'P' ? 'PRESENT' : 'LATE')) : 'ALREADY_RECORDED',
-          receipt: existingRecord
-        });
       }
     }
 
@@ -1170,8 +1209,22 @@ function handleStudentCheckIn(ss, body) {
     let sourceLabel = 'STUDENT_APP';
     const suspectReasons = [];
 
+    const isRound2CheckIn = isRound2Session_(activeSession.sessionId, activeSession.sessionLabel);
     if (clientMeta && clientMeta.mockGpsSuspect) {
       suspectReasons.push('SUSPECT_WITH_DEVTOOLS|Can thiệp định vị (' + (clientMeta.mockReason || 'Mock') + ')');
+    }
+    if (isRound2CheckIn && activeSession.qrMode === 'PIN_10S' && activeSession._lastPinEval && clientMeta) {
+      const firstKeyIdleMs = Number(clientMeta.firstKeyIdleMs || 0);
+      const pinAgeMs = Number(activeSession._lastPinEval.pinAgeMs || 0);
+      if (firstKeyIdleMs >= 5000 && pinAgeMs >= 6500) {
+        suspectReasons.push(
+          'SUSPECT_PIN_RELAY|Nghi vấn nhận PIN qua tin nhắn (Chờ ' +
+          (firstKeyIdleMs / 1000).toFixed(1) +
+          's, nộp cuối chu kỳ ' +
+          (pinAgeMs / 1000).toFixed(1) +
+          's)'
+        );
+      }
     }
 
     const recentKey = 'RECENT_CHK_' + activeSession.sessionId;
@@ -1217,7 +1270,6 @@ function handleStudentCheckIn(ss, body) {
     if (recentList.length > 40) recentList = recentList.slice(-40);
     try { cache.put(recentKey, JSON.stringify(recentList), 600); } catch (e) {}
 
-    const isRound2CheckIn = isRound2Session_(activeSession.sessionId, activeSession.sessionLabel);
     const status = isRound2CheckIn ? 'P' : (nowMs <= activeSession.presentUntilMs ? 'P' : 'L');
     const timeStr = Utilities.formatDate(new Date(nowMs), TIMEZONE, 'HH:mm:ss');
     const attendanceId = 'ATT_' + generateRandomToken(10);
@@ -1236,9 +1288,8 @@ function handleStudentCheckIn(ss, body) {
       sourceLabel
     ]);
 
-    const newRowIdx = attSheet.getLastRow();
     updateSessionAttendanceMapCache_(activeSession.sessionId, studentId, {
-      rowIndex: newRowIdx,
+      rowIndex: 0,
       attendanceId: attendanceId,
       requestId: requestId,
       sessionId: activeSession.sessionId,
@@ -1250,9 +1301,8 @@ function handleStudentCheckIn(ss, body) {
       accuracy: Math.round(accuracy),
       source: sourceLabel
     });
-    invalidateClassAttendanceStatsCache_(classId);
 
-    const updatedStats = getStudentClassAttendanceStats(ss, classId, studentId, false);
+    const updatedStats = updateStudentClassAttendanceStatsCacheInPlace_(classId, activeSession, studentId, status, isRound2CheckIn);
 
     const receipt = {
       attendanceId: attendanceId,
@@ -1275,6 +1325,11 @@ function handleStudentCheckIn(ss, body) {
       cache.put(sesStuKey, JSON.stringify(receipt), 1800);
       cache.put('REQ_REC_' + requestId, JSON.stringify(receipt), 600);
     } catch (e) {}
+
+    if (activeSession.qrMode === 'PIN_10S' && activeSession._lastPinEval) {
+      const pe = activeSession._lastPinEval;
+      logPinCheckAttempt_(ss, activeSession, classConfig, studentId, pe.cleanedPin, pe.serverBucket, pe.studentBucket, pe.offsetIntoBucketMs, pe.deltaMs, pe.graceMs, pe.code);
+    }
 
     return jsonResponse({
       ok: true,
@@ -1817,7 +1872,11 @@ function handleTeacherControlSession(ss, body) {
     SpreadsheetApp.flush();
     logAudit(ss, 'TEACHER', 'CANCEL_MISTAKEN_SESSION', classId, 'Deleted mistaken session(s): ' + Object.keys(deletedSesIds).join(', '));
   } else if (subAction === 'CLOSE_NOW') {
-    sesSheet.getRange(targetRow, 7).setValue(formatIso(nowMs));
+    const curPresent = parseSheetTimeMs(rowVals[4]);
+    const curClose   = parseSheetTimeMs(rowVals[5]);
+    const clampedPresent = curPresent > 0 ? Math.min(curPresent, nowMs) : nowMs;
+    const clampedClose   = curClose > 0 ? Math.min(curClose, nowMs) : nowMs;
+    sesSheet.getRange(targetRow, 5, 1, 3).setValues([[formatIso(clampedPresent), formatIso(clampedClose), formatIso(nowMs)]]);
     if (sesDayKey && targetSesId && !isRound2Session_(targetSesId, rowVals[2])) {
       const checks = getSessionAttendanceMap(ss, targetSesId, true);
       const hasRealMark = Object.values(checks).some(rec => rec && (rec.status === 'P' || rec.status === 'L' || rec.status === 'E'));
@@ -1857,7 +1916,7 @@ function handleTeacherControlSession(ss, body) {
     const roomLat = Number(p1Ses.roomLat || cfg.roomLat || 0);
     const roomLng = Number(p1Ses.roomLng || cfg.roomLng || 0);
     const radiusMeters = Number(p1Ses.radiusMeters || cfg.radiusMeters || 100);
-    const round2Mins = Math.min(30, Math.max(1, Number(body.round2Mins || 3)));
+    const round2Mins = Math.min(30, Math.max(1, Number(body.durationMinutes || body.round2Mins || 3)));
     const reqQrMode = String(body.qrMode || 'STATIC').toUpperCase();
     const p2QrMode = (reqQrMode === 'PIN_10S' || reqQrMode === 'ROTATING') ? reqQrMode : 'STATIC';
     const presentUntilMs = nowMs + round2Mins * 60 * 1000;
@@ -1908,14 +1967,25 @@ function handleTeacherControlSession(ss, body) {
   } else if (subAction === 'EXTEND_2M') {
     const curPresent = parseSheetTimeMs(rowVals[4]);
     const curClose   = parseSheetTimeMs(rowVals[5]);
-    if (nowMs <= curPresent) {
-      const newPresent = curPresent + 2 * 60 * 1000;
-      const newClose   = Math.max(curClose, newPresent) + 2 * 60 * 1000;
-      sesSheet.getRange(targetRow, 5, 1, 3).setValues([[formatIso(newPresent), formatIso(newClose), '']]);
+    const isR2       = isRound2Session_(targetSesId, rowVals[2]);
+    const addMs      = 2 * 60 * 1000;
+    let newPresent, newClose;
+
+    if (!isTargetOpen) {
+      newPresent = nowMs + addMs;
+      newClose   = newPresent;
+    } else if (isR2) {
+      newClose   = curClose + addMs;
+      newPresent = newClose;
+    } else if (nowMs <= curPresent) {
+      const lateTailMs = Math.max(0, curClose - curPresent);
+      newPresent = curPresent + addMs;
+      newClose   = newPresent + lateTailMs;
     } else {
-      const newClose = Math.max(nowMs, curClose) + 2 * 60 * 1000;
-      sesSheet.getRange(targetRow, 6, 1, 2).setValues([[formatIso(newClose), '']]);
+      newPresent = nowMs + addMs;
+      newClose   = Math.max(curClose, newPresent);
     }
+    sesSheet.getRange(targetRow, 5, 1, 3).setValues([[formatIso(newPresent), formatIso(newClose), '']]);
     invalidateClassCache(classId);
   } else if (subAction === 'REOPEN_5M') {
     const todayBundle = getTodayClassSessionsBundle_(ss, classId, todayDayKey);
@@ -2262,7 +2332,7 @@ function handleTeacherRebuildReport(ss, body) {
  * ============================================================================
  */
 function buildBaseCacheKeysToClear_(extraKeys) {
-  const keys = ['ALL_LATEST_SES_V35'].concat(Array.isArray(extraKeys) ? extraKeys : []);
+  const keys = ['ALL_LATEST_SES_V373', 'ALL_LATEST_SES_V35', 'CLASSES_MAP_V373'].concat(Array.isArray(extraKeys) ? extraKeys : []);
   for (let r = 1; r <= 30; r++) keys.push('CLASSES_MAP_V32_' + r);
   return keys;
 }
@@ -2275,7 +2345,7 @@ function invalidateSystemCache() {
 
 function invalidateClassCache(classId) {
   try {
-    const extra = classId ? ['CLASS_ATT_STATS_V36_' + classId] : [];
+    const extra = classId ? ['CLASS_ATT_STATS_V36_' + classId, 'ROSTER_MAP_V373_' + classId] : [];
     CacheService.getScriptCache().removeAll(buildBaseCacheKeysToClear_(extra));
   } catch (e) {}
 }
@@ -2294,8 +2364,6 @@ function logPinCheckAttempt_(ss, activeSession, classConfig, studentId, submitte
     let pinSheet = doc.getSheetByName(TAB_PIN_LOG);
     if (!pinSheet) {
       pinSheet = doc.insertSheet(TAB_PIN_LOG);
-      pinSheet.appendRow(['Timestamp', 'Session_ID', 'Class_ID', 'Student_ID', 'Submitted_PIN', 'Server_Bucket', 'Student_Bucket', 'Offset_Into_Bucket_ms', 'Delta_Ms', 'PIN_Grace_Ms', 'Result']);
-    } else if (pinSheet.getLastRow() === 0) {
       pinSheet.appendRow(['Timestamp', 'Session_ID', 'Class_ID', 'Student_ID', 'Submitted_PIN', 'Server_Bucket', 'Student_Bucket', 'Offset_Into_Bucket_ms', 'Delta_Ms', 'PIN_Grace_Ms', 'Result']);
     }
     pinSheet.appendRow([
@@ -2318,23 +2386,63 @@ function evaluateRound2Pin10s_(ss, scannedText, classConfig, activeSession, chec
   const secret = classConfig.activeQrSecret;
   const rawStr = String(scannedText || '').trim();
   const cleanedPin = rawStr.replace(/^PIN10:/i, '').trim();
-  const graceMs = (typeof PIN_GRACE_MS === 'number' && !isNaN(PIN_GRACE_MS)) ? PIN_GRACE_MS : 1500;
+  const graceMs = (typeof PIN_GRACE_MS === 'number' && !isNaN(PIN_GRACE_MS)) ? PIN_GRACE_MS : 2500;
   const serverBucket = Math.floor(checkMs / 10000);
   const offsetIntoBucketMs = ((checkMs % 10000) + 10000) % 10000;
 
-  if (!/^\d{4}$/.test(cleanedPin)) {
-    const resInvalid = {
+  const cache = CacheService.getScriptCache();
+  const guardKey = 'PIN_GUARD_' + String(activeSession.sessionId || '') + '_' + String(studentId || '');
+  let guard = { wrongCount: 0, lockedUntilMs: 0 };
+  try {
+    const rawGuard = cache.get(guardKey);
+    if (rawGuard) guard = JSON.parse(rawGuard) || guard;
+  } catch (e) {}
+
+  if (guard.lockedUntilMs && checkMs < guard.lockedUntilMs) {
+    const waitSec = Math.max(1, Math.ceil((guard.lockedUntilMs - checkMs) / 1000));
+    return {
       ok: false,
-      code: 'PIN_WRONG',
+      code: 'PIN_LOCKED',
+      params: { seconds: waitSec },
+      message: '[TẠM KHÓA MÃ PIN] Bạn đã nhập sai mã PIN quá nhiều lần. Vui lòng chờ ' + waitSec + ' giây rồi nhìn bảng chiếu nhập lại.',
       serverBucket: serverBucket,
       studentBucket: null,
       offsetIntoBucketMs: offsetIntoBucketMs,
       deltaMs: null,
       graceMs: graceMs,
-      result: 'PIN_WRONG'
+      pinAgeMs: 0,
+      cleanedPin: cleanedPin,
+      result: 'PIN_LOCKED'
     };
-    logPinCheckAttempt_(ss, activeSession, classConfig, studentId, cleanedPin, serverBucket, '', offsetIntoBucketMs, '', graceMs, 'PIN_WRONG');
-    return resInvalid;
+  }
+
+  if (!/^\d{4}$/.test(cleanedPin)) {
+    guard.wrongCount = Number(guard.wrongCount || 0) + 1;
+    let outCode = 'PIN_WRONG';
+    let outParams = undefined;
+    let outMsg = undefined;
+    if (guard.wrongCount >= 4) {
+      guard.lockedUntilMs = checkMs + 25000;
+      guard.wrongCount = 0;
+      outCode = 'PIN_LOCKED';
+      outParams = { seconds: 25 };
+      outMsg = '[TẠM KHÓA MÃ PIN] Bạn đã nhập sai mã PIN quá nhiều lần. Vui lòng chờ 25 giây rồi nhìn bảng chiếu nhập lại.';
+    }
+    try { cache.put(guardKey, JSON.stringify(guard), 300); } catch (e) {}
+    return {
+      ok: false,
+      code: outCode,
+      params: outParams,
+      message: outMsg,
+      serverBucket: serverBucket,
+      studentBucket: null,
+      offsetIntoBucketMs: offsetIntoBucketMs,
+      deltaMs: null,
+      graceMs: graceMs,
+      pinAgeMs: 0,
+      cleanedPin: cleanedPin,
+      result: outCode
+    };
   }
 
   const seed = getRound2PinSeed_(secret, activeSession.sessionId);
@@ -2369,7 +2477,7 @@ function evaluateRound2Pin10s_(ss, scannedText, classConfig, activeSession, chec
     deltaMs = (serverBucket - (matchedBucket + 1)) * 10000 + offsetIntoBucketMs;
     ok = false;
     code = 'PIN_EXPIRED';
-  } else if (matchedBucket === (serverBucket + 1) && (10000 - offsetIntoBucketMs) <= graceMs) {
+  } else if (matchedBucket === (serverBucket + 1) && (10000 - offsetIntoBucketMs) <= Math.min(graceMs, 2000)) {
     deltaMs = -(10000 - offsetIntoBucketMs);
     ok = true;
     code = 'PIN_OK';
@@ -2378,15 +2486,40 @@ function evaluateRound2Pin10s_(ss, scannedText, classConfig, activeSession, chec
     code = 'PIN_WRONG';
   }
 
-  logPinCheckAttempt_(ss, activeSession, classConfig, studentId, cleanedPin, serverBucket, matchedBucket, offsetIntoBucketMs, deltaMs, graceMs, code);
+  let outParams = undefined;
+  let outMsg = undefined;
+  if (ok) {
+    if (guard.wrongCount > 0 || guard.lockedUntilMs > 0) {
+      try { cache.remove(guardKey); } catch (e) {}
+    }
+  } else if (code === 'PIN_WRONG') {
+    guard.wrongCount = Number(guard.wrongCount || 0) + 1;
+    if (guard.wrongCount >= 4) {
+      guard.lockedUntilMs = checkMs + 25000;
+      guard.wrongCount = 0;
+      code = 'PIN_LOCKED';
+      outParams = { seconds: 25 };
+      outMsg = '[TẠM KHÓA MÃ PIN] Bạn đã nhập sai mã PIN quá nhiều lần. Vui lòng chờ 25 giây rồi nhìn bảng chiếu nhập lại.';
+    }
+    try { cache.put(guardKey, JSON.stringify(guard), 300); } catch (e) {}
+  }
+
+  const pinAgeMs = matchedBucket === serverBucket
+    ? offsetIntoBucketMs
+    : (matchedBucket === (serverBucket - 1) ? (10000 + offsetIntoBucketMs) : 0);
+
   return {
     ok: ok,
     code: code,
+    params: outParams,
+    message: outMsg,
     serverBucket: serverBucket,
     studentBucket: matchedBucket,
     offsetIntoBucketMs: offsetIntoBucketMs,
     deltaMs: deltaMs,
     graceMs: graceMs,
+    pinAgeMs: pinAgeMs,
+    cleanedPin: cleanedPin,
     result: code
   };
 }
@@ -2467,7 +2600,7 @@ function verifyStudentCredential(ss, studentId, clientCred, precomputedHash, can
     const rowStatus = String(existingRowData[4]);
     if (rowStatus === 'ACTIVE') {
       if (rowHash === credHash) {
-        cache.put('DEV_HASH_' + studentId, credHash, 180);
+        cache.put('DEV_HASH_' + studentId, credHash, 21600);
         return { ok: true };
       }
       return { ok: false, code: 'ERR_CREDENTIAL_MISMATCH' };
@@ -2475,13 +2608,13 @@ function verifyStudentCredential(ss, studentId, clientCred, precomputedHash, can
     // Device was REVOKED (unlocked by Lecturer) -> auto-rebind immediately on check-in!
     const nameToSave = canonicalName || String(existingRowData[1] || studentId);
     devSheet.getRange(existingStudentRow, 2, 1, 4).setValues([[nameToSave, credHash, formatIsoNow(), 'ACTIVE']]);
-    cache.put('DEV_HASH_' + studentId, credHash, 180);
+    cache.put('DEV_HASH_' + studentId, credHash, 21600);
     return { ok: true };
   }
 
   // Student was not yet in Device_Registry -> auto-bind immediately on check-in
   devSheet.appendRow([studentId, canonicalName || studentId, credHash, formatIsoNow(), 'ACTIVE', 0, '']);
-  cache.put('DEV_HASH_' + studentId, credHash, 180);
+  cache.put('DEV_HASH_' + studentId, credHash, 21600);
   return { ok: true };
 }
 
@@ -2858,15 +2991,26 @@ function rebuildSingleClassGrid(ss, classId) {
   rosterSheet.getRange(1, 1, 1, headers.length).setValues([headers])
     .setBackground('#0f766e').setFontColor('#ffffff').setFontWeight('bold');
   rosterSheet.getRange(2, 1, outRows.length, headers.length).setValues(outRows);
+  try {
+    CacheService.getScriptCache().remove('ROSTER_MAP_V373_' + classId);
+  } catch (e) {}
 }
 
 function getClassesMap(ss, bypassCache) {
+  const cache = CacheService.getScriptCache();
+  const fastKey = 'CLASSES_MAP_V373';
+  if (!bypassCache) {
+    const fastCached = cache.get(fastKey);
+    if (fastCached) {
+      try { return JSON.parse(fastCached); } catch (e) {}
+    }
+  }
+
   const sheet = ss.getSheetByName(TAB_CLASSES);
   const map = {};
   if (!sheet || sheet.getLastRow() < 2) return map;
 
   const lastRow = sheet.getLastRow();
-  const cache = CacheService.getScriptCache();
   const cacheKey = 'CLASSES_MAP_V32_' + lastRow;
 
   if (!bypassCache) {
@@ -2895,17 +3039,29 @@ function getClassesMap(ss, bypassCache) {
     }
   });
 
-  try { cache.put(cacheKey, JSON.stringify(map), 10); } catch (e) {}
+  try {
+    const serialized = JSON.stringify(map);
+    cache.put(fastKey, serialized, 120);
+    cache.put(cacheKey, serialized, 120);
+  } catch (e) {}
   return map;
 }
 
 function getClassRosterMap(ss, classId, bypassCache) {
+  const cache = CacheService.getScriptCache();
+  const fastKey = 'ROSTER_MAP_V373_' + classId;
+  if (!bypassCache) {
+    const fastCached = cache.get(fastKey);
+    if (fastCached) {
+      try { return JSON.parse(fastCached); } catch (e) {}
+    }
+  }
+
   const sheet = ss.getSheetByName(classId);
   const map = {};
   if (!sheet || sheet.getLastRow() < 2) return map;
 
   const lastRow = sheet.getLastRow();
-  const cache = CacheService.getScriptCache();
   const cacheKey = 'ROSTER_MAP_' + classId + '_' + lastRow;
 
   if (!bypassCache) {
@@ -2927,18 +3083,44 @@ function getClassRosterMap(ss, classId, bypassCache) {
     }
   });
 
-  try { cache.put(cacheKey, JSON.stringify(map), 12); } catch (e) {}
+  try {
+    const serialized = JSON.stringify(map);
+    cache.put(fastKey, serialized, 120);
+    cache.put(cacheKey, serialized, 120);
+  } catch (e) {}
   return map;
 }
 
 function getAllLatestSessionsMap(ss, bypassCache) {
+  const cache = CacheService.getScriptCache();
+  const fastKey = 'ALL_LATEST_SES_V373';
+  const cacheKey = 'ALL_LATEST_SES_V35';
+  const nowMs = Date.now();
+
+  if (!bypassCache) {
+    const fastCached = cache.get(fastKey);
+    if (fastCached) {
+      try {
+        const parsed = JSON.parse(fastCached);
+        if (parsed && parsed.map) {
+          const out = {};
+          Object.keys(parsed.map).forEach(cid => {
+            const ses = parsed.map[cid];
+            if (ses) {
+              ses.isOpen = !ses.closedManual && nowMs <= ses.closesAtMs;
+              out[cid] = ses;
+            }
+          });
+          return out;
+        }
+      } catch (e) {}
+    }
+  }
+
   const sheet = ss.getSheetByName(TAB_SESSIONS);
   if (!sheet || sheet.getLastRow() < 2) return {};
 
   const lastRow = sheet.getLastRow();
-  const cache = CacheService.getScriptCache();
-  const cacheKey = 'ALL_LATEST_SES_V35';
-  const nowMs = Date.now();
 
   if (!bypassCache) {
     const cached = cache.get(cacheKey);
@@ -2994,7 +3176,9 @@ function getAllLatestSessionsMap(ss, bypassCache) {
   }
 
   try {
-    cache.put(cacheKey, JSON.stringify({ _lastRow: lastRow, map: map }), 15);
+    const payloadStr = JSON.stringify({ _lastRow: lastRow, map: map });
+    cache.put(fastKey, payloadStr, 120);
+    cache.put(cacheKey, payloadStr, 120);
   } catch (e) {}
 
   return map;
@@ -3076,7 +3260,7 @@ function getSessionAttendanceMap(ss, sessionId, bypassCache) {
   const sheet = ss.getSheetByName(TAB_ATTEND);
   const map = {};
   if (!sheet || sheet.getLastRow() < 2) {
-    try { cache.put(cacheKey, JSON.stringify(map), 20); } catch (e) {}
+    try { cache.put(cacheKey, JSON.stringify(map), 120); } catch (e) {}
     return map;
   }
 
@@ -3100,7 +3284,7 @@ function getSessionAttendanceMap(ss, sessionId, bypassCache) {
     }
   });
 
-  try { cache.put(cacheKey, JSON.stringify(map), 20); } catch (e) {}
+  try { cache.put(cacheKey, JSON.stringify(map), 120); } catch (e) {}
   return map;
 }
 
@@ -3113,9 +3297,88 @@ function updateSessionAttendanceMapCache_(sessionId, studentId, recObj) {
     if (raw) {
       const map = JSON.parse(raw);
       map[normalizeId(studentId)] = recObj;
-      cache.put(cacheKey, JSON.stringify(map), 25);
+      cache.put(cacheKey, JSON.stringify(map), 120);
     }
   } catch (e) {}
+}
+
+function updateStudentClassAttendanceStatsCacheInPlace_(classId, activeSession, studentId, status, isRound2CheckIn) {
+  const sid = normalizeId(studentId);
+  const fallback = {
+    P: 0, L: 0, E: 0, A: 0, total: 0,
+    equivAbsences: 0, attendanceScore: 10.0, manualExamBan: false, examStatus: 'OK', history: []
+  };
+  if (!classId || !sid) return fallback;
+  try {
+    const cache = CacheService.getScriptCache();
+    const cacheKey = 'CLASS_ATT_STATS_V36_' + classId;
+    const raw = cache.get(cacheKey);
+    if (!raw) return fallback;
+    const statsMap = JSON.parse(raw);
+    if (!statsMap || !statsMap[sid]) return fallback;
+    const st = statsMap[sid];
+    const nowMs = Date.now();
+    const openedMs = (activeSession && activeSession.openedAtMs) ? Number(activeSession.openedAtMs) : nowMs;
+    const dt = new Date(openedMs);
+    const dayKey = Utilities.formatDate(dt, TIMEZONE, 'yyyy-MM-dd');
+    const dispDate = Utilities.formatDate(dt, TIMEZONE, 'dd/MM/yyyy');
+    const cleanLabel = String((activeSession && activeSession.sessionLabel) || dayKey).replace(/_P2$/i, '');
+
+    if (!Array.isArray(st.history)) st.history = [];
+    let dayEntry = st.history.find(h => h && h.dayKey === dayKey);
+    const prevFinal = dayEntry ? dayEntry.finalStatus : null;
+
+    if (!dayEntry) {
+      dayEntry = {
+        dayKey: dayKey,
+        date: dispDate,
+        label: cleanLabel,
+        sessionId: activeSession ? String(activeSession.sessionId || '') : '',
+        p1Status: isRound2CheckIn ? '-' : status,
+        p2Status: isRound2CheckIn ? 'P' : '',
+        p2Opened: Boolean(isRound2CheckIn),
+        finalStatus: isRound2CheckIn ? 'L' : status,
+        status: isRound2CheckIn ? 'L' : status
+      };
+      st.history.push(dayEntry);
+    } else {
+      if (isRound2CheckIn) {
+        dayEntry.p2Opened = true;
+        dayEntry.p2Status = 'P';
+      } else {
+        dayEntry.p1Status = status;
+      }
+      const nextFinal = mergeAttendance(dayEntry.p1Status || '-', dayEntry.p2Status || '', Boolean(dayEntry.p2Opened));
+      dayEntry.finalStatus = nextFinal === '-' ? 'OPEN' : nextFinal;
+      dayEntry.status = dayEntry.finalStatus;
+    }
+
+    const newFinal = dayEntry.finalStatus;
+    if (prevFinal !== newFinal) {
+      if (prevFinal === 'P') { st.P = Math.max(0, st.P - 1); st.total = Math.max(0, st.total - 1); }
+      else if (prevFinal === 'L') { st.L = Math.max(0, st.L - 1); st.total = Math.max(0, st.total - 1); }
+      else if (prevFinal === 'E') { st.E = Math.max(0, st.E - 1); st.total = Math.max(0, st.total - 1); }
+      else if (prevFinal === '-') { st.A = Math.max(0, st.A - 1); st.total = Math.max(0, st.total - 1); }
+
+      if (newFinal === 'P') { st.P++; st.total++; }
+      else if (newFinal === 'L') { st.L++; st.total++; }
+      else if (newFinal === 'E') { st.E++; st.total++; }
+      else if (newFinal === '-') { st.A++; st.total++; }
+
+      const equivAbsences = Math.round((st.A + (st.E * 0.5)) * 10) / 10;
+      const attendanceScore = Math.round((10.0 - (st.A * 1.0) - (st.L * 0.5) - (st.E * 0.5)) * 10) / 10;
+      const isBanned = Boolean(st.manualExamBan) || (equivAbsences > 6.0) || (attendanceScore < 0.0);
+      const isWarn = !isBanned && ((equivAbsences >= 5.5 && equivAbsences <= 6.0) || (attendanceScore >= 0.0 && attendanceScore <= 1.0));
+      st.equivAbsences = equivAbsences;
+      st.attendanceScore = attendanceScore;
+      st.examStatus = isBanned ? 'BAN' : (isWarn ? 'WARN' : 'OK');
+    }
+
+    cache.put(cacheKey, JSON.stringify(statsMap), 1800);
+    return st;
+  } catch (e) {
+    return fallback;
+  }
 }
 
 /**

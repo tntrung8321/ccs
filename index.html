@@ -12,7 +12,7 @@
   <title>ClassCheck — Hệ Thống Điểm Danh Định Vị</title>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.7.2" />
+  <link rel="stylesheet" href="css/styles.css?v=3.7.3" />
 </head>
 <body>
 
@@ -265,7 +265,7 @@
             <div id="stu-pin-slot-2" class="stu-pin-slot"></div>
             <div id="stu-pin-slot-3" class="stu-pin-slot"></div>
           </div>
-          <input type="tel" id="inp-stu-pin10" class="stu-pin-hidden-input" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" oninput="onStudentPin10Input(this.value)" />
+          <input type="tel" id="inp-stu-pin10" class="stu-pin-hidden-input" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" onpaste="return false" ondrop="return false" oninput="onStudentPin10Input(this.value)" />
           <div class="stu-p2-pin-footer">
             <span id="stu-p2-pin-hint">Tự động nộp ngay khi gõ đủ 4 số</span>
             <button type="button" class="btn btn-outline btn-sm" onclick="cancelStudentPin10sModal()" data-i18n="tea_cancel_open_btn">Hủy</button>
@@ -450,7 +450,6 @@
 
                 <div class="btn-row" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border-subtle); flex-wrap:wrap;">
                   <button id="btn-tea-extend" class="btn btn-outline btn-sm" onclick="teacherControlSession('EXTEND_2M')" data-i18n="tea_extend_btn">+2 Phút</button>
-                  <button id="btn-tea-reopen" class="btn btn-outline btn-sm" onclick="teacherControlSession('REOPEN_5M')" data-i18n="tea_reopen_btn">Mở lại 5 phút</button>
                   <button class="btn btn-outline btn-sm" id="btn-tea-cancel-mistaken" onclick="promptCancelMistakenSession()" style="color:var(--err-text); border-color:#fecaca;" title="Xóa bỏ phiên vừa mở nhầm hôm nay (Không tính vào lịch sử)">Hủy phiên nhầm</button>
                   <button id="btn-tea-close" class="btn btn-danger btn-sm" onclick="teacherControlSession('CLOSE_NOW')" data-i18n="tea_close_btn">Đóng phiên</button>
                 </div>
@@ -550,8 +549,8 @@
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/schedule-config.js?v=3.7.2"></script>
-  <script src="js/student.js?v=3.7.2"></script>
-  <script src="js/teacher.js?v=3.7.2"></script>
+  <script src="js/schedule-config.js?v=3.7.3"></script>
+  <script src="js/student.js?v=3.7.3"></script>
+  <script src="js/teacher.js?v=3.7.3"></script>
 </body>
 </html>
