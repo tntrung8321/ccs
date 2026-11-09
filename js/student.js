@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.7.1)
+ * STUDENT CONTROLLER (js/student.js — v3.7.2)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Official Attendance Score (Base 10.0), Same-Day Session Merging, Near-Limit Warning & Exam Ban (CẤM THI)
  *  - Live Classroom Group Assignment Card (#stu-group-card)
@@ -21,6 +21,9 @@ window.lockedRound2GpsPos = null; // Pre-locked live GPS coordinate during Round
 
 window.addEventListener('DOMContentLoaded', () => {
   getOrCreateDeviceCredential();
+  if (typeof ensureDeviceVaultReady === 'function') {
+    ensureDeviceVaultReady();
+  }
   migrateStoredUrls();
 
   const teaApiInput = document.getElementById('inp-tea-api');
@@ -917,6 +920,18 @@ async function submitStudentOnboarding() {
     'onboard-inline-status'
   );
 
+  if (typeof ensureDeviceVaultReady === 'function') {
+    await ensureDeviceVaultReady();
+  }
+  if (typeof detectPrivateBrowsingMode === 'function') {
+    const privCheck = await detectPrivateBrowsingMode();
+    if (privCheck && privCheck.isPrivate) {
+      if (btnSubmit) btnSubmit.disabled = false;
+      showStatus(I18N[currentLang].ERR_PRIVATE_BROWSING, 'err', 'onboard-inline-status');
+      return false;
+    }
+  }
+
   const pingRes = await callBackend(apiUrl, { action: 'PING' });
   if (!pingRes || !pingRes.ok) {
     if (btnSubmit) btnSubmit.disabled = false;
@@ -1275,6 +1290,18 @@ async function executeStudentCheckIn(qrString, preLockedGpsPos = null) {
       readout.textContent = currentLang === 'en'
         ? `GPS ready (Accuracy ±${accVal}m)`
         : `Đã bật GPS thành công (Sai số ±${accVal}m)`;
+    }
+
+    if (typeof ensureDeviceVaultReady === 'function') {
+      await ensureDeviceVaultReady();
+    }
+    if (typeof detectPrivateBrowsingMode === 'function') {
+      const privCheck = await detectPrivateBrowsingMode();
+      if (privCheck && privCheck.isPrivate) {
+        showStatus(I18N[currentLang].ERR_PRIVATE_BROWSING, 'err', 'checkin-inline-status');
+        resetCheckInButtonImmediate();
+        return;
+      }
     }
 
     const requestId = 'REQ_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);

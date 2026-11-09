@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.7.1)
+ * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.7.2)
  * ============================================================================
  * Architecture : Two-Way Google Sheets & Excel (.XLSX) Drive Synchronization
- * Companion    : Code.gs (code3.7.1.text) & Frontend UI (index.html, js/*.js)
+ * Companion    : Code.gs (code3.7.2.text) & Frontend UI (index.html, js/*.js)
  * Release Notes: See changelog.md and RULES.md for version history & rules.
  * ============================================================================
  */

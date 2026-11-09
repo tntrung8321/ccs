@@ -2,6 +2,16 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🔧 Version `v3.7.2` — *Round 2 Button Vietnamese Typography Fix, 3-Layer Cross-Healing Device Vault (`localStorage` + `Cookie 365d` + `IndexedDB`) & Private/Incognito Anti-Cheat Guard*
+* **Vietnamese Diacritic Typography Fix on Round 2 & Form Controls (`css/styles.css`, `js/schedule-config.js`)**:
+  * Explicitly declared `font-family: var(--font-sans)` on `button, input, select, textarea`, `.btn`, `.btn-open-p2-main`, `.p2-opt-pill input[type="number"]`, and `.round-segmented .seg-btn`.
+  * Adjusted `.btn-open-p2-main` and `.p2-opt-pill input[type="number"]` font weight from `800` to `700` to prevent browser User-Agent control fonts from synthesizing mismatched fallback glyphs on stacked Vietnamese diacritics (`"Mở điểm danh Lần 2 (Đột xuất)"`).
+* **3-Layer Cross-Healing Credential & Profile Vault (`localStorage` + `Cookie 365d` + `IndexedDB`) (`js/schedule-config.js`, `js/student.js`)**:
+  * Synchronized `cc_device_cred`, `cc_student_profiles`, and `cc_active_inst` across `window.localStorage`, `document.cookie` (`max-age=31536000; path=/; SameSite=Lax`, including compact profile backup `cc_stu_min_profile`), and `IndexedDB` (`CCS_Security_Vault_v1`).
+  * Automatically cross-heals `cc_device_cred` and `cc_student_profiles` if iOS Safari ITP evicts `localStorage` after 7 days of inactivity, keeping legitimate students logged into their registered browser while preventing proxy-attendance attempts that try to clear `localStorage` to obtain a fresh credential.
+* **Private / Incognito Browsing Anti-Cheat Guard (`detectPrivateBrowsingMode` in `js/schedule-config.js`, `js/student.js`)**:
+  * Detects Private/Incognito tabs (`localStorage` persistence check, WebKit `openDatabase` private check, and ephemeral RAM storage quota `< 120MB`) during both Student Onboarding and Check-In (`ERR_PRIVATE_BROWSING`), preventing accidental registration in ephemeral tabs and blocking Incognito proxy check-in attempts while preserving 100% strict `SHA-256(cc_device_cred)` verification on the backend.
+
 ### ✨ Version `v3.7.1` — *Desktop/Laptop 2-Column Split-View Lecturer UX (`>= 960px`), Double-Click Floating PIN Spotlight Mode (`Option A`), Legacy Camera QR Scanner Cleanup & Automated In-Place Apps Script Deployment (`appscript-deploy`)*
 * **Desktop/Laptop 2-Column Split-View Lecturer Dashboard (`>= 960px`) & `Enter`-to-Login (`index.html`, `css/styles.css`)**:
   * Expanded `#main-container:has(#view-teacher:not(.hidden))` to `max-width: 1140px` on desktop/laptop screens (`@media (min-width: 960px)`) while keeping mobile (`< 960px`) and Student View (`540px`) 100% untouched.
@@ -284,6 +294,16 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.7.2` — *Sửa Lỗi Font Tiếng Việt Nút Mở Phiên 2, Lưu Trữ Đa Tầng Tự Phục Hồi Chéo (`localStorage` + `Cookie 365 Ngày` + `IndexedDB`) & Chặn Tab Ẩn Danh (`Anti-Cheat 100%`)*
+* **Sửa Lỗi Font Chữ Tiếng Việt Ở Nút Mở Phiên 2 & Các Nút Điều Khiển (`css/styles.css`, `js/schedule-config.js`)**:
+  * Khai báo tường minh `font-family: var(--font-sans)` cho toàn bộ `button, input, select, textarea`, `.btn`, `.btn-open-p2-main`, `.p2-opt-pill input[type="number"]` và `.round-segmented .seg-btn`.
+  * Chuẩn hóa `font-weight` của `.btn-open-p2-main` từ `800` về `700`, khắc phục triệt để hiện tượng trình duyệt dùng font mặc định của `<button>` ghép glyph lỗi cho các chữ cái tiếng Việt có dấu chồng (`"Mở điểm danh Lần 2 (Đột xuất)"`).
+* **Kho Lưu Trữ Đa Tầng Tự Phục Hồi Chéo (`localStorage` + `Cookie 365 Ngày` + `IndexedDB`) (`js/schedule-config.js`, `js/student.js`)**:
+  * Đồng bộ song song mã định danh gốc `cc_device_cred`, hồ sơ lớp học `cc_student_profiles` và `cc_active_inst` vào cả 3 kho lưu trữ độc lập trên cùng trình duyệt: `window.localStorage`, `document.cookie` (`max-age=31536000; path=/; SameSite=Lax`, kèm bản sao rút gọn `cc_stu_min_profile`) và `IndexedDB` (`CCS_Security_Vault_v1`).
+  * Tự động khôi phục chéo tức thì nếu iOS Safari (ITP) tự xóa `localStorage` sau 7 ngày nghỉ giữa các buổi học (giúp sinh viên thật mở lại trình duyệt cũ vào thẳng màn hình điểm danh mà không bị khóa máy), đồng thời chặn đứng hành vi cố tình xóa `localStorage` để lấy mã `CRED_...` mới điểm danh hộ bạn trên cùng trình duyệt.
+* **Phát Hiện & Chặn Đăng Ký / Điểm Danh Trong Tab Ẩn Danh (`detectPrivateBrowsingMode` trong `js/schedule-config.js`, `js/student.js`)**:
+  * Tự động phát hiện chế độ Duyệt web Riêng tư / Ẩn danh (kiểm tra ghi/đọc `localStorage`, `openDatabase` trên Safari và hạn mức bộ nhớ tạm RAM `< 120MB`) ngay khi bấm Liên kết thiết bị và Điểm danh (`ERR_PRIVATE_BROWSING`), vừa bảo vệ sinh viên thật không đăng ký nhầm trong Tab Ẩn danh, vừa khóa chặt kẽ hở mở Tab Ẩn danh để điểm danh hộ, giữ nguyên khóa mật mã 1–1 tuyệt đối `SHA-256(cc_device_cred)` trên Server.
+
 ### ✨ Version `v3.7.1` — *Giao Diện Giảng Viên 2 Cột (`Split-View`) Trên Laptop/PC (`>= 960px`), Chế Độ Nhấp Đúp Phóng To Mã PIN Toàn Màn Hình (`Floating PIN Spotlight`), Xóa Bỏ Cụm Camera QR Cũ & Tự Động Deploy Apps Script Tại Chỗ (`appscript-deploy`)*
 * **Giao Diện Giảng Viên 2 Cột (`Split-View`) Trên Laptop/PC (`>= 960px`) & Nhấn `Enter` Đăng Nhập (`index.html`, `css/styles.css`)**:
   * Tự động mở rộng khung Giảng viên (`#main-container:has(#view-teacher:not(.hidden))`) lên `max-width: 1140px` trên màn hình máy tính (`@media (min-width: 960px)`), giữ nguyên 100% bố cục 1 cột trên điện thoại (`< 960px`) và màn hình Sinh viên (`540px`).
@@ -546,11 +566,11 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.1`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.2`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.1` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.2` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.1`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.2`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), Double-Click Floating PIN Spotlight Mode (`Option A`), `taste` Utilitarian UI, Cohesive `Pulse to Confirm`, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `clockOffset` & `PIN_GRACE_MS = 1500`) + Strict `mergeAttendance` Truth Table** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |
@@ -558,6 +578,6 @@
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + In-Place Automated `clasp` Deployment (`appscript-deploy`)** |
 | **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **2-Column Laptop Dashboard + Double-Click Fullscreen PIN Spotlight + `Enter`-to-Login + 3-Tab (`P1` / `P2` / Read-Only `Kết quả cuối`) + `0.01s` Optimistic Manual Marking** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-Extra-Load RAM `CacheService` (`ALL_LATEST_SES_V35`, `SES_ATT_MAP_V35_`, `CLASS_ATT_STATS_V35_`, `GROUP_SPLIT_`)** |
-| **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Zalo/Social WebView & iPhone Code Scanner Block + 10s Rotating PIN (`Pin_Check_Log`) + Multi-Browser (`Safari+Chrome`), F12 & Spot-Check Lock** |
+| **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **3-Layer Cross-Healing Vault (`localStorage` + `Cookie 365d` + `IndexedDB`) + Private/Incognito & Zalo/Code Scanner Block + 10s Rotating PIN (`Pin_Check_Log`) + Multi-Browser, F12 & Spot-Check Lock** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Smart Color-Family Detection + Ghost Session Filtering** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.1`) / Luôn tải bản mới tức thì** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.2`) / Luôn tải bản mới tức thì** |

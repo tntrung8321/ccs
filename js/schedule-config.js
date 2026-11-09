@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.1)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.2)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -701,6 +701,7 @@ const I18N = {
     stu_att_e: "Có phép",
     stu_att_a: "Vắng",
     tea_open_p2_btn: "Mở điểm danh Lần 2 (Đột xuất)",
+    tea_open_round2_btn: "Mở điểm danh Lần 2 (Đột xuất)",
     tea_p2_duration_label: "Thời lượng:",
     tea_p2_mins_unit: "phút",
     tea_p2_pin10s_label: "Bật Mã PIN 10s",
@@ -713,7 +714,8 @@ const I18N = {
     ERR_P1_STILL_OPEN: "[CHƯA ĐÓNG PHIÊN 1] Vui lòng đóng Phiên 1 trước khi mở điểm danh Lần 2.",
     ERR_ROUND2_ALREADY_USED: "[ĐÃ DÙNG LẦN 2] Mỗi buổi học chỉ mở tối đa 1 lần điểm danh Lần 2.",
     ERR_REOPEN_BLOCKED_BY_P2: "[KHÓA MỞ LẠI P1] Không thể mở lại Phiên 1 vì Phiên 2 đã được mở trong buổi học này.",
-    ERR_FINAL_READ_ONLY: "[CHỈ ĐỂ XEM] Tab Kết quả cuối chỉ để xem. Vui lòng chuyển sang tab Phiên 1 hoặc Phiên 2 để chấm tay."
+    ERR_FINAL_READ_ONLY: "[CHỈ ĐỂ XEM] Tab Kết quả cuối chỉ để xem. Vui lòng chuyển sang tab Phiên 1 hoặc Phiên 2 để chấm tay.",
+    ERR_PRIVATE_BROWSING: "[CHẾ ĐỘ ẨN DANH / RIÊNG TƯ] Không hỗ trợ đăng ký hoặc điểm danh trong Tab Ẩn danh (trình duyệt sẽ tự xóa mã khóa khi đóng tab). Vui lòng mở bằng tab Safari hoặc Chrome thông thường."
   },
   en: {
     nav_student: "Student",
@@ -801,6 +803,7 @@ const I18N = {
     stu_att_e: "Excused",
     stu_att_a: "Absent",
     tea_open_p2_btn: "Open Round 2 Check-In (Surprise)",
+    tea_open_round2_btn: "Open Round 2 Check-In (Surprise)",
     tea_p2_duration_label: "Duration:",
     tea_p2_mins_unit: "mins",
     tea_p2_pin10s_label: "Enable 10s PIN",
@@ -813,7 +816,8 @@ const I18N = {
     ERR_P1_STILL_OPEN: "[ROUND 1 OPEN] Please close Round 1 before opening Round 2.",
     ERR_ROUND2_ALREADY_USED: "[ROUND 2 USED] Maximum 1 Round 2 session per class day.",
     ERR_REOPEN_BLOCKED_BY_P2: "[REOPEN P1 BLOCKED] Cannot reopen Round 1 because Round 2 has already been opened today.",
-    ERR_FINAL_READ_ONLY: "[READ ONLY] Final Result tab is read-only. Switch to Round 1 or Round 2 tab to mark manually."
+    ERR_FINAL_READ_ONLY: "[READ ONLY] Final Result tab is read-only. Switch to Round 1 or Round 2 tab to mark manually.",
+    ERR_PRIVATE_BROWSING: "[PRIVATE / INCOGNITO MODE] Do not register or check in inside a Private/Incognito tab (storage is wiped on close, causing device lock). Please open a normal Safari or Chrome tab."
   }
 };
 
@@ -854,6 +858,250 @@ function safeSetSession(key, val) {
 
 function safeRemoveSession(key) {
   try { sessionStorage.removeItem(key); } catch (e) {}
+}
+
+function safeGetCookie(key, fallback = '') {
+  try {
+    const target = encodeURIComponent(key) + '=';
+    const parts = (document.cookie || '').split(';');
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i].trim();
+      if (part.indexOf(target) === 0) {
+        return decodeURIComponent(part.substring(target.length));
+      }
+    }
+  } catch (e) {}
+  return fallback;
+}
+
+function safeSetCookie(key, val, days = 365) {
+  try {
+    const maxAge = Math.max(60, Math.round(days * 86400));
+    document.cookie = `${encodeURIComponent(key)}=${encodeURIComponent(String(val || ''))}; path=/; max-age=${maxAge}; SameSite=Lax`;
+  } catch (e) {}
+}
+
+const CCS_IDB_NAME = 'CCS_Security_Vault_v1';
+const CCS_IDB_STORE = 'kv';
+let ccsVaultReadyPromise = null;
+
+function openCcsIdb_() {
+  return new Promise((resolve) => {
+    try {
+      if (typeof indexedDB === 'undefined' || !indexedDB) return resolve(null);
+      const req = indexedDB.open(CCS_IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        try {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(CCS_IDB_STORE)) {
+            db.createObjectStore(CCS_IDB_STORE);
+          }
+        } catch (e) {}
+      };
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+      req.onblocked = () => resolve(null);
+    } catch (e) {
+      resolve(null);
+    }
+  });
+}
+
+async function readCcsIdbVault_() {
+  const db = await openCcsIdb_();
+  if (!db) return {};
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(CCS_IDB_STORE, 'readonly');
+      const store = tx.objectStore(CCS_IDB_STORE);
+      const out = {};
+      const keys = ['cc_device_cred', 'cc_student_profiles', 'cc_active_inst'];
+      let pending = keys.length;
+      keys.forEach((k) => {
+        try {
+          const r = store.get(k);
+          r.onsuccess = () => {
+            if (r.result !== undefined && r.result !== null) out[k] = r.result;
+            if (--pending === 0) resolve(out);
+          };
+          r.onerror = () => {
+            if (--pending === 0) resolve(out);
+          };
+        } catch (e) {
+          if (--pending === 0) resolve(out);
+        }
+      });
+    } catch (e) {
+      resolve({});
+    }
+  });
+}
+
+async function writeCcsIdbVault_(entriesObj) {
+  if (!entriesObj || typeof entriesObj !== 'object') return false;
+  const db = await openCcsIdb_();
+  if (!db) return false;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(CCS_IDB_STORE, 'readwrite');
+      const store = tx.objectStore(CCS_IDB_STORE);
+      Object.keys(entriesObj).forEach((k) => {
+        if (entriesObj[k] !== undefined && entriesObj[k] !== null) {
+          store.put(entriesObj[k], k);
+        }
+      });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    } catch (e) {
+      resolve(false);
+    }
+  });
+}
+
+function buildCompactStudentProfileCookie_(instId, p) {
+  if (!instId || !p || !p.studentId) return '';
+  try {
+    return JSON.stringify({
+      i: String(instId),
+      s: String(p.studentId),
+      n: String(p.fullName || p.studentId),
+      l: String(p.lecturerName || DEFAULT_LECTURER_NAME),
+      a: normalizeApiUrl(p.apiUrl),
+      c: Array.isArray(p.enrolledClasses)
+        ? p.enrolledClasses.slice(0, 12).map(x => ({
+            id: String(x.classId || ''),
+            nm: String(x.className || x.classId || '').slice(0, 48)
+          }))
+        : []
+    });
+  } catch (e) {
+    return '';
+  }
+}
+
+function restoreProfilesFromCompactCookie_() {
+  try {
+    const raw = safeGetCookie('cc_stu_min_profile', '');
+    if (!raw) return null;
+    const m = JSON.parse(raw);
+    if (!m || !m.i || !m.s) return null;
+    const restored = {};
+    restored[m.i] = {
+      installationId: m.i,
+      lecturerName: m.l || DEFAULT_LECTURER_NAME,
+      apiUrl: normalizeApiUrl(m.a),
+      studentId: m.s,
+      fullName: m.n || m.s,
+      enrolledClasses: Array.isArray(m.c)
+        ? m.c.filter(x => x && x.id).map(x => ({
+            classId: x.id,
+            className: x.nm || x.id
+          }))
+        : []
+    };
+    return { activeInst: m.i, profiles: restored };
+  } catch (e) {
+    return null;
+  }
+}
+
+function ensureDeviceVaultReady() {
+  if (ccsVaultReadyPromise) return ccsVaultReadyPromise;
+  ccsVaultReadyPromise = (async () => {
+    try {
+      const idbData = await readCcsIdbVault_();
+      const idbCred = typeof idbData.cc_device_cred === 'string' ? idbData.cc_device_cred.trim() : '';
+      const curLocalCred = safeGetLocal('cc_device_cred', '');
+      const curCookieCred = safeGetCookie('cc_device_cred', '');
+
+      // Anti-cheat & anti-loss: If IndexedDB already holds an established credential, always restore it
+      if (idbCred && idbCred.length >= 20) {
+        if (curLocalCred !== idbCred || curCookieCred !== idbCred) {
+          safeSetLocal('cc_device_cred', idbCred);
+          safeSetCookie('cc_device_cred', idbCred, 365);
+          window._ccsCredGeneratedFresh = false;
+        }
+      } else {
+        const activeCred = (curLocalCred && curLocalCred.length >= 20)
+          ? curLocalCred
+          : ((curCookieCred && curCookieCred.length >= 20) ? curCookieCred : getOrCreateDeviceCredential());
+        safeSetLocal('cc_device_cred', activeCred);
+        safeSetCookie('cc_device_cred', activeCred, 365);
+        await writeCcsIdbVault_({ cc_device_cred: activeCred });
+      }
+
+      // Cross-heal student profiles between localStorage, Cookie, and IndexedDB
+      const localProfiles = getStudentProfiles();
+      const localInstIds = Object.keys(localProfiles);
+      if (localInstIds.length === 0 && idbData.cc_student_profiles) {
+        try {
+          const parsedIdbProfiles = typeof idbData.cc_student_profiles === 'string'
+            ? JSON.parse(idbData.cc_student_profiles)
+            : idbData.cc_student_profiles;
+          const idbKeys = parsedIdbProfiles && typeof parsedIdbProfiles === 'object' ? Object.keys(parsedIdbProfiles) : [];
+          if (idbKeys.length > 0) {
+            const actInst = idbData.cc_active_inst && parsedIdbProfiles[idbData.cc_active_inst]
+              ? idbData.cc_active_inst
+              : idbKeys[0];
+            safeSetLocal('cc_student_profiles', JSON.stringify(parsedIdbProfiles));
+            safeSetLocal('cc_active_inst', actInst);
+            const compact = buildCompactStudentProfileCookie_(actInst, parsedIdbProfiles[actInst]);
+            if (compact) safeSetCookie('cc_stu_min_profile', compact, 365);
+            if (typeof renderStudentCourseSelectors === 'function') {
+              renderStudentCourseSelectors();
+            }
+          }
+        } catch (e) {}
+      } else if (localInstIds.length > 0) {
+        const actInst = safeGetLocal('cc_active_inst', localInstIds[0]) || localInstIds[0];
+        const compact = buildCompactStudentProfileCookie_(actInst, localProfiles[actInst]);
+        if (compact) safeSetCookie('cc_stu_min_profile', compact, 365);
+        await writeCcsIdbVault_({
+          cc_student_profiles: JSON.stringify(localProfiles),
+          cc_active_inst: actInst
+        });
+      }
+    } catch (e) {}
+    return true;
+  })();
+  return ccsVaultReadyPromise;
+}
+
+async function detectPrivateBrowsingMode() {
+  try {
+    const testKey = '__ccs_storage_test__';
+    localStorage.setItem(testKey, '1');
+    const readBack = localStorage.getItem(testKey);
+    localStorage.removeItem(testKey);
+    if (readBack !== '1') {
+      return { isPrivate: true, reason: 'LOCALSTORAGE_BLOCKED' };
+    }
+  } catch (e) {
+    return { isPrivate: true, reason: 'LOCALSTORAGE_THROW' };
+  }
+
+  // If this browser already has a saved student profile, it is a verified persistent browser
+  if (Object.keys(getStudentProfiles()).length > 0 && !window._ccsCredGeneratedFresh) {
+    return { isPrivate: false, reason: '' };
+  }
+
+  try {
+    if (typeof window.openDatabase === 'function') {
+      try {
+        window.openDatabase(null, null, null, null);
+      } catch (e) {
+        return { isPrivate: true, reason: 'SAFARI_OPENDB_PRIVATE' };
+      }
+    }
+    if (navigator.storage && typeof navigator.storage.estimate === 'function') {
+      const est = await navigator.storage.estimate();
+      if (est && typeof est.quota === 'number' && est.quota > 0 && est.quota < 120 * 1024 * 1024) {
+        return { isPrivate: true, reason: 'EPHEMERAL_RAM_QUOTA' };
+      }
+    }
+  } catch (e) {}
+
+  return { isPrivate: false, reason: '' };
 }
 
 function normalizeApiUrl(url) {
@@ -923,12 +1171,20 @@ let currentMode = 'STUDENT';
 
 function getOrCreateDeviceCredential() {
   let cred = safeGetLocal('cc_device_cred', '');
+  const cookieCred = safeGetCookie('cc_device_cred', '');
+  if ((!cred || cred.length < 20) && cookieCred && cookieCred.length >= 20) {
+    cred = cookieCred;
+    safeSetLocal('cc_device_cred', cred);
+    window._ccsCredGeneratedFresh = false;
+  }
   if (!cred || cred.length < 20) {
     const arr = new Uint8Array(24);
     window.crypto.getRandomValues(arr);
     cred = 'CRED_' + Array.from(arr, b => ('0' + b.toString(16)).slice(-2)).join('');
     safeSetLocal('cc_device_cred', cred);
+    window._ccsCredGeneratedFresh = true;
   }
+  safeSetCookie('cc_device_cred', cred, 365);
   return cred;
 }
 
@@ -962,7 +1218,22 @@ function getHardwareFingerprint() {
 }
 
 function getStudentProfiles() {
-  try { return JSON.parse(safeGetLocal('cc_student_profiles', '{}')); } catch (e) { return {}; }
+  try {
+    const raw = safeGetLocal('cc_student_profiles', '');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+        return parsed;
+      }
+    }
+  } catch (e) {}
+  const restored = restoreProfilesFromCompactCookie_();
+  if (restored && restored.profiles) {
+    safeSetLocal('cc_student_profiles', JSON.stringify(restored.profiles));
+    safeSetLocal('cc_active_inst', restored.activeInst);
+    return restored.profiles;
+  }
+  return {};
 }
 
 function saveStudentProfile(instId, profileObj) {
@@ -973,8 +1244,16 @@ function saveStudentProfile(instId, profileObj) {
   }
   const all = getStudentProfiles();
   all[instId] = profileObj;
-  safeSetLocal('cc_student_profiles', JSON.stringify(all));
+  const serialized = JSON.stringify(all);
+  safeSetLocal('cc_student_profiles', serialized);
   safeSetLocal('cc_active_inst', instId);
+  const compact = buildCompactStudentProfileCookie_(instId, profileObj);
+  if (compact) safeSetCookie('cc_stu_min_profile', compact, 365);
+  writeCcsIdbVault_({
+    cc_device_cred: getOrCreateDeviceCredential(),
+    cc_student_profiles: serialized,
+    cc_active_inst: instId
+  });
 }
 
 function getTeacherAuth() {
