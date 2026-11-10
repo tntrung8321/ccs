@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.7.3)
+ * LECTURER CONTROLLER (js/teacher.js — v3.7.4)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -208,10 +208,10 @@ function syncProjectorPin10sLifecycle(ses) {
   }
 }
 
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && currentMode === 'TEACHER' && getTeacherAuth()) {
-    refreshTeacherState(true);
-  }
+['visibilitychange', 'pageshow', 'focus'].forEach(ev => {
+  window.addEventListener(ev, () => {
+    if (!document.hidden && currentMode === 'TEACHER' && getTeacherAuth()) refreshTeacherState(true);
+  });
 });
 
 function toggleTeacherApiBox() {
@@ -879,12 +879,12 @@ function onAdvStudentGpsToggle() {
   const isEn = currentLang === 'en';
   if (chk && chk.checked) {
     hint.textContent = isEn
-      ? 'Advanced mode enabled: Classroom center will be set to the average GPS location of the first 3 verified students.'
-      : 'Chế độ nâng cao đang bật: Lấy trung bình vị trí định vị GPS của 3 sinh viên đầu tiên làm tâm phòng học.';
+      ? 'Fallback mode enabled: System automatically determines fallback classroom center when lecturer device has no GPS.'
+      : 'Chế độ dự phòng đang bật: Hệ thống tự động xác định tâm phòng học dự phòng khi thiết bị giảng viên không có GPS.';
   } else {
     hint.textContent = isEn
-      ? 'Default: Distance is evaluated from the Lecturer location (Only uses the average of the first 3 students if the Lecturer device has no GPS).'
-      : 'Mặc định: Đánh giá khoảng cách theo vị trí của Giảng viên (Chỉ tự động lấy trung bình vị trí của 3 sinh viên đầu tiên nếu thiết bị Giảng viên không có định vị GPS).';
+      ? 'Default: Distance is evaluated from the Lecturer location (Automatically switches to fallback mode if the Lecturer device has no GPS).'
+      : 'Mặc định: Đánh giá khoảng cách theo vị trí của Giảng viên (Tự động chuyển sang chế độ dự phòng nếu thiết bị Giảng viên không có định vị GPS).';
   }
 }
 
@@ -893,8 +893,12 @@ function probeLecturerDeviceGpsFast() {
     if (!navigator.geolocation) return resolve(null);
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve(pos),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 3500, maximumAge: 0 }
+      () => navigator.geolocation.getCurrentPosition(
+        (pos2) => resolve(pos2),
+        () => resolve(null),
+        { enableHighAccuracy: false, timeout: 2500, maximumAge: 60000 }
+      ),
+      { enableHighAccuracy: true, timeout: 3500, maximumAge: 15000 }
     );
   });
 }
@@ -948,8 +952,8 @@ async function teacherStartSession(isMakeUpConfirmed = false) {
           ? `Default: Evaluated from Lecturer location (Accuracy ±${acc}m).`
           : `Mặc định: Đánh giá khoảng cách theo vị trí của Giảng viên (Sai số ±${acc}m).`)
       : (isEn
-          ? 'Active: Classroom center is averaged from the first 3 verified students.'
-          : 'Đang bật: Lấy tâm phòng học theo trung bình vị trí của 3 sinh viên đầu tiên.');
+          ? 'Active: Fallback GPS location mode.'
+          : 'Đang bật: Chế độ định vị GPS dự phòng.');
   }
 
   await executeStartSessionRequest(auth, classId, hasTeacherGps, lat, lng, acc, anchorMode, isMakeUpConfirmed);
@@ -1011,8 +1015,8 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
             ? `Opened session for ${classId} (Evaluated from Lecturer location ±${gpsAccuracy}m).`
             : `Đã mở phiên lớp ${classId} (Đánh giá theo vị trí Giảng viên ±${gpsAccuracy}m).`)
         : (isEn
-            ? `Opened session for ${classId} (Averaging the first 3 verified students as classroom center).`
-            : `Đã mở phiên lớp ${classId} (Chế độ lấy trung bình GPS 3 sinh viên đầu tiên làm tâm phòng học).`),
+            ? `Opened session for ${classId} (Fallback GPS location mode).`
+            : `Đã mở phiên lớp ${classId} (Chế độ định vị GPS dự phòng).`),
       'success',
       'tea-session-inline-status'
     );

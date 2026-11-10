@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.3)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.4)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.7.3';
+const SYSTEM_VERSION = '3.7.4';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -1038,23 +1038,6 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
   let effectiveDist = Math.max(0, rawDist - accuracyAllowance);
 
   if (anchorState && anchorState.mode === 'COLLECTING_AVG_3') {
-    const hasCampusRef = !isNaN(anchorState.campusLat) && !isNaN(anchorState.campusLng) && anchorState.campusLat !== 0 && anchorState.campusLng !== 0;
-    const distToCampus = hasCampusRef
-      ? Math.round(calculateHaversineMeters(lat, lng, Number(anchorState.campusLat), Number(anchorState.campusLng)))
-      : 0;
-    const maxCampusRadius = Number(anchorState.maxCampusMeters || 850);
-    if (hasCampusRef && (distToCampus - accuracyAllowance) > maxCampusRadius) {
-      cache.remove(spamKey);
-      return jsonResponse({
-        ok: false,
-        code: 'ERR_LOCATION_OUT_OF_RANGE',
-        params: {
-          dist: distToCampus,
-          max: activeSession.radiusMeters,
-          acc: Math.round(accuracy)
-        }
-      });
-    }
     // Once at least 1 student has anchored the provisional average, subsequent students must be within radiusMeters of the running average
     if (Array.isArray(anchorState.samples) && anchorState.samples.length > 0 && effectiveDist > activeSession.radiusMeters) {
       cache.remove(spamKey);
@@ -1146,10 +1129,13 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
             if (activeSession.rowIndex) {
               ss.getSheetByName(TAB_SESSIONS).getRange(activeSession.rowIndex, 8, 1, 2).setValues([[avgLat, avgLng]]);
             }
+            if (n >= 3 && classConfig && classConfig.rowIndex) {
+              ss.getSheetByName(TAB_CLASSES).getRange(classConfig.rowIndex, 4, 1, 2).setValues([[avgLat, avgLng]]);
+            }
             cache.removeAll(['ALL_LATEST_SES_V373', 'ALL_LATEST_SES_V35']);
           } catch (e) {}
         }
-      } else if (effectiveDist > activeSession.radiusMeters) {
+      } else if (!anchorState.samples.length || effectiveDist > activeSession.radiusMeters) {
         return jsonResponse({
           ok: false,
           code: 'ERR_LOCATION_OUT_OF_RANGE',
@@ -1830,6 +1816,7 @@ function handleTeacherControlSession(ss, body) {
     const deletedSesIds = {};
     if (targetSesId) deletedSesIds[targetSesId] = true;
 
+    let prevLat = 0, prevLng = 0;
     for (let i = data.length - 1; i >= 0; i--) {
       if (String(data[i][1]).trim() !== classId) continue;
       const rSesId = String(data[i][0] || '').trim();
@@ -1840,7 +1827,14 @@ function handleTeacherControlSession(ss, body) {
       if (rSesId === targetSesId || (sesDayKey && rDayKey === sesDayKey)) {
         if (rSesId) deletedSesIds[rSesId] = true;
         sesSheet.deleteRow(i + 2);
+      } else if (!prevLat && Number(data[i][7]) && Number(data[i][8])) {
+        prevLat = Number(data[i][7]);
+        prevLng = Number(data[i][8]);
       }
+    }
+    if (prevLat && prevLng) {
+      const cfg = getClassesMap(ss, true)[classId];
+      if (cfg && cfg.rowIndex) ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[prevLat, prevLng]]);
     }
 
     const attSheet = ss.getSheetByName(TAB_ATTEND);
@@ -2847,6 +2841,7 @@ function buildGroupedClassDayRecords_(ss, classId) {
         if (isManual) {
           grp.p2Marks[sid] = (st === 'P' || st === 'L') ? 'P' : (st === 'E' ? 'E' : '-');
           grp.p2Manual[sid] = true;
+          grp.manualLocked[sid] = true;
         } else if (!grp.p2Manual[sid] && !grp.p2Marks[sid]) {
           // Edge Case E.3: Only record the first P2 scan for a student; P2 'L' counts as 'P'
           grp.p2Marks[sid] = (st === 'P' || st === 'L') ? 'P' : (st === 'E' ? 'E' : '-');
@@ -2855,6 +2850,7 @@ function buildGroupedClassDayRecords_(ss, classId) {
         if (isManual) {
           grp.p1Marks[sid] = (st === 'P' || st === 'L' || st === 'E') ? st : '-';
           grp.p1Manual[sid] = true;
+          grp.manualLocked[sid] = true;
         } else if (!grp.p1Manual[sid]) {
           const cur = grp.p1Marks[sid];
           if (st === 'P') {

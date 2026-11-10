@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.7.3)
+ * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.7.4)
  * ============================================================================
  * Architecture : Two-Way Google Sheets & Excel (.XLSX) Drive Synchronization
- * Companion    : Code.gs (code3.7.3.text) & Frontend UI (index.html, js/*.js)
+ * Companion    : Code.gs (code3.7.4.text) & Frontend UI (index.html, js/*.js)
  * Release Notes: See changelog.md and RULES.md for version history & rules.
  * ============================================================================
  */
@@ -453,6 +453,7 @@ function syncSingleClassRosterFromDrive_(masterSs, classId, className, options) 
   if (
     opts.onlyIfModified &&
     existingStudentCount > 0 &&
+    props.getProperty('QR_SHEET_PAST_HISTORY_' + classId) &&
     meta &&
     meta.fileId === targetInfo.fileId &&
     meta.syncedCount === existingStudentCount &&
@@ -2540,6 +2541,7 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
         'QR_SHEET_PAST_HISTORY_' + classId,
         JSON.stringify(pastHistoryDays)
       );
+      try { CacheService.getScriptCache().remove('CLASS_ATT_STATS_V36_' + classId); } catch (ce) {}
     } catch (histErr) {}
 
     return {

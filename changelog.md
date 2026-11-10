@@ -2,6 +2,20 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🔧 Version `v3.7.4` — *Fallback GPS Mode (`COLLECTING_AVG_3`) Stale-Coordinate Fix, Indoor Lecturer GPS Fallback (`enableHighAccuracy: false`), Mistaken-Session Coordinate Restoration, Discreet Projector GPS Wording & Past-History Cache Sync*
+* **Fallback GPS Mode (`COLLECTING_AVG_3` / `STUDENT_AVG_3`) Stale-Coordinate Fix & Mistaken-Session Coordinate Restoration (`code3.7.4.text`)**:
+  * Removed the `maxCampusRadius` (`850m`) pre-check against stale `Classes_Config` (`campusLat/Lng`) coordinates inside `COLLECTING_AVG_3` (`handleStudentCheckIn`), preventing false `ERR_LOCATION_OUT_OF_RANGE` rejections when a prior test session was opened off-campus or when a class moves buildings.
+  * When `COLLECTING_AVG_3` locks the classroom center from the first 3 verified students (`accuracy <= 100m`, non-mock GPS, within `radiusMeters` of each other), it now persists the locked coordinates to `Classes_Config` (`Room_Lat, Room_Lng`) in addition to `Sessions_Log`.
+  * Updated `CANCEL_MISTAKEN_SESSION` (`handleTeacherControlSession`) to automatically restore `Classes_Config` (`Room_Lat, Room_Lng`) from the latest remaining valid session of that class in `Sessions_Log`.
+* **Indoor Lecturer GPS Fallback (`probeLecturerDeviceGpsFast`) & Instant iOS Wake-Up Sync (`js/teacher.js`)**:
+  * Added an automatic indoor Wi-Fi/Cellular fallback (`enableHighAccuracy: false, timeout: 2500, maximumAge: 60000`) inside `probeLecturerDeviceGpsFast()` when high-accuracy satellite GNSS times out after `3500ms` indoors.
+  * Bound `pageshow` and `focus` alongside `visibilitychange` to trigger `refreshTeacherState(true)` immediately when unlocking an iPhone or switching back to Safari.
+* **Discreet "Fallback GPS Location Mode" UI Wording (`index.html`, `js/schedule-config.js`, `js/teacher.js`)**:
+  * Renamed `"Chế độ định vị GPS nâng cao"` (`"Advanced GPS Location Mode"`) to **`"Chế độ định vị GPS dự phòng"` (`"Fallback GPS Location Mode"`)** and removed all references to `"averaging the first 3 students"` from the Lecturer UI and projector status messages so students cannot game the fallback anchor mechanism.
+* **Past-History `.XLSX` Sync Guard & Manual Make-Up/Late Override Lock (`sync.txt`, `code3.7.4.text`)**:
+  * Guarded the `onlyIfModified` fast path in `syncSingleClassRosterFromDrive_` with `props.getProperty('QR_SHEET_PAST_HISTORY_' + classId)` so classes missing past-session history are always scanned, and invalidated `CLASS_ATT_STATS_V36_<classId>` immediately inside `extractRosterFromTargetFile_`.
+  * Set `grp.manualLocked[sid] = true` on `TEACHER_MANUAL` records in `buildGroupedClassDayRecords_` so past-session manual marks (make-up `P`, late `L`, excused `E`) are strictly preserved across cache refreshes and Sheet rebuilds.
+
 ### ✨ Version `v3.7.3` — *Unified `+2 Mins` (`EXTEND_2M`) 4-Branch Session Control & Removal of `Reopen 5 Mins`, Instant `0ms` Round 2 `1-Tap GPS` Mode Switch, Zero-Lag 45-Student `PIN_10S` Concurrency (`reqArrivalMs` + `+600ms` Lead + `2500ms` Grace + Zero-RPC Cache Hits) & 5-Layer Classroom Anti-Cheat*
 * **Unified `+2 Mins` (`EXTEND_2M`) 4-Branch State Machine, `L -> P` Student Re-Check-In Upgrade & Removal of `Reopen 5 Mins` (`#btn-tea-reopen`) (`code3.7.3.text`, `index.html`, `js/teacher.js`)**:
   * Removed the redundant **`"Mở lại 5 phút"` (`#btn-tea-reopen` / `REOPEN_5M`)** button from `index.html` and consolidated all time extensions and session reopenings into the single **`+2 Phút` (`#btn-tea-extend` / `EXTEND_2M`)** button using a 4-branch state machine:
@@ -318,6 +332,20 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.7.4` — *Sửa Lỗi Chế Độ Định Vị GPS Dự Phòng (`COLLECTING_AVG_3`) Bị Chặn Bởi Tọa Độ Cũ, Fallback GPS Trong Phòng Kín Cho Giảng Viên, Tự Khôi Phục Tọa Độ Khi Hủy Phiên Nhầm, Ẩn Cơ Chế 3 Sinh Viên Trên Màn Chiếu & Đồng Bộ Đủ Tiến Độ Buổi Học*
+* **Sửa Lỗi Chế Độ Định Vị Dự Phòng (`COLLECTING_AVG_3` / `STUDENT_AVG_3`) & Tự Khôi Phục Tọa Độ Khi Hủy Phiên Nhầm (`code3.7.4.text`)**:
+  * Loại bỏ bước kiểm tra `maxCampusRadius` (`850m`) so với tọa độ cũ lưu trong `Classes_Config` (`campusLat/Lng`) khi phiên đang ở chế độ `COLLECTING_AVG_3` (`handleStudentCheckIn`), khắc phục triệt để lỗi từ chối toàn bộ sinh viên (`ERR_LOCATION_OUT_OF_RANGE`) nếu trước đó từng mở phiên thử ở ngoài trường hoặc lớp đổi cơ sở học.
+  * Khi chế độ dự phòng chốt tâm từ 3 sinh viên hợp lệ đầu tiên (`accuracy <= 100m`, không giả lập GPS, đứng cùng phòng học `<= 100m`), hệ thống tự động lưu tọa độ chuẩn này vào cả `Classes_Config` (`Room_Lat, Room_Lng`) lẫn `Sessions_Log`.
+  * Khi Giảng viên bấm **`Hủy phiên nhầm`** (`CANCEL_MISTAKEN_SESSION` trong `handleTeacherControlSession`), hệ thống tự động tìm phiên hợp lệ gần nhất trước đó của lớp trong `Sessions_Log` và khôi phục lại tọa độ `Room_Lat, Room_Lng` cho `Classes_Config`.
+* **Fallback Định Vị Wi-Fi/4G Trong Phòng Kín Cho Giảng Viên (`probeLecturerDeviceGpsFast`) & Tự Làm Mới Khi Mở Khóa Màn Hình iPhone (`js/teacher.js`)**:
+  * Bổ sung nhánh dự phòng `{ enableHighAccuracy: false, timeout: 2500, maximumAge: 60000 }` trong `probeLecturerDeviceGpsFast()` khi sóng vệ tinh (`enableHighAccuracy: true`) bị trần bê tông cản quá `3.5s`, giúp thiết bị giảng viên lấy được tọa độ phòng học ngay từ lần mở đầu tiên.
+  * Bắt sự kiện `pageshow` và `focus` cùng với `visibilitychange` để gọi `refreshTeacherState(true)` ngay lập tức khi mở khóa màn hình iPhone hoặc quay lại tab Safari.
+* **Đổi Tên Sang `"Chế Độ Định Vị GPS Dự Phòng"` & Ẩn Cơ Chế 3 Sinh Viên Trên Màn Chiếu (`index.html`, `js/schedule-config.js`, `js/teacher.js`)**:
+  * Đổi tên mục `"Chế độ định vị GPS nâng cao"` thành **`"Chế độ định vị GPS dự phòng"`** và ẩn toàn bộ câu chữ tiết lộ việc *"lấy trung bình 3 sinh viên đầu tiên"* trên giao diện Web Giảng viên và màn chiếu để tránh sinh viên nhìn thấy và tìm cách gian lận.
+* **Đảm Bảo Đồng Bộ Đủ Lịch Sử Buổi Học Quá Khứ (`.XLSX`) & Khóa Bảo Vệ Dữ Liệu Học Bù / Đi Trễ Đã Chấm Tay (`sync.txt`, `code3.7.4.text`)**:
+  * Kiểm tra thuộc tính `QR_SHEET_PAST_HISTORY_<classId>` trước khi bỏ qua file không đổi ở nhánh `onlyIfModified` trong `syncSingleClassRosterFromDrive_`, đồng thời xóa ngay cache thống kê tạm `CLASS_ATT_STATS_V36_<classId>` trong `extractRosterFromTargetFile_` để điện thoại luôn hiển thị đúng tổng số buổi đã học (`7 / 30 buổi`).
+  * Bổ sung `grp.manualLocked[sid] = true` cho các bản ghi `TEACHER_MANUAL` trong `buildGroupedClassDayRecords_`, khóa bảo vệ 100% các lượt chấm bù (`P`), đi trễ (`L`), có phép (`E`) của các buổi học trước khi làm mới cache hoặc đồng bộ lại Sheet.
+
 ### ✨ Version `v3.7.3` — *Hợp Nhất Nút `+2 Phút` (`EXTEND_2M` 4 Nhánh Trạng Thái) & Bỏ Nút `Mở lại 5 phút`, Chuyển Đổi `1-Chạm (Không PIN)` Tức Thì `0ms`, Kiến Trúc `PIN_10S` Chịu Tải 45 Sinh Viên Không Nghẽn (`reqArrivalMs` + Chiếu Sớm `+600ms` + Ân Hạn `2.5s` + Zero-RPC Cache) & 5 Lớp Chống Gian Lận Thông Minh*
 * **Hợp Nhất Nút `+2 Phút` (`EXTEND_2M` 4 Nhánh Trạng Thái), Tự Động Nâng `L -> P` Khi Điểm Danh Lại & Loại Bỏ Nút `"Mở lại 5 phút"` (`#btn-tea-reopen`) (`code3.7.3.text`, `index.html`, `js/teacher.js`)**:
   * Xóa nút **`"Mở lại 5 phút"` (`#btn-tea-reopen` / `REOPEN_5M`)** khỏi giao diện Giảng viên và gom toàn bộ thao tác cộng giờ / mở lại phiên về duy nhất nút **`+2 Phút` (`#btn-tea-extend` / `EXTEND_2M`)** vận hành theo máy trạng thái 4 nhánh:
@@ -614,18 +642,18 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.3`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.4`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.3` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.4` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.3`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.4`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), Double-Click Floating PIN Spotlight Mode (`Option A`), `taste` Utilitarian UI, Cohesive `Pulse to Confirm`, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `+600ms` Lead, `PIN_GRACE_MS = 2500`, `reqArrivalMs` & Instant `0ms` 1-Tap Switch) + `L -> P` Upgrade** |
-| **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$) + Subtle Link Below Open Session for 3-Student Centroid (`STUDENT_AVG_3`)** |
+| **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$ + Indoor Wi-Fi/Cell Fallback) + Discreet Fallback GPS Mode (`STUDENT_AVG_3` without stale-coordinate lockout)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Backend Open-Session Auto-Fallback)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + In-Place Automated `clasp` Deployment (`appscript-deploy`)** |
-| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **Unified `+2 Phút` (`EXTEND_2M` 4-Branch State Machine) + Instant `0ms` Round 2 `1-Tap` / `PIN_10S` Toggle + 3-Tab (`P1` / `P2` / Read-Only `Kết quả cuối`) + `0.01s` Optimistic Manual Marking** |
+| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **Unified `+2 Phút` (`EXTEND_2M` 4-Branch State Machine) + Mistaken-Session Coordinate Restore + Instant `0ms` Round 2 `1-Tap` / `PIN_10S` Toggle + `0.01s` Optimistic Manual Marking** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-RPC Pre-Lock Cache (`CLASSES_MAP_V373`, `ROSTER_MAP_V373_`, `ALL_LATEST_SES_V373`, `SES_ATT_MAP_V36_`, `O(1)` In-Place Stats Update — 45 Concurrent Students in `< 1.6s`)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + `SUSPECT_PIN_RELAY` Telemetry + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
-| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Smart Color-Family Detection + Ghost Session Filtering** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.3`) / Luôn tải bản mới tức thì** |
+| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.4`) + iOS `pageshow`/`focus` Wake-Up Sync** |

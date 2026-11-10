@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.3)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.4)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -659,8 +659,8 @@ const I18N = {
     tea_confirm_open_prompt: "Xác nhận mở phiên điểm danh cho lớp học phần này?",
     tea_confirm_open_btn: "Xác nhận mở phiên",
     tea_cancel_open_btn: "Hủy",
-    tea_adv_gps_link: "Chế độ định vị GPS nâng cao",
-    tea_adv_gps_label: "Sử dụng định vị GPS của sinh viên (Lấy trung bình vị trí 3 sinh viên đầu tiên làm tâm phòng học)",
+    tea_adv_gps_link: "Chế độ định vị GPS dự phòng",
+    tea_adv_gps_label: "Bật chế độ định vị GPS dự phòng (Khi thiết bị giảng viên không có GPS)",
     tea_extend_btn: "+2 Phút",
     tea_reopen_btn: "Mở lại 5 phút",
     tea_close_btn: "Đóng phiên",
@@ -762,8 +762,8 @@ const I18N = {
     tea_confirm_open_prompt: "Confirm opening attendance session for this class section?",
     tea_confirm_open_btn: "Confirm Open",
     tea_cancel_open_btn: "Cancel",
-    tea_adv_gps_link: "Advanced GPS Location Mode",
-    tea_adv_gps_label: "Use Student GPS (Average the first 3 verified students as the classroom center)",
+    tea_adv_gps_link: "Fallback GPS Location Mode",
+    tea_adv_gps_label: "Enable fallback GPS location mode (When lecturer device has no GPS)",
     tea_extend_btn: "+2 Mins",
     tea_reopen_btn: "Reopen 5 Mins",
     tea_close_btn: "Close Session",

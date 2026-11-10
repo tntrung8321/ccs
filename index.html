@@ -12,7 +12,7 @@
   <title>ClassCheck — Hệ Thống Điểm Danh Định Vị</title>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.7.3" />
+  <link rel="stylesheet" href="css/styles.css?v=3.7.4" />
 </head>
 <body>
 
@@ -434,17 +434,17 @@
                 <!-- SUBTLE TEXT LINK UNDER OPEN SESSION BUTTON (MATCHING STUDENT ADVANCED SETTINGS STYLE) -->
                 <div style="margin-top:6px; text-align:right;" class="no-print">
                   <a href="javascript:void(0)" id="btn-toggle-adv-gps" style="font-size:0.75rem; color:var(--muted); text-decoration:none;" onclick="toggleTeacherAdvGpsBox()" data-i18n="tea_adv_gps_link">
-                    Chế độ định vị GPS nâng cao
+                    Chế độ định vị GPS dự phòng
                   </a>
                 </div>
 
                 <div id="box-adv-gps-mode" class="hidden no-print" style="margin-top:6px; padding:8px 10px; background:var(--surface); border:1px solid var(--border); border-radius:6px; text-align:left; width:100%;">
                   <label class="checkbox-row" for="chk-use-student-avg3" style="margin:0; font-size:0.78rem; font-weight:600; color:var(--text);">
                     <input type="checkbox" id="chk-use-student-avg3" onchange="onAdvStudentGpsToggle()" />
-                    <span data-i18n="tea_adv_gps_label">Sử dụng định vị GPS của sinh viên (Lấy trung bình vị trí 3 sinh viên đầu tiên làm tâm phòng học)</span>
+                    <span data-i18n="tea_adv_gps_label">Bật chế độ định vị GPS dự phòng (Khi thiết bị giảng viên không có GPS)</span>
                   </label>
                   <div id="tea-gps-anchor-hint" style="font-size:0.72rem; color:var(--muted); margin-top:4px; line-height:1.35;">
-                    Mặc định: Đánh giá khoảng cách theo vị trí của Giảng viên (Chỉ tự động lấy trung bình vị trí của 3 sinh viên đầu tiên nếu thiết bị Giảng viên không có định vị GPS).
+                    Mặc định: Đánh giá khoảng cách theo vị trí của Giảng viên (Tự động chuyển sang chế độ dự phòng nếu thiết bị Giảng viên không có định vị GPS).
                   </div>
                 </div>
 
@@ -549,8 +549,8 @@
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/schedule-config.js?v=3.7.3"></script>
-  <script src="js/student.js?v=3.7.3"></script>
-  <script src="js/teacher.js?v=3.7.3"></script>
+  <script src="js/schedule-config.js?v=3.7.4"></script>
+  <script src="js/student.js?v=3.7.4"></script>
+  <script src="js/teacher.js?v=3.7.4"></script>
 </body>
 </html>
