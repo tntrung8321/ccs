@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.4)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.5)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.7.4';
+const SYSTEM_VERSION = '3.7.5';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -491,6 +491,11 @@ function doPost(e) {
         return requireTeacherAuth(ss, body, () => handleTeacherRebuildReport(ss, body));
       case 'TEACHER_PUBLISH_GROUPS':
         return requireTeacherAuth(ss, body, () => handleTeacherPublishGroups(ss, body));
+      case 'TEACHER_LOGOUT':
+        return requireTeacherAuth(ss, body, (authRes) => {
+          if (authRes && authRes.mode === 'TEMP_PC') refreshTempPcCode(ss, true);
+          return jsonResponse({ ok: true });
+        });
 
       default:
         return jsonResponse({ ok: false, code: 'ERR_UNKNOWN_ACTION', message: 'Unknown action: ' + action });
@@ -1379,40 +1384,41 @@ function handleCheckReceipt(ss, body) {
  * ============================================================================
  */
 function requireTeacherAuth(ss, body, callback) {
-  const authResult = verifyTeacherToken(ss, body.teacherToken);
+  const authResult = verifyTeacherToken(ss, body.teacherToken, body);
   if (!authResult.ok) {
     return jsonResponse(authResult);
   }
-  return callback();
+  return callback(authResult);
 }
 
-function resetFailedTeacherAuthCount_(props) {
-  if (props.getProperty('FAILED_AUTH_COUNT') && props.getProperty('FAILED_AUTH_COUNT') !== '0') {
-    props.setProperty('FAILED_AUTH_COUNT', '0');
-  }
+function getAuthClientKey_(body) {
+  const raw = String((body && (body.credential || body.deviceFp)) || 'ANON').trim();
+  return sha256Hex('TEA_AUTH|' + raw).slice(0, 16);
 }
 
-function verifyTeacherToken(ss, submittedToken) {
+function verifyTeacherToken(ss, submittedToken, body) {
   const props = PropertiesService.getScriptProperties();
   const cache = CacheService.getScriptCache();
   const cleanToken = String(submittedToken || '').trim();
   if (!cleanToken) {
     return { ok: false, code: 'ERR_UNAUTHORIZED', message: 'Vui lòng nhập mật khẩu Giảng viên.' };
   }
+  const clientKey = getAuthClientKey_(body);
+  const failKey = 'AUTH_FAIL_' + clientKey;
+  const lockKey = 'AUTH_LOCK_' + clientKey;
 
   // 1. Master Key ALWAYS works (bypasses and clears any 10-min lockout)
   const masterKey = props.getProperty('TEACHER_MASTER_KEY') || props.getProperty('TEACHER_MASTER_Key');
   if (masterKey && cleanToken === masterKey) {
-    resetFailedTeacherAuthCount_(props);
+    cache.removeAll([failKey, lockKey, 'AUTH_LOCKOUT_UNTIL']);
     if (props.getProperty('AUTH_LOCKOUT_UNTIL')) {
       props.deleteProperty('AUTH_LOCKOUT_UNTIL');
-      cache.remove('AUTH_LOCKOUT_UNTIL');
     }
     return { ok: true, mode: 'MASTER' };
   }
 
-  // 2. Check 10-minute brute-force lockout for 6-digit code attempts
-  const lockoutUntil = Number(cache.get('AUTH_LOCKOUT_UNTIL') || props.getProperty('AUTH_LOCKOUT_UNTIL') || '0');
+  // 2. Check per-device 10-minute brute-force lockout for 6-digit code attempts
+  const lockoutUntil = Number(cache.get(lockKey) || '0');
   if (Date.now() < lockoutUntil) {
     const waitMins = Math.ceil((lockoutUntil - Date.now()) / 60000);
     return {
@@ -1428,7 +1434,7 @@ function verifyTeacherToken(ss, submittedToken) {
   const isTempValid = !tempExp || Date.now() <= tempExp;
 
   if (isTempValid && tempCode && cleanToken === tempCode) {
-    resetFailedTeacherAuthCount_(props);
+    cache.remove(failKey);
     return { ok: true, mode: 'TEMP_PC' };
   }
 
@@ -1452,19 +1458,18 @@ function verifyTeacherToken(ss, submittedToken) {
 
   // Accept if submitted token matches visible C9 code (while not expired)
   if (isTempValid && sheetCode && cleanToken === sheetCode) {
-    resetFailedTeacherAuthCount_(props);
+    cache.remove(failKey);
     return { ok: true, mode: 'TEMP_PC' };
   }
 
-  // 4. Record failed attempt & lock for 10 mins on 5th consecutive wrong try
-  const failedCount = Number(props.getProperty('FAILED_AUTH_COUNT') || '0');
+  // 4. Record per-device failed attempt & lock this device for 10 mins on 5th consecutive wrong try
+  const failedCount = Number(cache.get(failKey) || '0');
   const newFailed = failedCount + 1;
-  props.setProperty('FAILED_AUTH_COUNT', String(newFailed));
+  cache.put(failKey, String(newFailed), 600);
   if (newFailed >= 5) {
     const lockUntilMs = String(Date.now() + 10 * 60 * 1000);
-    props.setProperty('AUTH_LOCKOUT_UNTIL', lockUntilMs);
-    cache.put('AUTH_LOCKOUT_UNTIL', lockUntilMs, 600);
-    logAudit(ss, 'UNKNOWN', 'TEACHER_AUTH_LOCKOUT', 'API', '5 failed teacher auth attempts');
+    cache.put(lockKey, lockUntilMs, 600);
+    logAudit(ss, 'UNKNOWN', 'TEACHER_AUTH_LOCKOUT', clientKey, '5 failed teacher auth attempts on device');
     return {
       ok: false,
       code: 'ERR_AUTH_LOCKED',
@@ -1480,7 +1485,7 @@ function verifyTeacherToken(ss, submittedToken) {
 }
 
 function handleTeacherAuth(ss, body) {
-  const check = verifyTeacherToken(ss, body.teacherToken);
+  const check = verifyTeacherToken(ss, body.teacherToken, body);
   if (!check.ok) return jsonResponse(check);
   try { syncDashboardVersionBadge_(ss); } catch (e) {}
   return handleTeacherGetState(ss, body);
@@ -1779,6 +1784,11 @@ function removeMakeUpDateFromScheduleMeta_(classId, dayKey) {
 function handleTeacherControlSession(ss, body) {
   const classId   = String(body.classId || '').trim();
   const subAction = String(body.subAction || '').toUpperCase();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
+  }
+  try {
   const sesSheet  = ss.getSheetByName(TAB_SESSIONS);
 
   if (sesSheet.getLastRow() < 2) return jsonResponse({ ok: false, code: 'ERR_NO_SESSION' });
@@ -1880,7 +1890,6 @@ function handleTeacherControlSession(ss, body) {
     }
     invalidateClassCache(classId);
     rebuildSingleClassGrid(ss, classId);
-    refreshTempPcCode(ss, true);
   } else if (subAction === 'OPEN_ROUND_2') {
     const todayBundle = getTodayClassSessionsBundle_(ss, classId, todayDayKey);
     if (!todayBundle.p1Session) {
@@ -2001,6 +2010,9 @@ function handleTeacherControlSession(ss, body) {
   }
 
   return handleTeacherGetState(ss, { classId: classId });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function handleTeacherManualMark(ss, body) {
@@ -2266,15 +2278,21 @@ function handleTeacherRotateStaticQr(ss, body) {
 }
 
 function handleTeacherToggleReg(ss, body) {
-  const classId = String(body.classId || '').trim();
-  const classes = getClassesMap(ss, true);
-  const cfg = classes[classId];
-  if (!cfg) return jsonResponse({ ok: false, code: 'ERR_INVALID_CLASS' });
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(8000)) return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
+  try {
+    const classId = String(body.classId || '').trim();
+    const classes = getClassesMap(ss, true);
+    const cfg = classes[classId];
+    if (!cfg) return jsonResponse({ ok: false, code: 'ERR_INVALID_CLASS' });
 
-  const nextVal = cfg.regOpen ? 'NO' : 'YES';
-  ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 9).setValue(nextVal);
-  invalidateClassCache(classId);
-  return handleTeacherGetState(ss, { classId: classId });
+    const nextVal = cfg.regOpen ? 'NO' : 'YES';
+    ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 9).setValue(nextVal);
+    invalidateClassCache(classId);
+    return handleTeacherGetState(ss, { classId: classId });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function syncAndRebuildClassReport_(ss, classId, className) {
@@ -2298,26 +2316,32 @@ function syncAndRebuildClassReport_(ss, classId, className) {
 }
 
 function handleTeacherRebuildReport(ss, body) {
-  const classId = String(body.classId || '').trim();
-  invalidateSystemCache();
-  const classes = getClassesMap(ss, true);
-  let newStudentsAdded = 0;
-  let newStudentNames = [];
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(12000)) return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
+  try {
+    const classId = String(body.classId || '').trim();
+    invalidateSystemCache();
+    const classes = getClassesMap(ss, true);
+    let newStudentsAdded = 0;
+    let newStudentNames = [];
 
-  const targetIds = classId ? [classId] : Object.keys(classes);
-  targetIds.forEach(cid => {
-    const cName = classes[cid] ? classes[cid].className : cid;
-    const res = syncAndRebuildClassReport_(ss, cid, cName);
-    newStudentsAdded += res.newStudentsAdded;
-    newStudentNames = newStudentNames.concat(res.newStudentNames);
-  });
+    const targetIds = classId ? [classId] : Object.keys(classes);
+    targetIds.forEach(cid => {
+      const cName = classes[cid] ? classes[cid].className : cid;
+      const res = syncAndRebuildClassReport_(ss, cid, cName);
+      newStudentsAdded += res.newStudentsAdded;
+      newStudentNames = newStudentNames.concat(res.newStudentNames);
+    });
 
-  return jsonResponse({
-    ok: true,
-    code: 'REPORT_REBUILT',
-    newStudentsAdded: newStudentsAdded,
-    newStudentNames: newStudentNames
-  });
+    return jsonResponse({
+      ok: true,
+      code: 'REPORT_REBUILT',
+      newStudentsAdded: newStudentsAdded,
+      newStudentNames: newStudentNames
+    });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**
@@ -3586,7 +3610,7 @@ function refreshTempPcCode(ss, forceNew) {
     props.setProperty('TEMP_PC_EXPIRES', String(exp));
     props.setProperty('FAILED_AUTH_COUNT', '0');
     props.deleteProperty('AUTH_LOCKOUT_UNTIL');
-    cache.remove('AUTH_LOCKOUT_UNTIL');
+    cache.removeAll(['AUTH_LOCKOUT_UNTIL', 'DASH_C9_CODE_V35']);
     const doc = ss || SpreadsheetApp.getActiveSpreadsheet();
     const sheet = doc ? doc.getSheetByName(TAB_DASHBOARD) : null;
     if (sheet) {

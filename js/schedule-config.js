@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.4)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.5)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -716,7 +716,16 @@ const I18N = {
     ERR_ROUND2_ALREADY_USED: "[ĐÃ DÙNG LẦN 2] Mỗi buổi học chỉ mở tối đa 1 lần điểm danh Lần 2.",
     ERR_REOPEN_BLOCKED_BY_P2: "[KHÓA MỞ LẠI P1] Không thể mở lại Phiên 1 vì Phiên 2 đã được mở trong buổi học này.",
     ERR_FINAL_READ_ONLY: "[CHỈ ĐỂ XEM] Tab Kết quả cuối chỉ để xem. Vui lòng chuyển sang tab Phiên 1 hoặc Phiên 2 để chấm tay.",
-    ERR_PRIVATE_BROWSING: "[CHẾ ĐỘ ẨN DANH / RIÊNG TƯ] Không hỗ trợ đăng ký hoặc điểm danh trong Tab Ẩn danh (trình duyệt sẽ tự xóa mã khóa khi đóng tab). Vui lòng mở bằng tab Safari hoặc Chrome thông thường."
+    ERR_PRIVATE_BROWSING: "[CHẾ ĐỘ ẨN DANH / RIÊNG TƯ] Không hỗ trợ đăng ký hoặc điểm danh trong Tab Ẩn danh (trình duyệt sẽ tự xóa mã khóa khi đóng tab). Vui lòng mở bằng tab Safari hoặc Chrome thông thường.",
+    tea_cancel_mistaken_btn: "Hủy phiên nhầm",
+    tea_cancel_mistaken_title: "Xóa bỏ phiên vừa mở nhầm hôm nay (Không tính vào lịch sử)",
+    stu_p2_pin_hint: "Tự động nộp ngay khi gõ đủ 4 số",
+    tea_pin_proj_title: "MÃ PIN ĐIỂM DANH LẦN 2 (ĐỔI MỖI 10 GIÂY)",
+    tea_pin_spot_hint: "Nhấp đúp vào khung PIN để phóng to toàn màn hình • Nhấn Esc để thu nhỏ",
+    tea_hide_names: "Ẩn tên",
+    tea_show_names: "Hiện tên",
+    tea_reopen_p1_2m_btn: "Mở lại P1 (+2p)",
+    modal_confirmed_busy: "Đã xác nhận — Đang xử lý..."
   },
   en: {
     nav_student: "Student",
@@ -819,7 +828,16 @@ const I18N = {
     ERR_ROUND2_ALREADY_USED: "[ROUND 2 USED] Maximum 1 Round 2 session per class day.",
     ERR_REOPEN_BLOCKED_BY_P2: "[REOPEN P1 BLOCKED] Cannot reopen Round 1 because Round 2 has already been opened today.",
     ERR_FINAL_READ_ONLY: "[READ ONLY] Final Result tab is read-only. Switch to Round 1 or Round 2 tab to mark manually.",
-    ERR_PRIVATE_BROWSING: "[PRIVATE / INCOGNITO MODE] Do not register or check in inside a Private/Incognito tab (storage is wiped on close, causing device lock). Please open a normal Safari or Chrome tab."
+    ERR_PRIVATE_BROWSING: "[PRIVATE / INCOGNITO MODE] Do not register or check in inside a Private/Incognito tab (storage is wiped on close, causing device lock). Please open a normal Safari or Chrome tab.",
+    tea_cancel_mistaken_btn: "Cancel Mistaken",
+    tea_cancel_mistaken_title: "Delete mistaken session opened today (Excluded from history)",
+    stu_p2_pin_hint: "Auto-submits once all 4 digits are typed",
+    tea_pin_proj_title: "ROUND 2 ATTENDANCE PIN (ROTATES EVERY 10S)",
+    tea_pin_spot_hint: "Double-click PIN box for full-screen • Press Esc to exit",
+    tea_hide_names: "Hide Names",
+    tea_show_names: "Show Names",
+    tea_reopen_p1_2m_btn: "Reopen P1 (+2m)",
+    modal_confirmed_busy: "Confirmed — Processing..."
   }
 };
 
@@ -1395,7 +1413,11 @@ async function callBackend(apiUrl, payload, retries = 2) {
   }
 }
 
+let isAppModalBusy = false;
+let isConfirmModalBusy = false;
+
 function openAppModal(title, bodyText, confirmLabel, onConfirm, options = {}) {
+  isAppModalBusy = false;
   const cardEl = document.getElementById('app-modal-card');
   if (cardEl) {
     cardEl.classList.toggle('modal-wide', Boolean(options && options.wide));
@@ -1408,14 +1430,26 @@ function openAppModal(title, bodyText, confirmLabel, onConfirm, options = {}) {
     bodyEl.textContent = stripRemainingEmojis(bodyText);
   }
 
+  const cancelBtn = document.getElementById('app-modal-cancel');
+  if (cancelBtn) cancelBtn.disabled = false;
+
   const extraBtn = document.getElementById('app-modal-extra');
   if (extraBtn) {
     if (options && options.extraLabel && typeof options.onExtra === 'function') {
+      extraBtn.disabled = false;
       extraBtn.textContent = stripRemainingEmojis(options.extraLabel);
       extraBtn.className = options.extraClass || 'btn btn-primary';
       extraBtn.onclick = async () => {
-        if (!options.keepOpenOnExtra) closeAppModal();
-        await options.onExtra();
+        if (isAppModalBusy || extraBtn.disabled) return;
+        isAppModalBusy = true;
+        extraBtn.disabled = true;
+        try {
+          if (!options.keepOpenOnExtra) closeAppModal(true);
+          await options.onExtra();
+        } finally {
+          isAppModalBusy = false;
+          if (extraBtn) extraBtn.disabled = false;
+        }
       };
       extraBtn.classList.remove('hidden');
     } else {
@@ -1430,29 +1464,130 @@ function openAppModal(title, bodyText, confirmLabel, onConfirm, options = {}) {
     confirmBtn.onclick = null;
   } else {
     confirmBtn.classList.remove('hidden');
+    confirmBtn.disabled = false;
     const defaultConfirm = currentLang === 'en' ? 'Confirm' : 'Đồng ý';
-    confirmBtn.textContent = stripRemainingEmojis(confirmLabel || defaultConfirm);
+    const baseConfirmLabel = stripRemainingEmojis(confirmLabel || defaultConfirm);
+    confirmBtn.textContent = baseConfirmLabel;
     confirmBtn.className = (options && options.confirmClass) ? options.confirmClass : 'btn btn-primary';
     confirmBtn.onclick = async () => {
-      if (!(options && options.keepOpenOnConfirm)) closeAppModal();
-      if (typeof onConfirm === 'function') await onConfirm();
+      if (isAppModalBusy || confirmBtn.disabled) return;
+      isAppModalBusy = true;
+      confirmBtn.disabled = true;
+      if (cancelBtn) cancelBtn.disabled = true;
+      if (extraBtn) extraBtn.disabled = true;
+      if (navigator.vibrate) { try { navigator.vibrate(20); } catch (e) {} }
+      confirmBtn.textContent = stripRemainingEmojis(
+        (options && options.busyLabel) || I18N[currentLang].modal_confirmed_busy
+      );
+      try {
+        if (typeof onConfirm === 'function') await onConfirm();
+        if (!(options && options.keepOpenOnConfirm)) {
+          closeAppModal(true);
+        } else {
+          confirmBtn.textContent = baseConfirmLabel;
+        }
+      } finally {
+        isAppModalBusy = false;
+        if (cancelBtn) cancelBtn.disabled = false;
+        if (extraBtn) extraBtn.disabled = false;
+        if (confirmBtn) confirmBtn.disabled = false;
+      }
     };
   }
   document.getElementById('app-modal').classList.remove('hidden');
 }
 
-function closeAppModal() {
+function closeAppModal(force = false) {
+  if (isAppModalBusy && !force) return;
   document.getElementById('app-modal').classList.add('hidden');
   const cardEl = document.getElementById('app-modal-card');
   if (cardEl) cardEl.classList.remove('modal-wide');
   const extraBtn = document.getElementById('app-modal-extra');
-  if (extraBtn) extraBtn.classList.add('hidden');
+  if (extraBtn) {
+    extraBtn.classList.add('hidden');
+    extraBtn.disabled = false;
+  }
+  const cancelBtn = document.getElementById('app-modal-cancel');
+  if (cancelBtn) cancelBtn.disabled = false;
   const confirmBtn = document.getElementById('app-modal-confirm');
   if (confirmBtn) {
     confirmBtn.classList.remove('hidden');
+    confirmBtn.disabled = false;
     confirmBtn.className = 'btn btn-primary';
   }
 }
+
+function openConfirmModal(title, bodyText, confirmLabel, onConfirm, options = {}) {
+  const modalEl = document.getElementById('confirm-modal');
+  const titleEl = document.getElementById('confirm-modal-title');
+  const bodyEl = document.getElementById('confirm-modal-body');
+  const cancelBtn = document.getElementById('confirm-modal-cancel');
+  const confirmBtn = document.getElementById('confirm-modal-ok');
+  if (!modalEl || !confirmBtn || !cancelBtn) return;
+
+  isConfirmModalBusy = false;
+  titleEl.textContent = stripRemainingEmojis(title);
+  if (options && options.htmlBody) {
+    bodyEl.innerHTML = options.htmlBody;
+  } else {
+    bodyEl.textContent = stripRemainingEmojis(bodyText);
+  }
+
+  cancelBtn.disabled = false;
+  cancelBtn.textContent = stripRemainingEmojis(
+    (options && options.cancelLabel) || (currentLang === 'en' ? 'Cancel' : 'Hủy')
+  );
+  confirmBtn.disabled = Boolean(options && options.initialConfirmDisabled);
+  confirmBtn.className = (options && options.confirmClass) ? options.confirmClass : 'btn btn-primary';
+  confirmBtn.textContent = stripRemainingEmojis(
+    confirmLabel || (currentLang === 'en' ? 'Confirm' : 'Xác nhận')
+  );
+
+  confirmBtn.onclick = async () => {
+    if (isConfirmModalBusy || confirmBtn.disabled) return;
+    isConfirmModalBusy = true;
+    confirmBtn.disabled = true;
+    cancelBtn.disabled = true;
+    if (navigator.vibrate) { try { navigator.vibrate(20); } catch (e) {} }
+    confirmBtn.textContent = stripRemainingEmojis(
+      (options && options.busyLabel) || I18N[currentLang].modal_confirmed_busy
+    );
+    try {
+      if (typeof onConfirm === 'function') await onConfirm();
+    } finally {
+      isConfirmModalBusy = false;
+      closeConfirmModal(true);
+    }
+  };
+
+  modalEl.classList.remove('hidden');
+  if (options && typeof options.onMount === 'function') {
+    options.onMount(confirmBtn, cancelBtn);
+  }
+}
+
+function closeConfirmModal(force = false) {
+  if (isConfirmModalBusy && !force) return;
+  const modalEl = document.getElementById('confirm-modal');
+  if (modalEl) modalEl.classList.add('hidden');
+  const cancelBtn = document.getElementById('confirm-modal-cancel');
+  if (cancelBtn) cancelBtn.disabled = false;
+  const confirmBtn = document.getElementById('confirm-modal-ok');
+  if (confirmBtn) confirmBtn.disabled = false;
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const confirmModal = document.getElementById('confirm-modal');
+  if (confirmModal && !confirmModal.classList.contains('hidden')) {
+    closeConfirmModal();
+    return;
+  }
+  const appModal = document.getElementById('app-modal');
+  if (appModal && !appModal.classList.contains('hidden')) {
+    closeAppModal();
+  }
+});
 
 window.cachedGPS = null;
 window.activeGpsPromise = null;
@@ -1754,6 +1889,17 @@ function watchBrowserLocationPermission() {
   }).catch(() => {});
 }
 
+function clearButtonPulseState(btnOrId) {
+  const btn = typeof btnOrId === 'string' ? document.getElementById(btnOrId) : btnOrId;
+  if (!btn) return;
+  if (btn._pulseRestoreTimer) {
+    clearTimeout(btn._pulseRestoreTimer);
+    btn._pulseRestoreTimer = null;
+  }
+  delete btn._origPulseHtml;
+  btn.classList.remove('btn-pulse-success', 'btn-pulse-warn', 'btn-pulse-danger', 'btn-pulse-neutral');
+}
+
 function pulseButtonConfirm(btnOrId, confirmLabel = '', variant = 'success', durationMs = 1200, options = {}) {
   const btn = typeof btnOrId === 'string' ? document.getElementById(btnOrId) : btnOrId;
   if (!btn) return Promise.resolve();
@@ -1787,20 +1933,10 @@ function pulseButtonConfirm(btnOrId, confirmLabel = '', variant = 'success', dur
   btn.classList.add(pulseCls);
 
   if (confirmLabel) {
-    const isSmallBtn = btn.classList.contains('btn-sm');
-    const iconCls = btn.id === 'btn-start-checkin' ? 'icon icon-lg' : (isSmallBtn ? 'icon icon-sm' : 'icon');
-    let svgIcon = `<svg class="${iconCls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path class="pulse-draw-path" d="M20 6L9 17l-5-5"></path></svg>`;
-    if (variant === 'warn') {
-      svgIcon = `<svg class="${iconCls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path class="pulse-draw-path" d="M12 7v5l3 2"></path></svg>`;
-    } else if (variant === 'danger') {
-      svgIcon = `<svg class="${iconCls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path class="pulse-draw-path" d="M15 9l-6 6M9 9l6 6"></path></svg>`;
-    } else if (variant === 'neutral') {
-      svgIcon = '';
-    }
     const hasHeroLabel = btn.id === 'btn-start-checkin';
     btn.innerHTML = hasHeroLabel
-      ? `${svgIcon}<span id="btn-start-checkin-label">${escapeHtml(confirmLabel)}</span>`
-      : `${svgIcon}<span>${escapeHtml(confirmLabel)}</span>`;
+      ? `<svg class="icon icon-lg"><use href="#ic-check"></use></svg><span id="btn-start-checkin-label">${escapeHtml(confirmLabel)}</span>`
+      : `<span>${escapeHtml(confirmLabel)}</span>`;
   }
 
   if (btn._pulseRestoreTimer) {
@@ -1817,7 +1953,7 @@ function pulseButtonConfirm(btnOrId, confirmLabel = '', variant = 'success', dur
     }
     btn._pulseRestoreTimer = setTimeout(() => {
       btn.classList.remove('btn-pulse-success', 'btn-pulse-warn', 'btn-pulse-danger', 'btn-pulse-neutral');
-      if (btn._origPulseHtml && btn.id !== 'btn-start-checkin') {
+      if (btn._origPulseHtml && btn.id !== 'btn-start-checkin' && !opts.skipRestoreHtml) {
         btn.innerHTML = btn._origPulseHtml;
       }
       delete btn._origPulseHtml;
@@ -1946,6 +2082,13 @@ function applyLanguage() {
       el.setAttribute('placeholder', I18N[currentLang][key]);
     }
   });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const key = el.getAttribute('data-i18n-title');
+    if (I18N[currentLang][key]) {
+      el.setAttribute('title', I18N[currentLang][key]);
+    }
+  });
+  if (typeof syncRosterVisibilityButtonUI === 'function') syncRosterVisibilityButtonUI();
   if (typeof onAdvStudentGpsToggle === 'function') onAdvStudentGpsToggle();
   const permBox = document.getElementById('gps-permission-guide-box');
   if (permBox && !permBox.classList.contains('hidden') && typeof showGpsPermissionGuideBox === 'function') {

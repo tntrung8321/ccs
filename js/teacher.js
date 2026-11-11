@@ -1,12 +1,12 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.7.4)
+ * LECTURER CONTROLLER (js/teacher.js — v3.7.5)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
  *  - Instant 0.01s Optimistic UI for Manual Attendance Marks (P / L / E / -) & Past-Session Excuse Approval
  *  - Shuffle-Bag Random Student Caller (Projector ID Privacy) & Instant Classroom Group Maker
- *  - Isolated Session Control Block with Two-Step Inline Confirmation
+ *  - Centered Floating Confirmation Popup with 0ms Anti-Double-Click Lock
  *  - Live Roster Quick Filters (All / Present / Absent / Suspect) & Projector Privacy Mode
  * ============================================================================
  */
@@ -21,6 +21,7 @@ let activeRosterFilter = 'ALL'; // 'ALL' | 'PRESENT' | 'ABSENT' | 'SUSPECT'
 let teacherHasManuallySelectedClass = false;
 let selectedTeacherClassId = '';
 let pendingManualMarks = {}; // Optimistic UI locks keyed by studentId so rapid clicks never wait or flicker
+let manualMarkSeqByStudent = {}; // Monotonic request sequence per studentId to discard stale out-of-order responses
 let lastPulsedManualMark = null; // { studentId, status, dayKey, expiresAt } for P/L/E/- button pulse across re-renders
 let randomCallerVisitedByClass = {}; // Per-class shuffle bag Set of studentIds already called
 let currentDraftGroups = [];
@@ -208,9 +209,16 @@ function syncProjectorPin10sLifecycle(ses) {
   }
 }
 
+let lastTeacherWakeSyncMs = 0;
 ['visibilitychange', 'pageshow', 'focus'].forEach(ev => {
   window.addEventListener(ev, () => {
-    if (!document.hidden && currentMode === 'TEACHER' && getTeacherAuth()) refreshTeacherState(true);
+    if (!document.hidden && currentMode === 'TEACHER' && getTeacherAuth()) {
+      const now = Date.now();
+      if (now - lastTeacherWakeSyncMs > 800) {
+        lastTeacherWakeSyncMs = now;
+        refreshTeacherState(true);
+      }
+    }
   });
 });
 
@@ -264,6 +272,8 @@ async function restoreTeacherSessionOnLoad(auth) {
 }
 
 async function loginTeacher() {
+  const loginBtn = document.getElementById('btn-tea-login');
+  if (loginBtn && loginBtn.disabled) return;
   const apiUrl = normalizeApiUrl(document.getElementById('inp-tea-api').value);
   const token = document.getElementById('inp-tea-token').value.trim();
   const persistence = document.getElementById('sel-tea-persistence').value;
@@ -275,24 +285,38 @@ async function loginTeacher() {
       currentLang === 'en'
         ? 'Please enter the session code from Google Sheet or your Master Key.'
         : 'Vui lòng nhập mật khẩu phiên từ Google Sheet hoặc khóa chính (Master Key).',
-      'err'
+      'err',
+      'tea-login-inline-status'
     );
     return;
   }
 
+  if (loginBtn) loginBtn.disabled = true;
   showStatus(
     currentLang === 'en'
       ? 'Verifying session code with Google Sheet...'
       : 'Đang xác thực mật khẩu phiên với Google Sheet...',
-    'warn'
+    'warn',
+    'tea-login-inline-status'
   );
-  const res = await callBackend(apiUrl, {
-    action: 'TEACHER_AUTH',
-    teacherToken: token
-  });
+  let res = null;
+  try {
+    res = await callBackend(apiUrl, {
+      action: 'TEACHER_AUTH',
+      teacherToken: token,
+      credential: getOrCreateDeviceCredential(),
+      deviceFp: getHardwareFingerprint()
+    });
+  } finally {
+    if (loginBtn) loginBtn.disabled = false;
+  }
 
   if (!res || !res.ok) {
-    showStatus(res && res.message ? res.message : formatServerMessage(res ? res.code : 'ERR_UNAUTHORIZED', {}, ''), 'err');
+    showStatus(
+      res && res.message ? res.message : formatServerMessage(res ? res.code : 'ERR_UNAUTHORIZED', {}, ''),
+      'err',
+      'tea-login-inline-status'
+    );
     return;
   }
 
@@ -314,12 +338,17 @@ async function loginTeacher() {
 }
 
 function logoutTeacher() {
+  const prevAuth = getTeacherAuth();
   safeRemoveLocal('cc_teacher_auth');
   safeRemoveSession('cc_teacher_auth');
   safeRemoveSession('cc_tea_state_cache');
   safeRemoveSession('cc_tea_selected_class');
   safeRemoveLocal('cc_tea_selected_class');
+  safeRemoveLocal('cc_tea_last_preview_mark');
   safeSetLocal('cc_active_mode', 'STUDENT');
+  if (prevAuth && prevAuth.apiUrl && /^\d{6}$/.test(String(prevAuth.token || '').trim())) {
+    callBackend(prevAuth.apiUrl, { action: 'TEACHER_LOGOUT', teacherToken: prevAuth.token }, 0).catch(() => {});
+  }
   document.getElementById('inp-tea-token').value = '';
   teacherHasManuallySelectedClass = false;
   selectedTeacherClassId = '';
@@ -526,20 +555,22 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
   updateTeacherLiveCountersFromRoster();
   const roster = activeCfg ? (state.roster || []) : [];
 
-  // Sync live session marks to local student attendance summary store
-  if (selectedTeacherClassId && ses && typeof recordLocalStudentSessionMark === 'function') {
+  const linkedProfile = typeof getPrimaryStudentProfile === 'function' ? getPrimaryStudentProfile() : null;
+  const linkedStuId = linkedProfile && linkedProfile.studentId ? String(linkedProfile.studentId).trim() : '';
+  if (linkedStuId && selectedTeacherClassId && ses && typeof recordLocalStudentSessionMark === 'function') {
     const sesKey = ses.sessionId || getTodayDateKey();
-    roster.forEach(r => {
-      if (!r || !r.studentId) return;
+    const r = roster.find(item => item && String(item.studentId).trim() === linkedStuId);
+    if (r) {
       if (r.status === 'P' || r.status === 'L' || r.status === 'E') {
         recordLocalStudentSessionMark(r.studentId, selectedTeacherClassId, sesKey, r.status, r.time || '');
       } else if (r.status === '-' && (!ses.isOpen || r.source === 'TEACHER_MANUAL')) {
         recordLocalStudentSessionMark(r.studentId, selectedTeacherClassId, sesKey, 'A', r.time || '');
       }
-    });
+    }
   }
 
   setupTeacherCountdown(ses, Boolean(activeCfg));
+  syncRosterVisibilityButtonUI();
   renderTeacherRoster();
   renderTeacherCourseProgressStrip(activeCfg, ses);
   if (document.getElementById('hist-modal-rows')) {
@@ -552,7 +583,6 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
 function updateTeacherClassOverviewUI(activeCfg, ses, scheduleMatch) {
   const hintBar = document.getElementById('tea-schedule-hint');
   const selectedNameEl = document.getElementById('tea-selected-class-display');
-  const confirmBtn = document.getElementById('btn-tea-confirm-open');
   const isEn = currentLang === 'en';
 
   if (selectedNameEl) {
@@ -565,10 +595,6 @@ function updateTeacherClassOverviewUI(activeCfg, ses, scheduleMatch) {
         : 'Chưa chọn lớp (Ngoài khung giờ tự động)';
       selectedNameEl.style.color = 'var(--warn-text)';
     }
-  }
-
-  if (confirmBtn) {
-    confirmBtn.textContent = isEn ? 'Confirm Open' : 'Xác nhận mở phiên';
   }
 
   if (hintBar) {
@@ -591,13 +617,6 @@ function updateTeacherClassOverviewUI(activeCfg, ses, scheduleMatch) {
   }
 }
 
-/**
- * ============================================================================
- * REQUIREMENT 5: TWO-STEP INLINE CONFIRMATION FOR OPENING SESSION
- *  - Prevents accidental 1-tap session start on touchscreens.
- *  - Shows two separate buttons: "Hủy" and "Xác nhận mở phiên".
- * ============================================================================
- */
 function promptOpenSessionConfirm() {
   const activeSes = teacherState && teacherState.activeSession;
   if (
@@ -609,6 +628,9 @@ function promptOpenSessionConfirm() {
     switchRound2QrMode('PIN_10S');
     return;
   }
+
+  const triggerBtn = document.getElementById('btn-tea-open-trigger');
+  if (triggerBtn && triggerBtn.disabled) return;
 
   const classId = document.getElementById('sel-tea-class').value;
   const isEn = currentLang === 'en';
@@ -623,14 +645,6 @@ function promptOpenSessionConfirm() {
     return;
   }
 
-  const triggerBtn = document.getElementById('btn-tea-open-trigger');
-  const confirmBox = document.getElementById('tea-open-confirm-bar');
-  const confirmLabel = document.getElementById('tea-open-confirm-text');
-  const confirmBtn = document.getElementById('btn-tea-confirm-open');
-  const makeUpWrap = document.getElementById('tea-makeup-confirm-wrap');
-  const makeUpChk = document.getElementById('chk-confirm-makeup-session');
-  const makeUpLbl = document.getElementById('lbl-confirm-makeup-session');
-
   const activeCfg = (teacherState && Array.isArray(teacherState.classes))
     ? teacherState.classes.find(c => c && c.classId === classId)
     : null;
@@ -640,90 +654,79 @@ function promptOpenSessionConfirm() {
   const todayKey = getTodayDateKey();
   const isTodayOnSheet = courseDates.length === 0 || courseDates.some(cd => cd.dayKey === todayKey);
 
-  if (makeUpChk) {
-    makeUpChk.checked = false;
-  }
-
   if (!isTodayOnSheet) {
     const todayShort = `${todayKey.slice(8, 10)}/${todayKey.slice(5, 7)}`;
-    if (confirmLabel) {
-      confirmLabel.textContent = isEn
-        ? `[WARNING] Today (${todayShort}) is NOT in the regular Sheet schedule for [${classId}]. If you selected the wrong class, click Cancel:`
-        : `[CẢNH BÁO] Hôm nay (${todayShort}) KHÔNG nằm trong lịch trình cột ngày trên Sheet của lớp [${classId}]. Nếu chọn nhầm lớp, vui lòng bấm Hủy:`;
-    }
-    if (makeUpLbl) {
-      makeUpLbl.textContent = isEn
-        ? `I confirm opening a MAKE-UP session for [${classId}] (Auto-add column ${todayShort} to schedule & Sheet)`
-        : `Tôi xác nhận mở phiên DẠY BÙ cho lớp [${classId}] (Tự động thêm cột ngày ${todayShort} vào lịch & Sheet)`;
-    }
-    if (makeUpWrap) makeUpWrap.classList.remove('hidden');
-    if (confirmBtn) {
-      confirmBtn.textContent = isEn ? 'Confirm Make-up Session' : 'Xác nhận mở phiên dạy bù';
-      confirmBtn.disabled = true;
-    }
-  } else {
-    if (confirmLabel) {
-      confirmLabel.textContent = isEn
-        ? `You are about to open an attendance session for class [${classId}]. Please confirm:`
-        : `Bạn chuẩn bị mở phiên điểm danh cho lớp [${classId}]. Vui lòng xác nhận:`;
-    }
-    if (makeUpWrap) makeUpWrap.classList.add('hidden');
-    if (confirmBtn) {
-      confirmBtn.textContent = isEn ? 'Confirm Open' : 'Xác nhận mở phiên';
-      confirmBtn.disabled = false;
-    }
+    const safeCid = escapeHtml(classId);
+    const safeShort = escapeHtml(todayShort);
+    const makeUpBodyHtml = `
+      <div style="margin-bottom:10px; color:var(--warn-text); font-weight:600; line-height:1.45;">
+        ${isEn
+          ? `[WARNING] Today (${safeShort}) is NOT in the regular Sheet schedule for [${safeCid}].`
+          : `[CẢNH BÁO] Hôm nay (${safeShort}) KHÔNG nằm trong lịch trình cột ngày trên Sheet của lớp [${safeCid}].`}
+      </div>
+      <label class="checkbox-row" for="chk-modal-makeup-session" style="margin:0; padding:9px 10px; background:var(--warn-bg); border:1px solid var(--warn-border); border-radius:7px; font-size:0.81rem; font-weight:700; color:#92400e; cursor:pointer; align-items:flex-start;">
+        <input type="checkbox" id="chk-modal-makeup-session" style="margin-top:2px;" />
+        <span>${isEn
+          ? `I confirm opening a MAKE-UP session for [${safeCid}] (Auto-add column ${safeShort} to schedule & Sheet)`
+          : `Tôi xác nhận mở phiên DẠY BÙ cho lớp [${safeCid}] (Tự động thêm cột ngày ${safeShort} vào lịch & Sheet)`}</span>
+      </label>
+    `;
+    openConfirmModal(
+      isEn ? 'Confirm Make-up Session' : 'Xác nhận Mở Phiên Dạy Bù',
+      '',
+      isEn ? 'Confirm Make-up Session' : 'Xác nhận mở phiên dạy bù',
+      async () => {
+        if (triggerBtn) triggerBtn.disabled = true;
+        try {
+          await teacherStartSession(true);
+        } finally {
+          const curSes = teacherState ? teacherState.activeSession : null;
+          syncSessionControlButtonsState(curSes, Boolean(classId));
+        }
+      },
+      {
+        htmlBody: makeUpBodyHtml,
+        confirmClass: 'btn btn-accent',
+        initialConfirmDisabled: true,
+        busyLabel: isEn ? 'Confirmed — Opening Session...' : 'Đã xác nhận — Đang mở phiên...',
+        onMount: (confirmBtnEl) => {
+          const chk = document.getElementById('chk-modal-makeup-session');
+          if (chk) {
+            chk.onchange = () => {
+              confirmBtnEl.disabled = !chk.checked;
+            };
+          }
+        }
+      }
+    );
+    return;
   }
 
-  if (triggerBtn) triggerBtn.classList.add('hidden');
-  if (confirmBox) confirmBox.classList.remove('hidden');
-}
-
-function onMakeUpConfirmCheckboxChange() {
-  const makeUpChk = document.getElementById('chk-confirm-makeup-session');
-  const confirmBtn = document.getElementById('btn-tea-confirm-open');
-  if (confirmBtn && makeUpChk) {
-    confirmBtn.disabled = !makeUpChk.checked;
-  }
+  openConfirmModal(
+    isEn ? 'Open Attendance Session' : 'Xác nhận Mở Phiên Điểm Danh',
+    isEn
+      ? `Confirm opening Round 1 attendance session for class [${classId}] right now?`
+      : `Xác nhận mở phiên điểm danh cho lớp [${classId}] ngay bây giờ?`,
+    isEn ? 'Confirm Open' : 'Xác nhận mở phiên',
+    async () => {
+      if (triggerBtn) triggerBtn.disabled = true;
+      try {
+        await teacherStartSession(false);
+      } finally {
+        const curSes = teacherState ? teacherState.activeSession : null;
+        syncSessionControlButtonsState(curSes, Boolean(classId));
+      }
+    },
+    {
+      confirmClass: 'btn btn-accent',
+      busyLabel: isEn ? 'Confirmed — Opening Session...' : 'Đã xác nhận — Đang mở phiên...'
+    }
+  );
 }
 
 function cancelOpenSessionConfirm() {
-  const triggerBtn = document.getElementById('btn-tea-open-trigger');
-  const confirmBox = document.getElementById('tea-open-confirm-bar');
-  const makeUpWrap = document.getElementById('tea-makeup-confirm-wrap');
-  const makeUpChk = document.getElementById('chk-confirm-makeup-session');
-  const confirmBtn = document.getElementById('btn-tea-confirm-open');
-  if (makeUpChk) makeUpChk.checked = false;
-  if (makeUpWrap) makeUpWrap.classList.add('hidden');
-  if (confirmBtn) confirmBtn.disabled = false;
-  if (confirmBox) confirmBox.classList.add('hidden');
-  if (triggerBtn) triggerBtn.classList.remove('hidden');
-}
-
-async function confirmAndStartSession() {
-  const makeUpWrap = document.getElementById('tea-makeup-confirm-wrap');
-  const makeUpChk = document.getElementById('chk-confirm-makeup-session');
-  const requiresMakeUpConfirm = Boolean(makeUpWrap && !makeUpWrap.classList.contains('hidden'));
-  if (requiresMakeUpConfirm && (!makeUpChk || !makeUpChk.checked)) {
-    return;
-  }
-  const isMakeUpConfirmed = Boolean(requiresMakeUpConfirm && makeUpChk && makeUpChk.checked);
-  if (typeof pulseButtonConfirm === 'function') {
-    pulseButtonConfirm(
-      'btn-tea-confirm-open',
-      currentLang === 'en' ? 'OPENING SESSION...' : 'ĐANG MỞ PHIÊN...',
-      'success',
-      1500
-    );
-  }
-  await teacherStartSession(isMakeUpConfirmed);
-  cancelOpenSessionConfirm();
-  if (typeof pulseButtonConfirm === 'function') {
-    pulseButtonConfirm(
-      'btn-tea-open-trigger',
-      currentLang === 'en' ? 'SESSION OPENED' : 'ĐÃ MỞ PHIÊN ĐIỂM DANH',
-      'success',
-      1400
-    );
+  if (typeof closeConfirmModal === 'function') {
+    closeConfirmModal();
   }
 }
 
@@ -744,7 +747,6 @@ async function onTeacherClassChange() {
 
 function syncSessionControlButtonsState(ses, hasSelectedClass = true) {
   const btnOpenTrigger = document.getElementById('btn-tea-open-trigger');
-  const confirmBox = document.getElementById('tea-open-confirm-bar');
   const p2LaunchStrip = document.getElementById('tea-p2-launch-strip');
   const btnExtend = document.getElementById('btn-tea-extend');
   const btnCancelMistaken = document.getElementById('btn-tea-cancel-mistaken');
@@ -762,10 +764,10 @@ function syncSessionControlButtonsState(ses, hasSelectedClass = true) {
   );
 
   if (p2LaunchStrip && btnOpenTrigger) {
-    const isConfirmVisible = Boolean(confirmBox && !confirmBox.classList.contains('hidden'));
+    if (typeof clearButtonPulseState === 'function') clearButtonPulseState(btnOpenTrigger);
     const isRound2Open = Boolean(isOpenNow && Number(ses.round || 1) === 2);
     const isPinProjectorActive = Boolean(isRound2Open && String(ses.qrMode || '').toUpperCase() === 'PIN_10S');
-    if (isP1ClosedReadyForP2 && !isConfirmVisible) {
+    if (isP1ClosedReadyForP2) {
       btnOpenTrigger.classList.add('hidden');
       p2LaunchStrip.classList.remove('hidden');
     } else if (isPinProjectorActive) {
@@ -778,9 +780,7 @@ function syncSessionControlButtonsState(ses, hasSelectedClass = true) {
       btnOpenTrigger.innerHTML = '<svg class="icon"><use href="#ic-check"></use></svg><span>' + (isEn ? 'Round 2 Open: 1-Tap GPS (Tap to re-enable 10s PIN)' : 'Đang mở Phiên 2: 1-Chạm GPS (Bấm để bật lại Mã PIN 10s)') + '</span>';
     } else {
       p2LaunchStrip.classList.add('hidden');
-      if (!isConfirmVisible) {
-        btnOpenTrigger.classList.remove('hidden');
-      }
+      btnOpenTrigger.classList.remove('hidden');
       btnOpenTrigger.disabled = Boolean(isOpenNow || (hasTodaySession && p2Opened));
       if (hasTodaySession && !isOpenNow && p2Opened) {
         btnOpenTrigger.classList.remove('btn-pulse-success', 'btn-pulse-warn', 'btn-pulse-danger');
@@ -791,7 +791,12 @@ function syncSessionControlButtonsState(ses, hasSelectedClass = true) {
     }
   }
 
-  if (btnExtend) btnExtend.disabled = !hasTodaySession;
+  if (btnExtend) {
+    btnExtend.disabled = !hasTodaySession || (!isOpenNow && p2Opened);
+    btnExtend.textContent = isP1ClosedReadyForP2
+      ? (isEn ? 'Reopen P1 (+2m)' : 'Mở lại P1 (+2p)')
+      : (isEn ? '+2 Mins' : '+2 Phút');
+  }
   if (btnCancelMistaken) btnCancelMistaken.disabled = !hasTodaySession;
   if (btnClose) btnClose.disabled = !isOpenNow;
 
@@ -1006,7 +1011,8 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
         'btn-tea-open-trigger',
         isEn ? 'SESSION OPENED' : 'ĐÃ MỞ PHIÊN ĐIỂM DANH',
         'success',
-        1400
+        1400,
+        { skipRestoreHtml: true }
       );
     }
     showStatus(
@@ -1029,7 +1035,44 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
   }
 }
 
+function promptOpenRound2Confirm() {
+  const btnR2 = document.getElementById('btn-tea-open-round2');
+  if (btnR2 && btnR2.disabled) return;
+  const classId = document.getElementById('sel-tea-class').value;
+  const isEn = currentLang === 'en';
+  if (!classId) {
+    showStatus(isEn ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.', 'warn');
+    return;
+  }
+  const minsInput = document.getElementById('inp-tea-p2-mins');
+  const pinChk = document.getElementById('chk-tea-p2-pin10s');
+  const rawMins = minsInput ? parseInt(minsInput.value, 10) : 3;
+  const durationMinutes = Math.min(15, Math.max(1, isNaN(rawMins) ? 3 : rawMins));
+  if (minsInput) minsInput.value = String(durationMinutes);
+  const isPin10s = Boolean(pinChk && pinChk.checked);
+  const modeDesc = isPin10s
+    ? (isEn ? '10s Rotating PIN' : 'Mã PIN 10 giây')
+    : (isEn ? '1-Tap GPS' : '1-Chạm GPS');
+
+  openConfirmModal(
+    isEn ? 'Open Round 2 Check-In' : 'Xác nhận Mở Điểm Danh Lần 2',
+    isEn
+      ? `Open Round 2 check-in for [${classId}] (${durationMinutes} mins • ${modeDesc})? Note: Round 2 can only be opened once per class day.`
+      : `Mở điểm danh Lần 2 cho lớp [${classId}] (${durationMinutes} phút • ${modeDesc})? Lưu ý: Mỗi buổi học chỉ mở Lần 2 tối đa 1 lần.`,
+    isEn ? 'Confirm Open Round 2' : 'Xác nhận mở Lần 2',
+    async () => {
+      await openRound2Session();
+    },
+    {
+      confirmClass: 'btn btn-accent',
+      busyLabel: isEn ? 'Confirmed — Opening Round 2...' : 'Đã xác nhận — Đang mở Lần 2...'
+    }
+  );
+}
+
 async function openRound2Session() {
+  const btnR2 = document.getElementById('btn-tea-open-round2');
+  if (btnR2 && btnR2.disabled) return;
   const minsInput = document.getElementById('inp-tea-p2-mins');
   const pinChk = document.getElementById('chk-tea-p2-pin10s');
   const rawMins = minsInput ? parseInt(minsInput.value, 10) : 3;
@@ -1040,11 +1083,16 @@ async function openRound2Session() {
   if (qrMode === 'PIN_10S') {
     syncTeacherServerClockOffset();
   }
-  await teacherControlSession('OPEN_ROUND_2', {
-    durationMinutes: durationMinutes,
-    round2Mins: durationMinutes,
-    qrMode: qrMode
-  });
+  if (btnR2) btnR2.disabled = true;
+  try {
+    await teacherControlSession('OPEN_ROUND_2', {
+      durationMinutes: durationMinutes,
+      round2Mins: durationMinutes,
+      qrMode: qrMode
+    });
+  } finally {
+    if (btnR2) btnR2.disabled = false;
+  }
 }
 
 async function switchRound2QrMode(newMode) {
@@ -1074,6 +1122,31 @@ async function switchRound2QrMode(newMode) {
   }
 }
 
+function promptCloseSessionConfirm() {
+  const btnClose = document.getElementById('btn-tea-close');
+  if (btnClose && btnClose.disabled) return;
+  const classId = document.getElementById('sel-tea-class').value;
+  const ses = teacherState && teacherState.activeSession;
+  const isEn = currentLang === 'en';
+  if (!classId || !ses || !ses.isOpen) return;
+  const roundNum = Number(ses.round || 1);
+  openConfirmModal(
+    isEn ? 'Close Active Session' : 'Xác nhận Đóng Phiên Điểm Danh',
+    isEn
+      ? `Close the active Round ${roundNum} attendance session for class [${classId}] right now?`
+      : `Kết thúc phiên điểm danh Lần ${roundNum} đang mở của lớp [${classId}] ngay bây giờ?`,
+    isEn ? 'Close Session Now' : 'Đóng phiên ngay',
+    async () => {
+      if (btnClose) btnClose.disabled = true;
+      await teacherControlSession('CLOSE_NOW');
+    },
+    {
+      confirmClass: 'btn btn-danger',
+      busyLabel: isEn ? 'Confirmed — Closing...' : 'Đã xác nhận — Đang đóng phiên...'
+    }
+  );
+}
+
 async function teacherControlSession(subAction, extra = {}) {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
@@ -1083,15 +1156,35 @@ async function teacherControlSession(subAction, extra = {}) {
     return;
   }
   const btnExtend = document.getElementById('btn-tea-extend');
+  const btnClose = document.getElementById('btn-tea-close');
+  const btnCancelMistaken = document.getElementById('btn-tea-cancel-mistaken');
   if (subAction === 'EXTEND_2M' && btnExtend && btnExtend.disabled) {
     return;
   }
   const prevSesId = (teacherState && teacherState.activeSession && teacherState.activeSession.sessionId)
     ? String(teacherState.activeSession.sessionId)
     : '';
-  cancelOpenSessionConfirm();
-  if (subAction === 'EXTEND_2M' && btnExtend) {
-    btnExtend.disabled = true;
+  if (subAction === 'EXTEND_2M') {
+    if (btnExtend) btnExtend.disabled = true;
+    showStatus(
+      isEn ? 'Adding +2 minutes to session...' : 'Đang cộng thêm 2 phút cho phiên điểm danh...',
+      'warn',
+      'tea-session-inline-status'
+    );
+  } else if (subAction === 'CLOSE_NOW') {
+    if (btnClose) btnClose.disabled = true;
+    showStatus(
+      isEn ? 'Closing attendance session...' : 'Đang đóng phiên điểm danh...',
+      'warn',
+      'tea-session-inline-status'
+    );
+  } else if (subAction === 'CANCEL_MISTAKEN_SESSION') {
+    if (btnCancelMistaken) btnCancelMistaken.disabled = true;
+    showStatus(
+      isEn ? 'Deleting mistaken session...' : 'Đang xóa phiên mở nhầm...',
+      'warn',
+      'tea-session-inline-status'
+    );
   }
   teacherControlInFlightCount++;
   try {
@@ -1149,8 +1242,8 @@ async function teacherControlSession(subAction, extra = {}) {
         await applyTeacherState(res, false);
         showStatus(
           isEn
-            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.6.6.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
-            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.6.6.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.7.5.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.7.5.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
           'warn',
           'tea-session-inline-status'
         );
@@ -1160,7 +1253,12 @@ async function teacherControlSession(subAction, extra = {}) {
       await applyTeacherState(res, false);
       if (typeof pulseButtonConfirm === 'function') {
         if (subAction === 'EXTEND_2M') {
-          pulseButtonConfirm('btn-tea-extend', isEn ? '+2 MINS ADDED' : 'ĐÃ +2 PHÚT', 'success', 1200);
+          pulseButtonConfirm('btn-tea-extend', isEn ? '+2 MINS ADDED' : 'ĐÃ +2 PHÚT', 'success', 1200, { skipRestoreHtml: true });
+          showStatus(
+            isEn ? 'Extended attendance window by +2 minutes.' : 'Đã cộng thêm 2 phút cho phiên điểm danh.',
+            'success',
+            'tea-session-inline-status'
+          );
         } else if (subAction === 'OPEN_ROUND_2') {
           showStatus(
             isEn
@@ -1184,6 +1282,11 @@ async function teacherControlSession(subAction, extra = {}) {
           );
         } else if (subAction === 'CLOSE_NOW') {
           pulseButtonConfirm('btn-tea-close', isEn ? 'SESSION CLOSED' : 'ĐÃ ĐÓNG PHIÊN', 'danger', 1200);
+          showStatus(
+            isEn ? `Closed attendance session for ${classId}.` : `Đã đóng phiên điểm danh của lớp ${classId}.`,
+            'success',
+            'tea-session-inline-status'
+          );
         } else if (subAction === 'CANCEL_MISTAKEN_SESSION') {
           pulseButtonConfirm('btn-tea-cancel-mistaken', isEn ? 'SESSION DELETED' : 'ĐÃ HỦY PHIÊN NHẦM', 'danger', 1300);
         }
@@ -1212,6 +1315,8 @@ async function teacherControlSession(subAction, extra = {}) {
 }
 
 function promptCancelMistakenSession() {
+  const btnCancelMistaken = document.getElementById('btn-tea-cancel-mistaken');
+  if (btnCancelMistaken && btnCancelMistaken.disabled) return;
   const classId = document.getElementById('sel-tea-class').value;
   const isEn = currentLang === 'en';
   if (!classId) {
@@ -1227,7 +1332,7 @@ function promptCancelMistakenSession() {
     );
     return;
   }
-  openAppModal(
+  openConfirmModal(
     isEn ? 'Cancel Mistaken Session' : 'Xác nhận Hủy Phiên Mở Nhầm',
     isEn
       ? `Are you sure you want to CANCEL and DELETE session [${ses.sessionLabel || ses.sessionId}] of class [${classId}]? This session will be completely removed from history and students will not be marked absent.`
@@ -1236,7 +1341,10 @@ function promptCancelMistakenSession() {
     async () => {
       await teacherControlSession('CANCEL_MISTAKEN_SESSION');
     },
-    { confirmClass: 'btn btn-danger' }
+    {
+      confirmClass: 'btn btn-danger',
+      busyLabel: isEn ? 'Confirmed — Deleting...' : 'Đã xác nhận — Đang xóa phiên...'
+    }
   );
 }
 
@@ -1700,10 +1808,6 @@ function triggerRandomSpotCheck() {
     '',
     isEn ? 'Revoke & Lock (-)' : 'Hủy & Khóa (-)',
     async () => {
-      if (typeof pulseButtonConfirm === 'function') {
-        await pulseButtonConfirm('app-modal-confirm', isEn ? 'REVOKED' : 'ĐÃ HỦY ĐIỂM DANH', 'danger', 480);
-      }
-      closeAppModal();
       await teacherManualMark(pick.studentId, '-', p2Opened ? 'P2' : 'P1');
       showStatus(
         isEn
@@ -1715,9 +1819,10 @@ function triggerRandomSpotCheck() {
     {
       htmlBody: htmlBody,
       confirmClass: 'btn btn-danger',
+      busyLabel: isEn ? 'Confirmed — Revoking...' : 'Đã xác nhận — Đang hủy điểm danh...',
       extraLabel: isEn ? 'Call Next' : 'Gọi tiếp',
       extraClass: 'btn btn-primary',
-      keepOpenOnConfirm: true,
+      keepOpenOnConfirm: false,
       keepOpenOnExtra: true,
       onExtra: () => {
         if (typeof pulseButtonConfirm === 'function') {
@@ -2219,7 +2324,7 @@ function renderHistoryModalList() {
       if (dObj) {
         summaryBar.innerHTML = `
           <span><strong>${escapeHtml(dObj.date)}</strong></span>
-          <span>${isEn ? 'Present' : 'Có mặt'} (P): <strong style="color:var(--ok-text);">${dObj.P}</strong></span>
+          <span>${isEn ? 'Present' : 'Có mặt'} (P): <strong style="color:var(--success-text);">${dObj.P}</strong></span>
           <span>${isEn ? 'Late' : 'Đi trễ'} (L): <strong style="color:var(--warn-text);">${dObj.L}</strong></span>
           <span>${isEn ? 'Excused' : 'Có phép'} (E): <strong style="color:#c2410c;">${dObj.E}</strong></span>
           <span>${isEn ? 'Absent' : 'Vắng'} (-): <strong style="color:var(--err-text);">${dObj.A}</strong></span>
@@ -2312,40 +2417,27 @@ function renderHistoryModalList() {
             <button type="button" class="btn btn-outline btn-sm ${curSt === '-' ? 'btn-mark-active--' : ''} ${hPulseDash}" onclick="promptPastSessionConfirm('${safeSid}','${safeName}','${safeDayKey}','${safeDate}','${safeSesId}','${curSt}','-')">-</button>
           </div>
         </div>
-        <div id="past-confirm-${rowDomId}" class="past-ses-confirm-box hidden"></div>
       </div>
     `;
   }).join('');
 }
 
 function promptPastSessionConfirm(studentId, fullName, dayKey, dateLabel, sessionId, oldStatus, newStatus) {
-  const rowDomId = `${studentId}_${dayKey}`;
-  const confirmEl = document.getElementById(`past-confirm-${rowDomId}`);
-  if (!confirmEl) return;
-  if (oldStatus === newStatus) {
-    confirmEl.classList.add('hidden');
-    return;
-  }
-
+  if (oldStatus === newStatus) return;
   const isEn = currentLang === 'en';
-  const safeSid = escapeHtml(studentId);
-  const safeDayKey = escapeHtml(dayKey);
-  const safeSesId = escapeHtml(sessionId);
-  const safeNew = escapeHtml(newStatus);
-
-  confirmEl.innerHTML = `
-    <span>${isEn ? `Confirm changing ${dateLabel} for ${fullName}: ${oldStatus} -> ${newStatus}?` : `Xác nhận đổi ngày ${escapeHtml(dateLabel)} của ${escapeHtml(fullName)}: ${escapeHtml(oldStatus)} -> ${safeNew}?`}</span>
-    <div style="display:flex; gap:6px;">
-      <button type="button" class="btn btn-outline btn-sm" onclick="cancelPastSessionConfirm('${safeSid}','${safeDayKey}')">${isEn ? 'Cancel' : 'Hủy'}</button>
-      <button type="button" class="btn btn-primary btn-sm" onclick="teacherMarkPastSession('${safeSid}','${safeDayKey}','${safeSesId}','${safeNew}')">${isEn ? 'Confirm' : 'Xác nhận'}</button>
-    </div>
-  `;
-  confirmEl.classList.remove('hidden');
-}
-
-function cancelPastSessionConfirm(studentId, dayKey) {
-  const confirmEl = document.getElementById(`past-confirm-${studentId}_${dayKey}`);
-  if (confirmEl) confirmEl.classList.add('hidden');
+  openConfirmModal(
+    isEn ? 'Confirm Past-Session Change' : 'Xác nhận sửa điểm danh buổi cũ',
+    isEn
+      ? `Confirm changing ${dateLabel} for ${fullName}: ${oldStatus} -> ${newStatus}?`
+      : `Xác nhận đổi ngày ${dateLabel} của ${fullName}: ${oldStatus} -> ${newStatus}?`,
+    isEn ? 'Confirm Change' : 'Xác nhận đổi',
+    async () => {
+      await teacherMarkPastSession(studentId, dayKey, sessionId, newStatus);
+    },
+    {
+      busyLabel: isEn ? 'Confirmed — Saving...' : 'Đã xác nhận — Đang lưu...'
+    }
+  );
 }
 
 async function teacherMarkPastSession(studentId, dayKey, sessionId, newStatus) {
@@ -2355,7 +2447,6 @@ async function teacherMarkPastSession(studentId, dayKey, sessionId, newStatus) {
   if (!auth || !classId || !studentId) return;
 
   const rowDomId = `${studentId}_${dayKey}`;
-  cancelPastSessionConfirm(studentId, dayKey);
 
   lastPulsedManualMark = {
     studentId: studentId,
@@ -2486,13 +2577,43 @@ function renderGroupMakerModalContent(groupSize, reshuffle = false) {
         ? `Splitting ${pool.length} present students into ${currentDraftGroups.length} groups`
         : `Đang chia ${pool.length} sinh viên có mặt thành ${currentDraftGroups.length} nhóm`);
 
+  const hasPublishedGroups = Boolean(
+    teacherState &&
+    teacherState.activeGroupSplit &&
+    Array.isArray(teacherState.activeGroupSplit.groups) &&
+    teacherState.activeGroupSplit.groups.length > 0
+  );
+  const clearGroupsBtnHtml = hasPublishedGroups
+    ? `<button type="button" class="btn btn-outline-danger btn-sm" onclick="unpublishClassroomGroupsFromModal()">${isEn ? 'Clear Sent Groups' : 'Thu hồi nhóm'}</button>`
+    : '';
+
   return `
     <div class="group-maker-toolbar">
       <div style="font-size:0.78rem; font-weight:600; color:var(--text-secondary);">${escapeHtml(poolNote)}</div>
-      <div style="display:flex; gap:4px; flex-wrap:wrap;">${sizeOptionsHtml}</div>
+      <div style="display:flex; gap:4px; flex-wrap:wrap;">${sizeOptionsHtml}${clearGroupsBtnHtml}</div>
     </div>
     <div class="group-maker-grid">${groupsGridHtml}</div>
   `;
+}
+
+function unpublishClassroomGroupsFromModal() {
+  const isEn = currentLang === 'en';
+  openConfirmModal(
+    isEn ? 'Clear Sent Classroom Groups' : 'Thu hồi danh sách chia nhóm',
+    isEn
+      ? 'Remove the published discussion groups from student phones?'
+      : 'Thu hồi danh sách nhóm thảo luận đã gửi trên màn hình điện thoại sinh viên?',
+    isEn ? 'Clear Groups' : 'Xác nhận thu hồi',
+    async () => {
+      currentDraftGroups = [];
+      await publishClassroomGroupsToStudents(true);
+      closeAppModal(true);
+    },
+    {
+      confirmClass: 'btn btn-danger',
+      busyLabel: isEn ? 'Confirmed — Clearing...' : 'Đã xác nhận — Đang thu hồi...'
+    }
+  );
 }
 
 function changeGroupMakerSize(newSize) {
@@ -2531,18 +2652,15 @@ function openGroupMakerModal() {
     '',
     isEn ? 'Send Groups to Student Phones' : 'Gửi nhóm về ĐT Sinh viên',
     async () => {
-      if (typeof pulseButtonConfirm === 'function') {
-        await pulseButtonConfirm('app-modal-confirm', isEn ? 'GROUPS SENT' : 'ĐÃ GỬI NHÓM', 'success', 480);
-      }
-      closeAppModal();
       await publishClassroomGroupsToStudents(false);
     },
     {
       wide: true,
       htmlBody: htmlBody,
+      busyLabel: isEn ? 'Confirmed — Sending Groups...' : 'Đã xác nhận — Đang gửi nhóm...',
       extraLabel: isEn ? 'Reshuffle' : 'Trộn lại',
       extraClass: 'btn btn-outline',
-      keepOpenOnConfirm: true,
+      keepOpenOnConfirm: false,
       keepOpenOnExtra: true,
       onExtra: () => {
         if (typeof pulseButtonConfirm === 'function') {
@@ -2696,6 +2814,35 @@ async function teacherManualMark(studentId, status, explicitTargetRound = '') {
     return;
   }
 
+  const existingPending = pendingManualMarks[studentId];
+  if (
+    existingPending &&
+    Date.now() < existingPending.expiresAt &&
+    existingPending.targetRound === targetRound &&
+    existingPending.status === status
+  ) {
+    return;
+  }
+  if (!existingPending && teacherState && Array.isArray(teacherState.roster)) {
+    const curRow = teacherState.roster.find(r => r && r.studentId === studentId);
+    if (curRow) {
+      const curRoundSt = getStudentStatusForRoundView(curRow, targetRound === 'P2' ? 'P2' : 'P1', p2Opened);
+      const curRoundSrc = targetRound === 'P2'
+        ? String(curRow.p2Source || '')
+        : String(p2Opened ? (curRow.p1Source || '') : (curRow.source || ''));
+      const normalizedRequested = (targetRound === 'P2' && status === 'L') ? 'P' : status;
+      if (normalizedRequested !== '-' && curRoundSt === normalizedRequested) {
+        return;
+      }
+      if (normalizedRequested === '-' && curRoundSt === '-' && curRoundSrc === 'TEACHER_MANUAL') {
+        return;
+      }
+    }
+  }
+
+  const reqSeq = (manualMarkSeqByStudent[studentId] || 0) + 1;
+  manualMarkSeqByStudent[studentId] = reqSeq;
+
   // 1. Instant 0.01s Optimistic UI Update (updates only the targeted round P1 or P2, then computes Final via mergeAttendance)
   const nowD = new Date();
   const pad2 = n => String(n).padStart(2, '0');
@@ -2771,6 +2918,9 @@ async function teacherManualMark(studentId, status, explicitTargetRound = '') {
     status: status,
     targetRound: targetRound
   });
+  if (manualMarkSeqByStudent[studentId] !== reqSeq) {
+    return;
+  }
   delete pendingManualMarks[studentId];
 
   if (res && res.ok) {
@@ -2790,36 +2940,68 @@ async function teacherManualMark(studentId, status, explicitTargetRound = '') {
   }
 }
 
-async function teacherResetStudentDevice(studentId, btnEl = null) {
+function teacherResetStudentDevice(studentId, btnEl = null) {
   const auth = getTeacherAuth();
   const isEn = currentLang === 'en';
   if (!auth || !studentId) return;
   const targetBtn = btnEl || document.getElementById(`btn-unlock-${studentId}`);
-  if (targetBtn && typeof pulseButtonConfirm === 'function') {
-    pulseButtonConfirm(targetBtn, isEn ? 'UNLOCKED' : 'ĐÃ MỞ KHÓA', 'success', 1100);
-  }
-  if (!showRosterNames) {
-    const searchInput = document.getElementById('inp-roster-search');
-    if (searchInput) searchInput.value = '';
-    renderTeacherRoster();
-  }
-  const res = await callBackend(auth.apiUrl, {
-    action: 'TEACHER_RESET_DEVICE',
-    teacherToken: auth.token,
-    studentId: studentId
-  });
-  if (res && res.ok) {
-    showStatus(formatServerMessage('DEVICE_RESET_OK', { id: studentId }), 'success', 'tea-session-inline-status');
-  } else {
-    showStatus(
-      res && res.message ? res.message : (isEn ? 'Unable to unlock device.' : 'Không thể mở khóa thiết bị.'),
-      'warn',
-      'tea-session-inline-status'
-    );
+  if (targetBtn && targetBtn.disabled) return;
+  const roster = (teacherState && Array.isArray(teacherState.roster)) ? teacherState.roster : [];
+  const st = roster.find(r => r && r.studentId === studentId);
+  const stLabel = st && st.fullName ? `${st.fullName} (${studentId})` : studentId;
+
+  openConfirmModal(
+    isEn ? 'Confirm Device Unlock' : 'Xác nhận Mở khóa Thiết bị',
+    isEn
+      ? `Clear the bound device for ${stLabel} so they can re-link on their phone?`
+      : `Gỡ liên kết thiết bị cũ cho sinh viên ${stLabel} để sinh viên đăng ký lại trên điện thoại?`,
+    isEn ? 'Unlock Device' : 'Mở khóa thiết bị',
+    async () => {
+      await executeTeacherResetStudentDevice(studentId, btnEl);
+    },
+    {
+      busyLabel: isEn ? 'Confirmed — Unlocking...' : 'Đã xác nhận — Đang mở khóa...'
+    }
+  );
+}
+
+async function executeTeacherResetStudentDevice(studentId, btnEl = null) {
+  const auth = getTeacherAuth();
+  const isEn = currentLang === 'en';
+  if (!auth || !studentId) return;
+  const targetBtn = btnEl || document.getElementById(`btn-unlock-${studentId}`);
+  if (targetBtn) targetBtn.disabled = true;
+  try {
+    if (!showRosterNames) {
+      const searchInput = document.getElementById('inp-roster-search');
+      if (searchInput) searchInput.value = '';
+      renderTeacherRoster();
+    }
+    const res = await callBackend(auth.apiUrl, {
+      action: 'TEACHER_RESET_DEVICE',
+      teacherToken: auth.token,
+      studentId: studentId
+    });
+    if (res && res.ok) {
+      if (targetBtn && typeof pulseButtonConfirm === 'function') {
+        pulseButtonConfirm(targetBtn, isEn ? 'UNLOCKED' : 'ĐÃ MỞ KHÓA', 'success', 1100);
+      }
+      showStatus(formatServerMessage('DEVICE_RESET_OK', { id: studentId }), 'success', 'tea-session-inline-status');
+    } else {
+      showStatus(
+        res && res.message ? res.message : (isEn ? 'Unable to unlock device.' : 'Không thể mở khóa thiết bị.'),
+        'warn',
+        'tea-session-inline-status'
+      );
+    }
+  } finally {
+    if (targetBtn) targetBtn.disabled = false;
   }
 }
 
 async function teacherToggleRegGate() {
+  const regBtn = document.getElementById('btn-reg-gate-toggle');
+  if (regBtn && regBtn.disabled) return;
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
   const isEn = currentLang === 'en';
@@ -2827,36 +3009,54 @@ async function teacherToggleRegGate() {
     showStatus(isEn ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.', 'warn', 'tea-admin-inline-status');
     return;
   }
-  const res = await callBackend(auth.apiUrl, {
-    action: 'TEACHER_TOGGLE_REG',
-    teacherToken: auth.token,
-    classId: classId
-  });
-  if (res && res.ok) {
-    await applyTeacherState(res, false);
-    const updatedCfg = (res.classes || []).find(c => c && c.classId === classId);
-    const isRegOpen = Boolean(updatedCfg && updatedCfg.regOpen);
-    if (typeof pulseButtonConfirm === 'function') {
-      pulseButtonConfirm(
-        'btn-reg-gate-toggle',
-        isEn ? `Device Reg: ${isRegOpen ? 'OPEN' : 'LOCKED'}` : `ĐK thiết bị: ${isRegOpen ? 'MỞ' : 'KHÓA'}`,
-        isRegOpen ? 'success' : 'warn',
-        1100
+  if (regBtn) regBtn.disabled = true;
+  showStatus(
+    isEn ? 'Updating device registration gate...' : 'Đang cập nhật cổng đăng ký thiết bị...',
+    'warn',
+    'tea-admin-inline-status'
+  );
+  try {
+    const res = await callBackend(auth.apiUrl, {
+      action: 'TEACHER_TOGGLE_REG',
+      teacherToken: auth.token,
+      classId: classId
+    });
+    if (res && res.ok) {
+      await applyTeacherState(res, false);
+      const updatedCfg = (res.classes || []).find(c => c && c.classId === classId);
+      const isRegOpen = Boolean(updatedCfg && updatedCfg.regOpen);
+      if (typeof pulseButtonConfirm === 'function') {
+        pulseButtonConfirm(
+          'btn-reg-gate-toggle',
+          isEn ? `Device Reg: ${isRegOpen ? 'OPEN' : 'LOCKED'}` : `ĐK thiết bị: ${isRegOpen ? 'MỞ' : 'KHÓA'}`,
+          isRegOpen ? 'success' : 'warn',
+          1100,
+          { skipRestoreHtml: true }
+        );
+      }
+      showStatus(
+        isEn ? 'Updated new device registration gate status.' : 'Đã cập nhật trạng thái cổng đăng ký thiết bị mới.',
+        'success',
+        'tea-admin-inline-status'
       );
     }
-    showStatus(
-      isEn ? 'Updated new device registration gate status.' : 'Đã cập nhật trạng thái cổng đăng ký thiết bị mới.',
-      'success',
-      'tea-admin-inline-status'
-    );
+  } finally {
+    if (regBtn) regBtn.disabled = false;
   }
 }
 
 async function teacherRebuildSheet() {
+  const syncBtn = document.getElementById('btn-tea-rebuild-sheet');
+  if (syncBtn && syncBtn.disabled) return;
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
   const isEn = currentLang === 'en';
   if (!auth) return;
+  if (syncBtn) {
+    clearButtonPulseState(syncBtn);
+    syncBtn.disabled = true;
+    syncBtn.textContent = isEn ? 'Syncing...' : 'Đang đồng bộ...';
+  }
   showStatus(
     isEn
       ? 'Checking Drive rosters and syncing attendance to Google Sheet...'
@@ -2864,11 +3064,19 @@ async function teacherRebuildSheet() {
     'warn',
     'tea-admin-inline-status'
   );
-  const res = await callBackend(auth.apiUrl, {
-    action: 'TEACHER_REBUILD_REPORT',
-    teacherToken: auth.token,
-    classId: classId
-  });
+  let res = null;
+  try {
+    res = await callBackend(auth.apiUrl, {
+      action: 'TEACHER_REBUILD_REPORT',
+      teacherToken: auth.token,
+      classId: classId
+    });
+  } finally {
+    if (syncBtn) {
+      syncBtn.disabled = false;
+      syncBtn.textContent = I18N[currentLang].tea_rebuild_sheet;
+    }
+  }
   if (res && res.ok) {
     if (typeof pulseButtonConfirm === 'function') {
       pulseButtonConfirm('btn-tea-rebuild-sheet', isEn ? 'SYNCED' : 'ĐÃ ĐỒNG BỘ', 'success', 1300);
@@ -2895,8 +3103,20 @@ async function teacherRebuildSheet() {
   }
 }
 
+function syncRosterVisibilityButtonUI() {
+  const btn = document.getElementById('btn-toggle-names');
+  const lbl = document.getElementById('lbl-toggle-names');
+  if (btn) btn.classList.toggle('btn-toggle-active', !showRosterNames);
+  if (lbl) {
+    lbl.textContent = showRosterNames
+      ? I18N[currentLang].tea_hide_names
+      : I18N[currentLang].tea_show_names;
+  }
+}
+
 function toggleRosterVisibility() {
   showRosterNames = !showRosterNames;
+  syncRosterVisibilityButtonUI();
   renderTeacherRoster();
 }
 

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.7.4)
+ * STUDENT CONTROLLER (js/student.js — v3.7.5)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Official Attendance Score (Base 10.0), Same-Day Session Merging, Near-Limit Warning & Exam Ban (CẤM THI)
  *  - Live Classroom Group Assignment Card (#stu-group-card)
@@ -16,6 +16,7 @@ let isCheckingGps = false;
 let checkInCooldownTimer = null;
 let stuAttHistoryExpanded = false;
 let studentLivePollTimer = null;
+let lastStudentWakeSyncMs = 0;
 window.cachedGPS = null; // Kept null so check-in always verifies fresh live GPS
 window.lockedRound2GpsPos = null; // Pre-locked live GPS coordinate during Round 2 10-second PIN entry
 window.pinBoxOpenedAtMs = 0;
@@ -34,6 +35,22 @@ document.addEventListener('visibilitychange', () => {
         'warn',
         'checkin-inline-status'
       );
+    }
+  } else if (!document.hidden && currentMode === 'STUDENT') {
+    const now = Date.now();
+    if (now - lastStudentWakeSyncMs > 1000 && typeof syncStudentLiveScheduleFromServer === 'function') {
+      lastStudentWakeSyncMs = now;
+      syncStudentLiveScheduleFromServer();
+    }
+  }
+});
+
+window.addEventListener('pageshow', () => {
+  if (!document.hidden && currentMode === 'STUDENT') {
+    const now = Date.now();
+    if (now - lastStudentWakeSyncMs > 1000 && typeof syncStudentLiveScheduleFromServer === 'function') {
+      lastStudentWakeSyncMs = now;
+      syncStudentLiveScheduleFromServer();
     }
   }
 });
@@ -154,11 +171,13 @@ function renderStudentCourseSelectors() {
   const inpId = document.getElementById('inp-student-id');
   const lblId = document.getElementById('lbl-student-id');
   const btnSubmit = document.getElementById('btn-submit-onboard');
+  const rulesBox = document.getElementById('onboard-compact-rules');
 
   if (instIds.length === 0) {
     hasBox.classList.add('hidden');
     noBox.classList.remove('hidden');
     addBox.classList.remove('hidden');
+    if (rulesBox) rulesBox.classList.remove('hidden');
     if (inpId) {
       inpId.disabled = false;
       inpId.readOnly = false;
@@ -177,6 +196,10 @@ function renderStudentCourseSelectors() {
   hasBox.classList.remove('hidden');
   noBox.classList.add('hidden');
   addBox.classList.add('hidden');
+  if (rulesBox) {
+    const ac = evaluateStudentAntiCheat();
+    rulesBox.classList.toggle('hidden', Boolean(ac && ac.browserOk));
+  }
   if (inpId) {
     inpId.disabled = true;
     inpId.readOnly = true;
@@ -635,12 +658,8 @@ function renderStudentAttendanceSummary(instId, classId) {
       if (lastPreviewRaw) {
         const preview = JSON.parse(lastPreviewRaw);
         if (preview && preview.studentId && preview.classId) {
-          if (!targetStudentId || !targetClassId || preview.classId === targetClassId || preview.studentId === targetStudentId) {
-            targetStudentId = preview.studentId;
+          if (p && p.studentId === preview.studentId && (!targetClassId || preview.classId === targetClassId)) {
             targetClassId = preview.classId;
-            if (p && p.studentId !== preview.studentId) {
-              serverStats = null;
-            }
           }
         }
       }
@@ -899,6 +918,43 @@ async function handleStudentPreCheckGps() {
  * STUDENT ONBOARDING (LINK STUDENT ID — ONE-TIME PERMANENT LOCK)
  * ============================================================================
  */
+function promptStudentOnboardConfirm() {
+  const existingProfiles = getStudentProfiles();
+  if (Object.keys(existingProfiles).length > 0) {
+    renderStudentCourseSelectors();
+    return;
+  }
+  const check = evaluateStudentAntiCheat();
+  if (!check.browserOk) {
+    submitStudentOnboarding();
+    return;
+  }
+  const studentId = document.getElementById('inp-student-id').value.trim().toUpperCase();
+  if (!studentId) {
+    showStatus(
+      currentLang === 'en' ? 'Please enter your Student ID.' : 'Vui lòng nhập mã số sinh viên.',
+      'err',
+      'onboard-inline-status'
+    );
+    document.getElementById('inp-student-id').focus();
+    return;
+  }
+  const isEn = currentLang === 'en';
+  openConfirmModal(
+    isEn ? 'Confirm Device Link' : 'Xác nhận Liên kết Thiết bị',
+    isEn
+      ? `Permanently bind this browser to Student ID [${studentId}]? Each phone/browser can only link to 1 Student ID.`
+      : `Xác nhận liên kết cố định trình duyệt này với MSSV [${studentId}]? Mỗi thiết bị chỉ được gắn với 1 MSSV duy nhất.`,
+    isEn ? 'Confirm Link' : 'Xác nhận liên kết',
+    async () => {
+      await submitStudentOnboarding();
+    },
+    {
+      busyLabel: isEn ? 'Confirmed — Linking...' : 'Đã xác nhận — Đang liên kết...'
+    }
+  );
+}
+
 async function submitStudentOnboarding() {
   const existingProfiles = getStudentProfiles();
   if (Object.keys(existingProfiles).length > 0) {
@@ -1622,9 +1678,7 @@ function syncStudentCheckInButtonState(classId, animatePulse = false) {
       : isLate
         ? (isEn ? `RECORDED LATE (L)${timeSuffix}` : `ĐÃ GHI NHẬN ĐI TRỄ (L)${timeSuffix}`)
         : (isEn ? `CHECKED IN PRESENT (P)${timeSuffix}` : `ĐÃ ĐIỂM DANH CÓ MẶT (P)${timeSuffix}`);
-    const svgHtml = (isLate && !isR2Rec)
-      ? '<svg class="icon icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path class="pulse-draw-path" d="M12 7v5l3 2"></path></svg>'
-      : '<svg class="icon icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path class="pulse-draw-path" d="M20 6L9 17l-5-5"></path></svg>';
+    const svgHtml = '<svg class="icon icon-lg"><use href="#ic-check"></use></svg>';
 
     btn.disabled = true;
     btn.classList.remove('btn-pulse-success', 'btn-pulse-warn', 'btn-pulse-danger', 'btn-pulse-neutral', 'btn-checkin-done-P', 'btn-checkin-done-L');

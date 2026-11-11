@@ -12,7 +12,7 @@
   <title>ClassCheck — Hệ Thống Điểm Danh Định Vị</title>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.7.4" />
+  <link rel="stylesheet" href="css/styles.css?v=3.7.5" />
 </head>
 <body>
 
@@ -92,9 +92,9 @@
       <span>ClassCheck</span>
     </div>
     <div class="top-actions">
-      <button id="btn-mode-student" class="pill-btn active" onclick="switchMode('STUDENT')" data-i18n="nav_student">Sinh viên</button>
-      <button id="btn-mode-teacher" class="pill-btn" onclick="switchMode('TEACHER')" data-i18n="nav_teacher">Giảng viên</button>
-      <button id="btn-lang" class="pill-btn" onclick="toggleLanguage()">VI / EN</button>
+      <button type="button" id="btn-mode-student" class="pill-btn active" onclick="switchMode('STUDENT')" data-i18n="nav_student">Sinh viên</button>
+      <button type="button" id="btn-mode-teacher" class="pill-btn" onclick="switchMode('TEACHER')" data-i18n="nav_teacher">Giảng viên</button>
+      <button type="button" id="btn-lang" class="pill-btn" onclick="toggleLanguage()">VI / EN</button>
     </div>
   </header>
 
@@ -177,7 +177,7 @@
           <label id="lbl-student-id" for="inp-student-id" data-i18n="stu_id_label">Mã số sinh viên:</label>
           <input type="text" id="inp-student-id" data-i18n-placeholder="stu_id_placeholder" placeholder="Nhập mã số sinh viên..." autocomplete="off" />
 
-          <button id="btn-submit-onboard" class="btn btn-primary" onclick="submitStudentOnboarding()" data-i18n="stu_register_btn">Lưu và Liên kết thiết bị</button>
+          <button type="button" id="btn-submit-onboard" class="btn btn-primary" onclick="promptStudentOnboardConfirm()" data-i18n="stu_register_btn">Lưu và Liên kết thiết bị</button>
 
           <!-- INLINE CONTEXTUAL FEEDBACK FOR ONBOARDING -->
           <div id="onboard-inline-status" class="inline-feedback hidden"></div>
@@ -249,7 +249,7 @@
           </div>
         </div>
 
-        <button id="btn-start-checkin" class="btn btn-checkin-hero" onclick="handleOneTapGpsCheckIn()">
+        <button type="button" id="btn-start-checkin" class="btn btn-checkin-hero" onclick="handleOneTapGpsCheckIn()">
           <svg class="icon icon-lg"><use href="#ic-check"></use></svg>
           <span id="btn-start-checkin-label" data-i18n="stu_one_tap_checkin_btn">ĐIỂM DANH NGAY</span>
         </button>
@@ -267,7 +267,7 @@
           </div>
           <input type="tel" id="inp-stu-pin10" class="stu-pin-hidden-input" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" onpaste="return false" ondrop="return false" oninput="onStudentPin10Input(this.value)" />
           <div class="stu-p2-pin-footer">
-            <span id="stu-p2-pin-hint">Tự động nộp ngay khi gõ đủ 4 số</span>
+            <span id="stu-p2-pin-hint" data-i18n="stu_p2_pin_hint">Tự động nộp ngay khi gõ đủ 4 số</span>
             <button type="button" class="btn btn-outline btn-sm" onclick="cancelStudentPin10sModal()" data-i18n="tea_cancel_open_btn">Hủy</button>
           </div>
         </div>
@@ -307,7 +307,7 @@
           <option value="SESSION" data-i18n="tea_persist_pc">Máy tính phòng học (Tự động đăng xuất sau 60 phút)</option>
         </select>
 
-        <button id="btn-tea-login" class="btn btn-primary" onclick="loginTeacher()" data-i18n="tea_login_btn">Đăng nhập Giảng viên</button>
+        <button type="button" id="btn-tea-login" class="btn btn-primary" onclick="loginTeacher()" data-i18n="tea_login_btn">Đăng nhập Giảng viên</button>
         <div id="tea-login-inline-status" class="inline-feedback hidden"></div>
 
         <div style="margin-top:10px; display:flex; justify-content:flex-end; align-items:center;">
@@ -319,7 +319,7 @@
         <div id="box-tea-api-advanced" class="hidden" style="margin-top:10px; padding:10px; background:var(--surface); border-radius:8px; border:1px solid var(--border);">
           <label for="inp-tea-api" data-i18n="tea_api_url_label">Đường dẫn máy chủ (Ô B4 trên Google Sheet):</label>
           <input type="text" id="inp-tea-api" placeholder="https://script.google.com/macros/s/.../exec" style="margin-bottom:6px;" />
-          <button class="btn btn-outline btn-sm" onclick="resetToDefaultLecturerApi()" data-i18n="tea_reset_url_btn">Khôi phục đường dẫn mặc định</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="resetToDefaultLecturerApi()" data-i18n="tea_reset_url_btn">Khôi phục đường dẫn mặc định</button>
         </div>
       </div>
 
@@ -355,17 +355,16 @@
                 </div>
               </div>
 
-              <!-- ISOLATED OPEN/CLOSE SESSION BLOCK WITH 2-STEP INLINE CONFIRM -->
+              <!-- ISOLATED OPEN/CLOSE SESSION BLOCK -->
               <div id="teacher-session-control-box" class="session-control-isolated no-print">
-                <!-- Step 1 Trigger Button -->
-                <button id="btn-tea-open-trigger" class="btn btn-accent" onclick="promptOpenSessionConfirm()">
+                <button type="button" id="btn-tea-open-trigger" class="btn btn-accent" onclick="promptOpenSessionConfirm()">
                   <svg class="icon"><use href="#ic-check"></use></svg>
                   <span data-i18n="tea_open_trigger_btn">Mở phiên điểm danh</span>
                 </button>
 
                 <!-- Contextual Round 2 Launch Strip (Shown in place of Open P1 button after P1 closes) -->
                 <div id="tea-p2-launch-strip" class="p2-outside-launch-bar hidden">
-                  <button type="button" id="btn-tea-open-round2" class="btn-open-p2-main" onclick="openRound2Session()">
+                  <button type="button" id="btn-tea-open-round2" class="btn btn-accent btn-open-p2-main" onclick="promptOpenRound2Confirm()">
                     <svg class="icon"><use href="#ic-check"></use></svg>
                     <span id="lbl-tea-open-round2" data-i18n="tea_open_p2_btn">Mở điểm danh Lần 2 (Đột xuất)</span>
                   </button>
@@ -384,7 +383,7 @@
 
                 <!-- Live 10-Second Rotating PIN Projector Box (Shown when Round 2 is open with PIN_10S) -->
                 <div id="tea-p2-pin-projector-box" class="p2-projector-pin-card hidden" ondblclick="togglePinSpotlightMode(event)" title="Nhấp đúp chuột (Double-click) để phóng to PIN toàn màn hình">
-                  <div class="p2-projector-pin-title" id="lbl-tea-pin-projector-title">MÃ PIN ĐIỂM DANH LẦN 2 (ĐỔI MỖI 10 GIÂY)</div>
+                  <div class="p2-projector-pin-title" id="lbl-tea-pin-projector-title" data-i18n="tea_pin_proj_title">MÃ PIN ĐIỂM DANH LẦN 2 (ĐỔI MỖI 10 GIÂY)</div>
                   <div class="p2-pin-spotlight-meta" id="tea-pin-spotlight-meta">
                     <span id="tea-pin-spot-timer">00:00</span>
                     <span class="spot-meta-sep">•</span>
@@ -405,29 +404,8 @@
                       Chuyển về 1-Chạm (Không PIN)
                     </button>
                   </div>
-                  <div class="p2-pin-spotlight-hint" id="tea-pin-spotlight-hint">
+                  <div class="p2-pin-spotlight-hint" id="tea-pin-spotlight-hint" data-i18n="tea_pin_spot_hint">
                     Nhấp đúp vào khung PIN để phóng to toàn màn hình • Nhấn Esc để thu nhỏ
-                  </div>
-                </div>
-
-                <!-- Step 2 Inline Confirmation Box (Hidden until Step 1 clicked) -->
-                <div id="tea-open-confirm-bar" class="two-step-confirm-box hidden">
-                  <div id="tea-open-confirm-text" class="two-step-confirm-label" data-i18n="tea_confirm_open_prompt">
-                    Xác nhận mở phiên điểm danh cho lớp học phần này?
-                  </div>
-                  <div id="tea-makeup-confirm-wrap" class="makeup-confirm-wrap hidden">
-                    <label class="checkbox-row" for="chk-confirm-makeup-session" style="margin:6px 0 8px 0; font-size:0.78rem; font-weight:700; color:#b45309; cursor:pointer; align-items:flex-start;">
-                      <input type="checkbox" id="chk-confirm-makeup-session" onchange="onMakeUpConfirmCheckboxChange()" style="margin-top:2px;" />
-                      <span id="lbl-confirm-makeup-session">Tôi xác nhận mở phiên DẠY BÙ cho lớp này (Tự động thêm cột ngày vào lịch &amp; Sheet)</span>
-                    </label>
-                  </div>
-                  <div class="btn-row" style="margin-top:0;">
-                    <button type="button" class="btn btn-outline" onclick="cancelOpenSessionConfirm()" data-i18n="tea_cancel_open_btn">
-                      Hủy
-                    </button>
-                    <button type="button" id="btn-tea-confirm-open" class="btn btn-accent" onclick="confirmAndStartSession()" data-i18n="tea_confirm_open_btn">
-                      Xác nhận mở lớp
-                    </button>
                   </div>
                 </div>
 
@@ -449,9 +427,9 @@
                 </div>
 
                 <div class="btn-row" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border-subtle); flex-wrap:wrap;">
-                  <button id="btn-tea-extend" class="btn btn-outline btn-sm" onclick="teacherControlSession('EXTEND_2M')" data-i18n="tea_extend_btn">+2 Phút</button>
-                  <button class="btn btn-outline btn-sm" id="btn-tea-cancel-mistaken" onclick="promptCancelMistakenSession()" style="color:var(--err-text); border-color:#fecaca;" title="Xóa bỏ phiên vừa mở nhầm hôm nay (Không tính vào lịch sử)">Hủy phiên nhầm</button>
-                  <button id="btn-tea-close" class="btn btn-danger btn-sm" onclick="teacherControlSession('CLOSE_NOW')" data-i18n="tea_close_btn">Đóng phiên</button>
+                  <button type="button" id="btn-tea-extend" class="btn btn-outline btn-sm" onclick="teacherControlSession('EXTEND_2M')" data-i18n="tea_extend_btn">+2 Phút</button>
+                  <button type="button" class="btn btn-outline-danger btn-sm" id="btn-tea-cancel-mistaken" onclick="promptCancelMistakenSession()" data-i18n="tea_cancel_mistaken_btn" data-i18n-title="tea_cancel_mistaken_title" title="Xóa bỏ phiên vừa mở nhầm hôm nay (Không tính vào lịch sử)">Hủy phiên nhầm</button>
+                  <button type="button" id="btn-tea-close" class="btn btn-danger btn-sm" onclick="promptCloseSessionConfirm()" data-i18n="tea_close_btn">Đóng phiên</button>
                 </div>
 
                 <div id="tea-session-inline-status" class="inline-feedback hidden"></div>
@@ -468,20 +446,17 @@
               <span data-i18n="tea_panel2_title">2. Danh sách Sinh viên</span>
             </div>
             <div style="display:flex; gap:6px; flex-wrap:wrap;">
-              <button class="btn btn-primary btn-sm" onclick="triggerRandomSpotCheck()">
-                <svg class="icon icon-sm"><use href="#ic-shuffle"></use></svg>
+              <button type="button" class="btn btn-primary btn-sm" onclick="triggerRandomSpotCheck()">
                 <span data-i18n="tea_spot_check_btn">Gọi ngẫu nhiên</span>
               </button>
-              <button class="btn btn-outline btn-sm" id="btn-copy-present-list" onclick="copyPresentStudentsList()">
+              <button type="button" class="btn btn-outline btn-sm" id="btn-copy-present-list" onclick="copyPresentStudentsList()">
                 <span data-i18n="tea_copy_present_btn">Sao chép DS</span>
               </button>
-              <button class="btn btn-outline btn-sm" onclick="openGroupMakerModal()">
-                <svg class="icon icon-sm"><use href="#ic-users"></use></svg>
+              <button type="button" class="btn btn-outline btn-sm" onclick="openGroupMakerModal()">
                 <span data-i18n="tea_group_maker_btn">Chia nhóm</span>
               </button>
-              <button class="btn btn-outline btn-sm" id="btn-toggle-names" onclick="toggleRosterVisibility()">
-                <svg class="icon icon-sm"><use href="#ic-eye"></use></svg>
-                <span data-i18n="tea_show_hide_names">Ẩn/Hiện tên</span>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-toggle-names" onclick="toggleRosterVisibility()">
+                <span id="lbl-toggle-names" data-i18n="tea_hide_names">Ẩn tên</span>
               </button>
             </div>
           </div>
@@ -517,13 +492,13 @@
           </div>
 
           <div class="btn-row">
-            <button id="btn-reg-gate-toggle" class="btn btn-outline btn-sm" onclick="teacherToggleRegGate()">
+            <button type="button" id="btn-reg-gate-toggle" class="btn btn-outline btn-sm" onclick="teacherToggleRegGate()">
               ĐK thiết bị: MỞ
             </button>
-            <button id="btn-tea-rebuild-sheet" class="btn btn-outline btn-sm" onclick="teacherRebuildSheet()" data-i18n="tea_rebuild_sheet_btn">
+            <button type="button" id="btn-tea-rebuild-sheet" class="btn btn-outline btn-sm" onclick="teacherRebuildSheet()" data-i18n="tea_rebuild_sheet_btn">
               Đồng bộ Sheet
             </button>
-            <button class="btn btn-danger btn-sm" onclick="logoutTeacher()" data-i18n="tea_logout_btn">
+            <button type="button" class="btn btn-danger btn-sm" onclick="logoutTeacher()" data-i18n="tea_logout_btn">
               Đăng xuất
             </button>
           </div>
@@ -535,22 +510,34 @@
 
   </main>
 
-  <!-- IN-PAGE CONFIRMATION MODAL -->
-  <div id="app-modal" class="modal-backdrop hidden no-print">
+  <!-- IN-PAGE APPLICATION MODAL -->
+  <div id="app-modal" class="modal-backdrop hidden no-print" onclick="if(event.target===this)closeAppModal()">
     <div id="app-modal-card" class="modal-card">
       <div id="app-modal-title" class="modal-title" data-i18n="modal_confirm_title">Xác nhận</div>
       <div id="app-modal-body" class="modal-body"></div>
       <div class="btn-row">
-        <button id="app-modal-cancel" class="btn btn-outline" onclick="closeAppModal()" data-i18n="btn_cancel_scan">Đóng</button>
-        <button id="app-modal-extra" class="btn btn-primary hidden"></button>
-        <button id="app-modal-confirm" class="btn btn-primary" data-i18n="modal_confirm_btn">Đồng ý</button>
+        <button type="button" id="app-modal-cancel" class="btn btn-outline" onclick="closeAppModal()" data-i18n="btn_cancel_scan">Đóng</button>
+        <button type="button" id="app-modal-extra" class="btn btn-primary hidden"></button>
+        <button type="button" id="app-modal-confirm" class="btn btn-primary" data-i18n="modal_confirm_btn">Đồng ý</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTERED FLOATING CONFIRMATION POPUP (STACKS ABOVE ALL VIEWS & MODALS) -->
+  <div id="confirm-modal" class="modal-backdrop modal-backdrop-confirm hidden no-print" onclick="if(event.target===this)closeConfirmModal()">
+    <div class="modal-card modal-card-confirm">
+      <div id="confirm-modal-title" class="modal-title">Xác nhận</div>
+      <div id="confirm-modal-body" class="modal-body"></div>
+      <div class="btn-row">
+        <button type="button" id="confirm-modal-cancel" class="btn btn-outline" onclick="closeConfirmModal()">Hủy</button>
+        <button type="button" id="confirm-modal-ok" class="btn btn-primary">Xác nhận</button>
       </div>
     </div>
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/schedule-config.js?v=3.7.4"></script>
-  <script src="js/student.js?v=3.7.4"></script>
-  <script src="js/teacher.js?v=3.7.4"></script>
+  <script src="js/schedule-config.js?v=3.7.5"></script>
+  <script src="js/student.js?v=3.7.5"></script>
+  <script src="js/teacher.js?v=3.7.5"></script>
 </body>
 </html>
