@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.6)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.7)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.7.6';
+const SYSTEM_VERSION = '3.7.7';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -1008,6 +1008,11 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
       qrMode: 'PIN_10S'
     });
   }
+  // v3.7.7: a device bound to another account must not trigger PIN guards/logs for this student
+  if (activeSession.qrMode === 'PIN_10S' && isForeignDeviceForStudent_(ss, studentId, credHash)) {
+    cache.remove(spamKey);
+    return jsonResponse({ ok: false, code: 'ERR_CREDENTIAL_MISMATCH', params: { id: studentId } });
+  }
   const qrValid = verifyClassroomQr(qrPayload, classConfig, activeSession, arrivalMs, ss, studentId);
   if (!qrValid) {
     cache.remove(spamKey);
@@ -1028,7 +1033,8 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
   }
 
   // 4. Verify Geolocation Proximity (Accuracy-Aware Haversine + Lecturer GPS / 3-Student Average Anchor)
-  if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0 || accuracy <= 0) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(accuracy) ||
+      Math.abs(lat) > 90 || Math.abs(lng) > 180 || lat === 0 || lng === 0 || accuracy <= 0) {
     return jsonResponse({ ok: false, code: 'ERR_GPS_UNAVAILABLE' });
   }
 
@@ -1046,9 +1052,27 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
 
   const accuracyAllowance = Math.min(Math.max(0, accuracy), 50);
   let rawDist = Math.round(calculateHaversineMeters(lat, lng, activeSession.roomLat, activeSession.roomLng));
-  let effectiveDist = Math.max(0, rawDist - accuracyAllowance);
+  let effectiveDist = safeEffectiveDist_(rawDist, accuracyAllowance);
+
+  const campusReject = st => {
+    let cLat = Number(st && st.campusLat), cLng = Number(st && st.campusLng);
+    if (!Number.isFinite(cLat) || !Number.isFinite(cLng) || (cLat === 0 && cLng === 0)) {
+      cLat = Number(classConfig && classConfig.roomLat);
+      cLng = Number(classConfig && classConfig.roomLng);
+    }
+    const maxM = Number(st && st.maxCampusMeters) > 0 ? Number(st.maxCampusMeters) : 850;
+    const usable = Number.isFinite(cLat) && Number.isFinite(cLng) && !(cLat === 0 && cLng === 0);
+    const d = usable ? Math.round(calculateHaversineMeters(lat, lng, cLat, cLng)) : NaN;
+    if (safeEffectiveDist_(d, accuracyAllowance) <= maxM) return null;
+    return { ok: false, code: 'ERR_LOCATION_OUT_OF_RANGE', params: { dist: Number.isFinite(d) ? d : null, max: maxM, acc: Math.round(accuracy) } };
+  };
 
   if (anchorState && anchorState.mode === 'COLLECTING_AVG_3') {
+    const preCampus = (!Array.isArray(anchorState.samples) || anchorState.samples.length === 0) ? campusReject(anchorState) : null;
+    if (preCampus) {
+      cache.remove(spamKey);
+      return jsonResponse(preCampus);
+    }
     // Once at least 1 student has anchored the provisional average, subsequent students must be within radiusMeters of the running average
     if (Array.isArray(anchorState.samples) && anchorState.samples.length > 0 && effectiveDist > activeSession.radiusMeters) {
       cache.remove(spamKey);
@@ -1107,7 +1131,7 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
         activeSession.roomLat = Number(anchorState.lat);
         activeSession.roomLng = Number(anchorState.lng);
         rawDist = Math.round(calculateHaversineMeters(lat, lng, activeSession.roomLat, activeSession.roomLng));
-        effectiveDist = Math.max(0, rawDist - accuracyAllowance);
+        effectiveDist = safeEffectiveDist_(rawDist, accuracyAllowance);
         if (effectiveDist > activeSession.radiusMeters) {
           return jsonResponse({
             ok: false,
@@ -1124,6 +1148,8 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
       if (accuracy <= 100 && !(clientMeta && clientMeta.mockGpsSuspect)) {
         const alreadySampled = anchorState.samples.some(s => s.studentId === studentId);
         if (!alreadySampled && anchorState.samples.length < 3) {
+          const lockCampus = campusReject(anchorState);
+          if (lockCampus) return jsonResponse(lockCampus);
           anchorState.samples.push({ studentId: studentId, lat: lat, lng: lng });
         }
         const n = anchorState.samples.length;
@@ -1142,12 +1168,13 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
           activeSession.roomLat = avgLat;
           activeSession.roomLng = avgLng;
           rawDist = Math.round(calculateHaversineMeters(lat, lng, avgLat, avgLng));
-          effectiveDist = Math.max(0, rawDist - accuracyAllowance);
+          effectiveDist = safeEffectiveDist_(rawDist, accuracyAllowance);
           try {
             if (activeSession.rowIndex) {
               ss.getSheetByName(TAB_SESSIONS).getRange(activeSession.rowIndex, 8, 1, 2).setValues([[avgLat, avgLng]]);
             }
-            if (n >= 3 && classConfig && classConfig.rowIndex) {
+            const allNearAvg = anchorState.samples.every(s => calculateHaversineMeters(Number(s.lat), Number(s.lng), avgLat, avgLng) <= activeSession.radiusMeters);
+            if (n >= 3 && allNearAvg && classConfig && classConfig.rowIndex) {
               ss.getSheetByName(TAB_CLASSES).getRange(classConfig.rowIndex, 4, 1, 2).setValues([[avgLat, avgLng]]);
             }
             cache.removeAll(['ALL_LATEST_SES_V373', 'ALL_LATEST_SES_V35']);
@@ -1168,7 +1195,7 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
       activeSession.roomLat = Number(anchorState.lat);
       activeSession.roomLng = Number(anchorState.lng);
       rawDist = Math.round(calculateHaversineMeters(lat, lng, activeSession.roomLat, activeSession.roomLng));
-      effectiveDist = Math.max(0, rawDist - accuracyAllowance);
+      effectiveDist = safeEffectiveDist_(rawDist, accuracyAllowance);
       if (effectiveDist > activeSession.radiusMeters) {
         return jsonResponse({
           ok: false,
@@ -1423,7 +1450,7 @@ function verifyTeacherToken(ss, submittedToken, body) {
   // 1. Master Key ALWAYS works (bypasses and clears any 10-min lockout)
   const masterKey = props.getProperty('TEACHER_MASTER_KEY') || props.getProperty('TEACHER_MASTER_Key');
   if (masterKey && cleanToken === masterKey) {
-    cache.removeAll([failKey, lockKey, 'AUTH_LOCKOUT_UNTIL']);
+    cache.removeAll([failKey, lockKey, 'AUTH_LOCKOUT_UNTIL', 'AUTH_FAIL_GLOBAL']);
     if (props.getProperty('AUTH_LOCKOUT_UNTIL')) {
       props.deleteProperty('AUTH_LOCKOUT_UNTIL');
     }
@@ -1441,10 +1468,20 @@ function verifyTeacherToken(ss, submittedToken, body) {
     };
   }
 
+  // 2b. Global lockout: client-supplied ids (credential/deviceFp) can be rotated, so also cap total failures
+  const globalFails = Number(cache.get('AUTH_FAIL_GLOBAL') || '0');
+  if (globalFails >= 30) {
+    return {
+      ok: false,
+      code: 'ERR_AUTH_LOCKED',
+      message: '[TẠM KHÓA] Có quá nhiều lần nhập sai mã 6 số. Dùng Master Key hoặc đợi 10 phút.'
+    };
+  }
+
   // 3. Fast check against ScriptProperties TEMP_PC_CODE first (avoids reading Setup_&_Dashboard on every 2.5s poll)
   const tempCode = String(props.getProperty('TEMP_PC_CODE') || '').trim();
   const tempExp  = Number(props.getProperty('TEMP_PC_EXPIRES') || '0');
-  const isTempValid = !tempExp || Date.now() <= tempExp;
+  const isTempValid = tempExp > 0 && Date.now() <= tempExp;
 
   if (isTempValid && tempCode && cleanToken === tempCode) {
     cache.remove(failKey);
@@ -1460,8 +1497,6 @@ function verifyTeacherToken(ss, submittedToken, body) {
       const match6 = c9Text.match(/\b(\d{6})\b/);
       if (match6) {
         sheetCode = match6[1];
-      } else if (c9Text && c9Text.indexOf('Attendance Admin') === -1) {
-        sheetCode = c9Text;
       }
       if (sheetCode) {
         try { cache.put('DASH_C9_CODE_V35', sheetCode, 15); } catch (e) {}
@@ -1479,6 +1514,10 @@ function verifyTeacherToken(ss, submittedToken, body) {
   const failedCount = Number(cache.get(failKey) || '0');
   const newFailed = failedCount + 1;
   cache.put(failKey, String(newFailed), 600);
+  cache.put('AUTH_FAIL_GLOBAL', String(globalFails + 1), 600);
+  if (globalFails + 1 === 30) {
+    logAudit(ss, 'UNKNOWN', 'TEACHER_AUTH_LOCKOUT', 'GLOBAL', '30 failed teacher auth attempts (all devices) in 10 minutes');
+  }
   if (newFailed >= 5) {
     const lockUntilMs = String(Date.now() + 10 * 60 * 1000);
     cache.put(lockKey, lockUntilMs, 600);
@@ -2603,6 +2642,21 @@ function verifyClassroomQr(scannedText, classConfig, activeSession, overrideNowM
   return parsed.sec === secret;
 }
 
+function isForeignDeviceForStudent_(ss, studentId, credHash) {
+  try {
+    if (CacheService.getScriptCache().get('DEV_HASH_' + studentId) === credHash) return false;
+    const devSheet = ss.getSheetByName(TAB_DEVICES);
+    if (!devSheet || devSheet.getLastRow() < 2) return false;
+    const data = devSheet.getRange(2, 1, devSheet.getLastRow() - 1, 5).getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (normalizeId(data[i][0]) === studentId && String(data[i][4]) === 'ACTIVE') {
+        return String(data[i][2]) !== credHash;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+
 function verifyStudentCredential(ss, studentId, clientCred, precomputedHash, canonicalName) {
   const credHash = precomputedHash || sha256Hex(clientCred);
   const cache = CacheService.getScriptCache();
@@ -3634,6 +3688,11 @@ function calculateHaversineMeters(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function safeEffectiveDist_(rawDist, accuracyAllowance) {
+  const d = Math.max(0, rawDist - accuracyAllowance);
+  return Number.isFinite(d) ? d : Infinity;
+}
+
 function refreshTempPcCode(ss, forceNew) {
   const props = PropertiesService.getScriptProperties();
   const cache = CacheService.getScriptCache();
@@ -3646,7 +3705,7 @@ function refreshTempPcCode(ss, forceNew) {
     props.setProperty('TEMP_PC_EXPIRES', String(exp));
     props.setProperty('FAILED_AUTH_COUNT', '0');
     props.deleteProperty('AUTH_LOCKOUT_UNTIL');
-    cache.removeAll(['AUTH_LOCKOUT_UNTIL', 'DASH_C9_CODE_V35']);
+    cache.removeAll(['AUTH_LOCKOUT_UNTIL', 'DASH_C9_CODE_V35', 'AUTH_FAIL_GLOBAL']);
     const doc = ss || SpreadsheetApp.getActiveSpreadsheet();
     const sheet = doc ? doc.getSheetByName(TAB_DASHBOARD) : null;
     if (sheet) {

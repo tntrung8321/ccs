@@ -2,6 +2,21 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🔧 Version `v3.7.7` — *Backend Security Patch: Fail-Closed GPS Validation, Bounded `STUDENT_AVG_3` Room Center, Global Lecturer Code Lockout & PIN Credential-Mismatch Guard*
+* **GPS Input Validation (`code3.7.7.text`, `handleStudentCheckIn`)**:
+  * Check-in now rejects non-numeric, infinite or out-of-range `lat`, `lng` or `accuracy`. Previously a non-numeric accuracy such as `"abc"` made the distance `NaN` and skipped the radius check; distance validation is now fail-closed.
+* **`STUDENT_AVG_3` Room-Center Bounds (`code3.7.7.text`)**:
+  * Every room-center sample must lie within the campus radius (`maxCampusMeters`, 850 m) of the class's configured center, so a far-away first check-in can no longer become the room center.
+  * The averaged center is saved to `Classes_Config` only when all samples lie within the room radius of that average.
+* **Lecturer 6-Digit Code Hardening (`code3.7.7.text`)**:
+  * Added a global lockout: 30 wrong attempts within 10 minutes across all devices (the Master Key still works), because the per-device lockout relied on client-supplied IDs.
+  * A temporary code with no expiry is no longer valid, and free text in cell `C9` is no longer accepted as a password.
+  * One audit row is written when the global lockout trips.
+* **PIN_10S Credential Guard (`code3.7.7.text`)**:
+  * A device bound to another student's account now receives `ERR_CREDENTIAL_MISMATCH` before any PIN guard or log entry, so nobody can lock a victim's PIN entry or flood `Pin_Check_Log`.
+* **Tests (`.agent/skills/appscript-deploy/scripts/`)**:
+  * New `test-core.js` runs the backend in a `vm` sandbox and covers the GPS gate, `STUDENT_AVG_3`, teacher auth, PIN, and `mergeAttendance` / PIN / score parity.
+  * New `run-all-tests.js` runs all 4 suites.
 ### 🔧 Version `v3.7.6` — *Stale Session-Cache Fix (Students No Longer Told "Session Not Open" After Opening, Check-In Rejected After Closing), Authoritative In-Lock Session Re-Check & Legacy Apps Script Endpoint Redirect*
 * **Session State Consistency (`code3.7.6.text`)**:
   * `handleStudentCheckIn`: when the cached session map says "no open session", it re-reads `Sessions_Log` once (`getAllLatestSessionsMap(ss, true)`) before returning `ERR_SESSION_CLOSED`; inside `LockService` it re-checks the exact session row (`isSessionRowStillOpen_`: same `Session_ID`, no `Closed_Manually_At` earlier than request arrival, `Closes_At` not passed) so a stale cache can no longer accept check-ins after the lecturer closed the session.
@@ -352,6 +367,21 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.7.7` — *Bản Vá Bảo Mật Backend: Kiểm Tra GPS Chặn Mặc Định (Fail-Closed), Giới Hạn Tâm Phòng `STUDENT_AVG_3`, Khóa Mã 6 Số Giảng Viên Toàn Cục & Chặn Lệch Tài Khoản Khi Dùng PIN*
+* **Kiểm Tra Dữ Liệu GPS (`code3.7.7.text`, `handleStudentCheckIn`)**:
+  * Điểm danh nay từ chối `lat`, `lng` hoặc `accuracy` không phải số, vô cực hoặc ngoài phạm vi hợp lệ. Trước đây `accuracy` không phải số như `"abc"` làm khoảng cách thành `NaN` và bỏ qua kiểm tra bán kính; nay kiểm tra khoảng cách theo nguyên tắc chặn mặc định (fail-closed).
+* **Giới Hạn Tâm Phòng `STUDENT_AVG_3` (`code3.7.7.text`)**:
+  * Mọi mẫu tọa độ dùng làm tâm phòng phải nằm trong bán kính khuôn viên (`maxCampusMeters`, 850 m) so với tâm đã cấu hình của lớp, nên lần điểm danh đầu ở xa không còn trở thành tâm phòng.
+  * Tâm trung bình chỉ được lưu vào `Classes_Config` khi mọi mẫu đều nằm trong bán kính phòng so với tâm trung bình đó.
+* **Củng Cố Mã 6 Số Của Giảng Viên (`code3.7.7.text`)**:
+  * Thêm khóa toàn cục: 30 lần nhập sai trong 10 phút trên mọi thiết bị (Master Key vẫn dùng được), vì khóa theo thiết bị trước đây dựa trên ID do client gửi lên.
+  * Mã tạm không có thời hạn không còn hợp lệ; nội dung tự do trong ô `C9` không còn được chấp nhận làm mật khẩu.
+  * Ghi 1 dòng audit khi khóa toàn cục được kích hoạt.
+* **Chặn Thông Tin Xác Thực Khi Dùng PIN_10S (`code3.7.7.text`)**:
+  * Thiết bị đã liên kết với tài khoản sinh viên khác nay nhận `ERR_CREDENTIAL_MISMATCH` trước mọi kiểm tra PIN hoặc ghi log, nên không ai có thể khóa lượt nhập PIN của người khác hay làm đầy `Pin_Check_Log`.
+* **Kiểm Thử (`.agent/skills/appscript-deploy/scripts/`)**:
+  * Thêm `test-core.js`: chạy backend trong sandbox `vm`, kiểm tra cổng GPS, `STUDENT_AVG_3`, xác thực giảng viên, PIN và tính nhất quán `mergeAttendance` / PIN / điểm.
+  * Thêm `run-all-tests.js`: chạy đủ 4 bộ kiểm thử.
 ### 🔧 Version `v3.7.6` — *Sửa Cache Phiên Cũ (Hết Báo "Chưa Mở Phiên" Sau Khi Đã Mở, Hết Nhận Điểm Danh Sau Khi Đã Đóng), Kiểm Tra Lại Phiên Trong Khóa & Chuyển Hướng Endpoint Apps Script Cũ*
 * **Nhất Quán Trạng Thái Phiên (`code3.7.6.text`)**:
   * `handleStudentCheckIn`: khi cache báo "không có phiên mở", hệ thống đọc lại `Sessions_Log` một lần (`getAllLatestSessionsMap(ss, true)`) rồi mới trả `ERR_SESSION_CLOSED`; trong `LockService` kiểm tra lại đúng dòng phiên (`isSessionRowStillOpen_`: cùng `Session_ID`, không có `Closed_Manually_At` sớm hơn lúc yêu cầu đến, `Closes_At` chưa qua), nên cache cũ không còn nhận điểm danh sau khi giảng viên đã đóng phiên.
@@ -682,11 +712,11 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.6`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.7`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.6` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.7` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.6`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.7`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), 100% Centered Floating Confirmation Popups (`#confirm-modal`), Clean Non-AI Utilitarian Buttons, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `+600ms` Lead, `PIN_GRACE_MS = 2500`, `reqArrivalMs` & Instant `0ms` 1-Tap Switch) + `L -> P` Upgrade** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$ + Indoor Wi-Fi/Cell Fallback) + Discreet Fallback GPS Mode (`STUDENT_AVG_3` without stale-coordinate lockout)** |
@@ -694,6 +724,6 @@
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + In-Place Automated `clasp` Deployment (`appscript-deploy`)** |
 | **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **Authoritative In-Lock Session Re-Check (no stale-cache check-ins) + Centered Floating Confirmations (`0ms` Busy Lock) + `TEMP_PC_CODE` Preserved on `CLOSE_NOW` + Unified `+2 Phút` (`EXTEND_2M`) + `manualMarkSeqByStudent` Anti-Overwrite** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-RPC Pre-Lock Cache + `LockService` Guards on All Write/Rebuild Handlers (45 Concurrent Students in `< 1.6s`, Zero Double-Click Overwrites)** |
-| **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
+| **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Global 30-Strike Lecturer Code Lockout + Fail-Closed GPS Validation + Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.5`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.7`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |

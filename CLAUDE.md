@@ -29,4 +29,4 @@ Chỉ sửa luật ở `.agent/rules/` để hai công cụ luôn khớp nhau. P
 ## Cấu trúc
 - `index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`: frontend.
 - `code<X.Y.Z>.text` -> `.clasp/Code.gs`; `sync.txt` -> `.clasp/Sync.gs`: backend. Không chép `.html/.js/.css` vào `.clasp/`.
-- Test: `node ".agent/skills/appscript-deploy/scripts/test-v371-ux.js"`.
+- Test: `node ".agent/skills/appscript-deploy/scripts/run-all-tests.js"` (chạy 4 bộ test, gồm `test-core.js` chạy backend thật trong vm).
