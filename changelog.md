@@ -2,6 +2,11 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🔧 Version `v3.7.6` — *Stale Session-Cache Fix (Students No Longer Told "Session Not Open" After Opening, Check-In Rejected After Closing), Authoritative In-Lock Session Re-Check & Legacy Apps Script Endpoint Redirect*
+* **Session State Consistency (`code3.7.6.text`)**:
+  * `handleStudentCheckIn`: when the cached session map says "no open session", it re-reads `Sessions_Log` once (`getAllLatestSessionsMap(ss, true)`) before returning `ERR_SESSION_CLOSED`; inside `LockService` it re-checks the exact session row (`isSessionRowStillOpen_`: same `Session_ID`, no `Closed_Manually_At` earlier than request arrival, `Closes_At` not passed) so a stale cache can no longer accept check-ins after the lecturer closed the session.
+  * `SpreadsheetApp.flush()` now runs before `invalidateClassCache()` in `Start`, `CLOSE_NOW`, `OPEN_ROUND_2`, `EXTEND_2M`, `REOPEN_5M`, `SET_QR_MODE` and `CANCEL_MISTAKEN_SESSION`, so concurrent pings cannot re-cache the pre-write state.
+* **Legacy Endpoint Redirect (`js/schedule-config.js`)**: three old Apps Script deployments (`@1`, `@2`, `@HEAD`) added to `LEGACY_LECTURER_APIS`; `normalizeApiUrl()` now moves any device still paired to them onto the current endpoint, fixing wrong Course Progress (`0/22` instead of `8/30`) and sessions managed through outdated backend code.
 ### ✨ Version `v3.7.5` — *100% Centered Floating Confirmation Popups (`#confirm-modal`), Instant `0ms` Anti-Double-Click & Anti-Overwrite Locks (`isConfirmModalBusy` + `manualMarkSeqByStudent` + `LockService`), Clean Non-AI Button Typography, Per-Device Brute-Force Lockout Isolation & Classroom PC Session Preservation on `CLOSE_NOW`*
 * **100% Centered Floating Confirmation Popups (`#confirm-modal`, `z-index: 350`) (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/teacher.js`, `js/student.js`)**:
   * Removed all inline confirmation bars (`#tea-open-confirm-bar` and `.past-ses-confirm-box`) so opening a confirmation never shifts page layout or hides inside a scrolled list.
@@ -347,6 +352,11 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.7.6` — *Sửa Cache Phiên Cũ (Hết Báo "Chưa Mở Phiên" Sau Khi Đã Mở, Hết Nhận Điểm Danh Sau Khi Đã Đóng), Kiểm Tra Lại Phiên Trong Khóa & Chuyển Hướng Endpoint Apps Script Cũ*
+* **Nhất Quán Trạng Thái Phiên (`code3.7.6.text`)**:
+  * `handleStudentCheckIn`: khi cache báo "không có phiên mở", hệ thống đọc lại `Sessions_Log` một lần (`getAllLatestSessionsMap(ss, true)`) rồi mới trả `ERR_SESSION_CLOSED`; trong `LockService` kiểm tra lại đúng dòng phiên (`isSessionRowStillOpen_`: cùng `Session_ID`, không có `Closed_Manually_At` sớm hơn lúc yêu cầu đến, `Closes_At` chưa qua), nên cache cũ không còn nhận điểm danh sau khi giảng viên đã đóng phiên.
+  * `SpreadsheetApp.flush()` chạy trước `invalidateClassCache()` ở `Start`, `CLOSE_NOW`, `OPEN_ROUND_2`, `EXTEND_2M`, `REOPEN_5M`, `SET_QR_MODE` và `CANCEL_MISTAKEN_SESSION`, tránh các lượt ping đồng thời nạp lại trạng thái trước khi ghi.
+* **Chuyển Hướng Endpoint Cũ (`js/schedule-config.js`)**: thêm 3 deployment Apps Script cũ (`@1`, `@2`, `@HEAD`) vào `LEGACY_LECTURER_APIS`; `normalizeApiUrl()` tự đưa thiết bị còn ghép với chúng sang endpoint hiện tại, khắc phục Tiến độ học phần sai (`0/22` thay vì `8/30`) và phiên bị điều khiển bằng code backend cũ.
 ### ✨ Version `v3.7.5` — *Đồng Bộ 100% Hộp Thoại Xác Nhận Nổi Giữa Màn Hình (`#confirm-modal`), Khóa Chống Bấm Đúp & Chống Ghi Đè Tức Thì `0ms` (`isConfirmModalBusy` + `manualMarkSeqByStudent` + `LockService`), Tinh Gọn Nút Bấm Không Icon AI, Cô Lập Khóa Sai Mật Khẩu Theo Thiết Bị & Giữ Phiên PC Phòng Học Khi Đóng Phiên 1*
 * **Đồng Bộ 100% Hộp Thoại Xác Nhận Nổi Giữa Màn Hình (`#confirm-modal`, `z-index: 350`) (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/teacher.js`, `js/student.js`)**:
   * Loại bỏ hoàn toàn các thanh xác nhận nội tuyến gây nhảy bố cục trang (`#tea-open-confirm-bar` và `.past-ses-confirm-box`).
@@ -672,17 +682,17 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.5`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.6`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.5` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.6` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.5`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.6`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), 100% Centered Floating Confirmation Popups (`#confirm-modal`), Clean Non-AI Utilitarian Buttons, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `+600ms` Lead, `PIN_GRACE_MS = 2500`, `reqArrivalMs` & Instant `0ms` 1-Tap Switch) + `L -> P` Upgrade** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$ + Indoor Wi-Fi/Cell Fallback) + Discreet Fallback GPS Mode (`STUDENT_AVG_3` without stale-coordinate lockout)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Backend Open-Session Auto-Fallback)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + In-Place Automated `clasp` Deployment (`appscript-deploy`)** |
-| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **Centered Floating Confirmations (`0ms` Busy Lock) + `TEMP_PC_CODE` Preserved on `CLOSE_NOW` + Unified `+2 Phút` (`EXTEND_2M`) + `manualMarkSeqByStudent` Anti-Overwrite** |
+| **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **Authoritative In-Lock Session Re-Check (no stale-cache check-ins) + Centered Floating Confirmations (`0ms` Busy Lock) + `TEMP_PC_CODE` Preserved on `CLOSE_NOW` + Unified `+2 Phút` (`EXTEND_2M`) + `manualMarkSeqByStudent` Anti-Overwrite** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-RPC Pre-Lock Cache + `LockService` Guards on All Write/Rebuild Handlers (45 Concurrent Students in `< 1.6s`, Zero Double-Click Overwrites)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |

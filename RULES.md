@@ -1,8 +1,8 @@
 # QUY TẮC HỆ THỐNG CCS (CLASSCHECK SYSTEM RULES)
 
-> **Phiên bản đối chiếu hiện tại:** `v3.7.5` (Frontend UI & Backend Apps Script). Phần Backend (mục 1.2, 1.3, 2, 4, 5) đã đối chiếu với code; các mục 1.1, 3, 6, 7 (Sổ điểm danh, công thức điểm, lịch học) chưa đối chiếu lại với `sync.txt` / `js/schedule-config.js` ở v3.7.5.  
+> **Phiên bản đối chiếu hiện tại:** `v3.7.6` (Frontend UI & Backend Apps Script). Phần Backend (mục 1.2, 1.3, 2, 4, 5) đã đối chiếu với code; các mục 1.1, 3, 6, 7 (Sổ điểm danh, công thức điểm, lịch học) chưa đối chiếu lại với `sync.txt` / `js/schedule-config.js` ở v3.7.5.  
 > **Các tệp nguồn đối chiếu:**
-> - Backend Apps Script: [`code3.7.5.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.7.5.text) (tên file luôn khớp `SYSTEM_VERSION`; tham chiếu theo tên hàm, không theo số dòng vì số dòng đổi theo từng bản)
+> - Backend Apps Script: [`code3.7.6.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.7.6.text) (tên file luôn khớp `SYSTEM_VERSION`; tham chiếu theo tên hàm, không theo số dòng vì số dòng đổi theo từng bản)
 > - Script Đồng bộ Sổ Điểm danh & Master Sheet: [`sync.txt`](file:///d:/CCS%20-%20ClassCheck%20System/sync.txt)
 > - Frontend Sinh viên / Giảng viên / Lịch học: [`js/student.js`](file:///d:/CCS%20-%20ClassCheck%20System/js/student.js), [`js/teacher.js`](file:///d:/CCS%20-%20ClassCheck%20System/js/teacher.js), [`js/schedule-config.js`](file:///d:/CCS%20-%20ClassCheck%20System/js/schedule-config.js)
 > - Quy tắc Quản lý Phiên bản & Demo Giao diện: [`.agent/rules/changelog-and-versioning.md`](file:///d:/CCS%20-%20ClassCheck%20System/.agent/rules/changelog-and-versioning.md), [`.agent/rules/ui-demo-preview.md`](file:///d:/CCS%20-%20ClassCheck%20System/.agent/rules/ui-demo-preview.md)
@@ -49,7 +49,7 @@ Trên **Master Sheet**, hệ thống lưu trữ thống nhất bằng 4 mã tr�
 
 1. **Lọc phiên rỗng (Ghost/Test Sessions)**: Ngày nào mà tất cả các phiên mở ra đã đóng và có **`0` sinh viên có mặt/đi trễ/có phép/chấm tay** (`P = 0, L = 0, E = 0, TEACHER_MANUAL = 0`) thì coi là phiên mở nhầm/test $\rightarrow$ **Không tính là 1 buổi học đã diễn ra** và không tính vắng cho sinh viên.
 2. **Gộp phiên trùng ngày (`1 ngày = 1 buổi học = 1 cột trên Sheet`)**:
-   - Trên cả Sổ Điểm danh Lớp ([`sync.txt`](file:///d:/CCS%20-%20ClassCheck%20System/sync.txt)) và Tab Lớp của Master Sheet ([`code3.7.5.text` — `buildGroupedClassDayRecords_`](file:///d:/CCS%20-%20ClassCheck%20System/code3.7.5.text)), các phiên mở cùng ngày của cùng 1 lớp được gộp thành **1 buổi duy nhất trong ngày**.
+   - Trên cả Sổ Điểm danh Lớp ([`sync.txt`](file:///d:/CCS%20-%20ClassCheck%20System/sync.txt)) và Tab Lớp của Master Sheet ([`code3.7.6.text` — `buildGroupedClassDayRecords_`](file:///d:/CCS%20-%20ClassCheck%20System/code3.7.6.text)), các phiên mở cùng ngày của cùng 1 lớp được gộp thành **1 buổi duy nhất trong ngày**.
    - Giữa các phiên trong cùng ngày:
      - Bản ghi do **Giảng viên chỉnh tay (`TEACHER_MANUAL`)** luôn có quyền cao nhất (theo lần chỉnh cuối cùng của Giảng viên, hỗ trợ cả duyệt phép `E` cho buổi học trước).
      - Trạng thái vắng (`-`) ở phiên sau **không bao giờ đè** lên trạng thái `P / E / L` mà sinh viên đã điểm danh hợp lệ ở phiên trước trong cùng ngày (xem bảng sự thật `mergeAttendance` ở mục 3 bên dưới).
@@ -98,7 +98,7 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
 
 ## 4. Quy tắc Định vị GPS & Tâm Phòng Học (`Location_Mode`)
 
-Được quy định tại `handleStudentCheckIn` và `handleTeacherStartSession` trong [`code3.7.5.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.7.5.text):
+Được quy định tại `handleStudentCheckIn` và `handleTeacherStartSession` trong [`code3.7.6.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.7.6.text):
 
 1. **Bán kính phòng học chuẩn (`Radius_Meters`)**: Mặc định **`100m`** (cấu hình trong `Classes_Config`).
 2. **Bù trừ sai số GPS trong nhà (`accuracyAllowance`)**:
@@ -115,7 +115,7 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
 
 ## 5. Quy tắc Khóa Thiết Bị 1-1 & Chống Gian Lận (`Anti-Cheat`)
 
-Được quy định tại `handleStudentCheckIn`, `handleTeacherResetDevice` và phần liên kết thiết bị (tab `Device_Registry`) trong [`code3.7.5.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.7.5.text). Từ v3.7.2, phía thiết bị lưu thêm Device Vault 3 lớp (`localStorage` + Cookie 365 ngày + `IndexedDB`) và chặn tab ẩn danh/Private:
+Được quy định tại `handleStudentCheckIn`, `handleTeacherResetDevice` và phần liên kết thiết bị (tab `Device_Registry`) trong [`code3.7.6.text`](file:///d:/CCS%20-%20ClassCheck%20System/code3.7.6.text). Từ v3.7.2, phía thiết bị lưu thêm Device Vault 3 lớp (`localStorage` + Cookie 365 ngày + `IndexedDB`) và chặn tab ẩn danh/Private:
 
 1. **Khóa Thiết bị 1-1 (`Devices` sheet)**:
    - Mỗi `Student_ID` chỉ được gắn với **1 `Device_ID` (`ACTIVE`)** và mỗi `Device_ID` chỉ được gắn với **1 `Student_ID`**.

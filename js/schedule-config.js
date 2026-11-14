@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.5)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.6)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -10,7 +10,10 @@ const LEGACY_LECTURER_APIS = [
   'https://script.google.com/macros/s/AKfycbxc9TUVcoQ9BFtcXl9_lSvI5c1AntDOn56DwpsDtDiK9p5P8blbutJmgLq_mHEJGWT2/exec',
   'https://script.google.com/macros/s/AKfycbwbpZhoQtQJjPhvmsVg8vNxhPL4v2bcXDWUewxSIlMgf8iGq75lr6vzZZwVMiQ-YaS7/exec',
   'https://script.google.com/macros/s/AKfycbzuSyHCUnHiMsLr6r-VEfPK8ghEHiWO0109azkoo1VstAMhfoBQ9v1agRj3gsHNXIw/exec',
-  'https://script.google.com/macros/s/AKfycbz01o_3_O5PxuDq9V8uQ0cJy1ahCgEcM_QSlgNHLvkD8awXq0QCnf3HmoSRQl4PxBQM/exec'
+  'https://script.google.com/macros/s/AKfycbz01o_3_O5PxuDq9V8uQ0cJy1ahCgEcM_QSlgNHLvkD8awXq0QCnf3HmoSRQl4PxBQM/exec',
+  'https://script.google.com/macros/s/AKfycbzLMWcHD7SZbgN4r0vMO2fC1_9okxL7peI3ZnbBt3YIP_4xPDxqkVjN0TIHJuiPwZEQ/exec',
+  'https://script.google.com/macros/s/AKfycbzZP20_1lPpHyQl-bxl9-yVmT01pk_4B8U0mojao1agPnOjLHaK3UipsTmv3AKQvpe3/exec',
+  'https://script.google.com/macros/s/AKfycbzST3i7sFqJhmiufFGJAYaEvXSbo9XbqyXI4Ihnpmc/exec'
 ];
 const DEFAULT_LECTURER_NAME = 'Tran Nguyen Trung';
 const DEFAULT_INST_ID = 'INST_KfweyxZcv4';
