@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.7)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.8)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.7.7';
+const SYSTEM_VERSION = '3.7.8';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -186,7 +186,6 @@ function updateDashboardQRs(ss) {
   const apiUrl       = String(sheet.getRange('B4').getValue()).trim();
   const rawFrontendUrl = normalizeDashboardFrontendUrlB5_(sheet);
   const frontendUrl  = rawFrontendUrl.replace(/\/$/, '');
-  const teacherKey   = props.getProperty('TEACHER_MASTER_KEY');
 
   if (!apiUrl || !apiUrl.startsWith('https://script.google.com/')) {
     sheet.getRange('B6').setValue('⚠️ Waiting for valid Apps Script URL in Cell B4').setFontColor('#b45309');
@@ -205,25 +204,39 @@ function updateDashboardQRs(ss) {
     ? frontendUrl + '/?onboard=' + encodeURIComponent(Utilities.base64EncodeWebSafe(studentPayload))
     : studentPayload;
 
+  const studentQrUrl = 'https://quickchart.io/qr?size=220&margin=2&text=' + encodeURIComponent(studentDeepLink);
+
+  sheet.getRange('A9').setFormula('=IMAGE("' + studentQrUrl + '")');
+  sheet.getRange('B9').clearContent().setValue(TEACHER_PAIRING_B9_TEXT_);
+
+  const tempCode = refreshTempPcCode(ss, false);
+  sheet.getRange('C9').setValue('Temp PC Code:\n' + tempCode + '\n(Valid 2 Hours)').setFontSize(14).setFontWeight('bold');
+}
+
+const TEACHER_PAIRING_B9_TEXT_ = 'Lecturer phone pairing QR is shown only in a private dialog.\n' +
+  'Open menu: 🎓 Attendance Admin -> 🔑 4. View Teacher Pairing & Temp PC Login Code\n' +
+  '(No key is stored in this Sheet.)';
+
+function buildTeacherPairingLink_(ss) {
+  const sheet = ss.getSheetByName(TAB_DASHBOARD);
+  if (!sheet) return '';
+  const props = PropertiesService.getScriptProperties();
+  const lecturerName = String(sheet.getRange('B2').getValue()).trim();
+  const installId    = String(sheet.getRange('B3').getValue()).trim();
+  const apiUrl       = String(sheet.getRange('B4').getValue()).trim();
+  const frontendUrl  = normalizeDashboardFrontendUrlB5_(sheet).replace(/\/$/, '');
+  if (!apiUrl || !apiUrl.startsWith('https://script.google.com/')) return '';
+
   const teacherPayload = JSON.stringify({
     type: 'TEACHER_PAIR',
     inst: installId,
     name: lecturerName,
     api: apiUrl,
-    tkey: teacherKey
+    tkey: props.getProperty('TEACHER_MASTER_KEY')
   });
-  const teacherDeepLink = frontendUrl
+  return frontendUrl
     ? frontendUrl + '/?pair=' + encodeURIComponent(Utilities.base64EncodeWebSafe(teacherPayload))
     : teacherPayload;
-
-  const studentQrUrl = 'https://quickchart.io/qr?size=220&margin=2&text=' + encodeURIComponent(studentDeepLink);
-  const teacherQrUrl = 'https://quickchart.io/qr?size=220&margin=2&dark=1e3a8a&text=' + encodeURIComponent(teacherDeepLink);
-
-  sheet.getRange('A9').setFormula('=IMAGE("' + studentQrUrl + '")');
-  sheet.getRange('B9').setFormula('=IMAGE("' + teacherQrUrl + '")');
-
-  const tempCode = refreshTempPcCode(ss, false);
-  sheet.getRange('C9').setValue('Temp PC Code:\n' + tempCode + '\n(Valid 2 Hours)').setFontSize(14).setFontWeight('bold');
 }
 
 function ensureSystemTabWithHeaders_(ss, tabName, headers, bgColor, options) {
@@ -344,17 +357,48 @@ function showTeacherPairingDialog() {
   const masterKey = props.getProperty('TEACHER_MASTER_KEY');
   updateDashboardQRs(ss);
 
-  SpreadsheetApp.getUi().alert(
-    '🔑 Lecturer Authentication Credentials',
-    '1. TEMPORARY CLASSROOM PC CODE (Valid for 2 Hours):\n' +
-    '   👉  ' + tempCode + '\n' +
-    '   (Use this 6-digit code to log into Teacher Mode on a shared classroom computer).\n\n' +
-    '2. PERSONAL PHONE PAIRING (All Semester):\n' +
-    '   Scan the "Lecturer Phone Pairing QR" in Cell B9 of Setup_&_Dashboard,\n' +
-    '   OR enter Master Key once on your personal phone:\n' +
-    '   ' + masterKey,
-    SpreadsheetApp.getUi().ButtonSet.OK
-  );
+  const html = HtmlService.createHtmlOutput(buildTeacherPairingDialogHtml_(buildTeacherPairingLink_(ss), tempCode, masterKey))
+    .setWidth(460)
+    .setHeight(700);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Lecturer Pairing');
+}
+
+function escapeHtmlForDialog_(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function toInlineScriptJson_(value) {
+  return JSON.stringify(String(value == null ? '' : value))
+    .replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+}
+
+function buildTeacherPairingDialogHtml_(link, tempCode, masterKey) {
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
+    'body{font-family:Arial,sans-serif;margin:0;padding:12px;color:#0f172a;text-align:center}' +
+    'h3{margin:6px 0;font-size:15px}.code{font-size:30px;font-weight:bold;letter-spacing:4px;color:#1e3a8a}' +
+    '.note{font-size:12px;color:#475569;margin:4px 0}.box{border:1px solid #cbd5e1;border-radius:8px;padding:8px;margin:8px 0}' +
+    'canvas{display:block;margin:6px auto;image-rendering:pixelated}#mk{font-family:monospace;font-size:14px;word-break:break-all}' +
+    'button{padding:6px 14px;font-size:13px;cursor:pointer}</style></head><body>' +
+    '<div class="box"><h3>1. Temporary Classroom PC Code (valid 2 hours)</h3>' +
+    '<div class="code">' + escapeHtmlForDialog_(tempCode) + '</div>' +
+    '<p class="note">Use this 6-digit code to log into Teacher Mode on a shared classroom computer.</p></div>' +
+    '<div class="box"><h3>2. Personal Phone Pairing (all semester)</h3>' +
+    '<p class="note">Scan this QR with your personal phone. Do NOT show this window to students.</p>' +
+    '<canvas id="qr"></canvas><p class="note" id="qrErr" style="display:none"></p>' +
+    '<p class="note">Or enter the Master Key once on your personal phone:</p>' +
+    '<button type="button" id="mkBtn">Show</button>' +
+    '<p id="mk" style="display:none">' + escapeHtmlForDialog_(masterKey) + '</p></div>' +
+    '<script>' + QR_ENCODER_JS_ + '\n(function(){var link=' + toInlineScriptJson_(link) + ';' +
+    'var err=document.getElementById("qrErr");' +
+    'try{if(!link)throw new Error("Missing Apps Script URL in Cell B4. Run Initialize first.");' +
+    'qrDrawCanvas(document.getElementById("qr"),link,4);}' +
+    'catch(e){document.getElementById("qr").style.display="none";err.style.display="block";err.textContent="QR unavailable: "+e.message;}' +
+    'var btn=document.getElementById("mkBtn"),mk=document.getElementById("mk");' +
+    'btn.onclick=function(){var hidden=mk.style.display==="none";mk.style.display=hidden?"block":"none";btn.textContent=hidden?"Hide":"Show";};' +
+    '})();</script></body></html>';
 }
 
 function resetStudentDeviceMenu() {
@@ -648,11 +692,13 @@ function handlePing(ss, body) {
   const classes = getClassesMap(ss, false);
   const allLatestSes = getAllLatestSessionsMap(ss, false);
   const scheduleMetaMap = getStoredClassSchedulesMap();
+  const studentId = body && body.studentId ? normalizeId(body.studentId) : '';
+  const authed = Boolean(studentId && isStudentCredentialVerified_(ss, studentId, body.credential));
   const publicClasses = Object.values(classes).map(c => {
     const ses = allLatestSes[c.classId];
     const isOpen = Boolean(ses && ses.isOpen);
     const isR2 = Boolean(ses && isRound2Session_(ses.sessionId, ses.sessionLabel));
-    return {
+    const pub = {
       classId: c.classId,
       className: c.className,
       regOpen: c.regOpen,
@@ -660,31 +706,46 @@ function handlePing(ss, body) {
       activeRound: isOpen ? (isR2 ? 2 : 1) : 0,
       activeSessionId: isOpen ? String(ses.sessionId || '') : '',
       activeQrMode: isOpen ? String(ses.qrMode || 'STATIC') : 'STATIC',
-      scheduleInfo: scheduleMetaMap[c.classId] || parseClassScheduleInfoBackend(c.className),
-      activeGroupSplit: getActiveGroupSplitForClass_(c.classId)
+      scheduleInfo: scheduleMetaMap[c.classId] || parseClassScheduleInfoBackend(c.className)
     };
+    if (authed && getClassRosterMap(ss, c.classId, false)[studentId]) {
+      pub.activeGroupSplit = getActiveGroupSplitForClass_(c.classId) || null;
+    }
+    return pub;
   });
 
-  const studentId = body && body.studentId ? normalizeId(body.studentId) : '';
-  const studentStats = studentId
-    ? getStudentAttendanceStatsMap(ss, studentId, Object.keys(classes), false)
-    : undefined;
-
   const nowPingMs = Date.now();
-  return jsonResponse({
+  const resp = {
     ok: true,
     code: 'PONG',
     version: SYSTEM_VERSION,
     installationId: installId,
     lecturerName: lecturerName,
     classes: publicClasses,
-    studentStats: studentStats,
-    calendarEvents: getTodayCalendarEventsCached(),
+    studentAuth: authed,
+    calendarEvents: filterCalendarEventsForPing_(getTodayCalendarEventsCached(), Object.values(classes)),
     classSchedules: scheduleMetaMap,
     serverTimeMs: nowPingMs,
     serverNowMs: nowPingMs,
     serverTime: new Date(nowPingMs).toISOString()
+  };
+  if (authed) resp.studentStats = getStudentAttendanceStatsMap(ss, studentId, Object.keys(classes), false);
+  return jsonResponse(resp);
+}
+
+function filterCalendarEventsForPing_(events, classes) {
+  const normKey = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const matches = (c, target) => {
+    const cid = normKey(c.classId), cname = normKey(c.className), t = normKey(target);
+    if (!t) return false;
+    return cid === t || cname === t || (cid && (cid.endsWith(t) || t.endsWith(cid))) || cname.includes(t);
+  };
+  const out = [];
+  (events || []).forEach(ev => {
+    const hit = (classes || []).find(c => matches(c, ev.title));
+    if (hit) out.push({ classId: hit.classId, startTime: ev.startTime, endTime: ev.endTime });
   });
+  return out;
 }
 
 function collectStudentEnrolledClasses_(ss, classes, scheduleMetaMap, studentId) {
@@ -698,7 +759,6 @@ function collectStudentEnrolledClasses_(ss, classes, scheduleMetaMap, studentId)
       enrolledClasses.push({
         classId: cid,
         className: classes[cid].className,
-        activeQrSecret: classes[cid].activeQrSecret,
         sessionOpenNow: Boolean(getLatestOpenSession(ss, cid)),
         scheduleInfo: scheduleMetaMap[cid] || parseClassScheduleInfoBackend(classes[cid].className),
         attendanceStats: getStudentClassAttendanceStats(ss, cid, studentId, false)
@@ -892,11 +952,13 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
   if (cachedByReq) {
     try {
       const rec = JSON.parse(cachedByReq);
-      return jsonResponse({
-        ok: true,
-        code: 'CONFIRMED_' + (rec.status === 'P' ? 'PRESENT' : 'LATE'),
-        receipt: rec
-      });
+      if (normalizeId(rec.studentId) === studentId) {
+        return jsonResponse({
+          ok: true,
+          code: 'CONFIRMED_' + (rec.status === 'P' ? 'PRESENT' : 'LATE'),
+          receipt: rec
+        });
+      }
     } catch (e) {}
   }
 
@@ -1384,11 +1446,14 @@ function handleCheckReceipt(ss, body) {
   const cachedByReq = cache.get('REQ_REC_' + requestId);
   if (cachedByReq) {
     try {
-      return jsonResponse({
-        ok: true,
-        code: 'RECEIPT_FOUND',
-        receipt: JSON.parse(cachedByReq)
-      });
+      const cachedRec = JSON.parse(cachedByReq);
+      if (normalizeId(cachedRec.studentId) === studentId) {
+        return jsonResponse({
+          ok: true,
+          code: 'RECEIPT_FOUND',
+          receipt: cachedRec
+        });
+      }
     } catch (e) {}
   }
 
@@ -2642,6 +2707,26 @@ function verifyClassroomQr(scannedText, classConfig, activeSession, overrideNowM
   return parsed.sec === secret;
 }
 
+function isStudentCredentialVerified_(ss, studentId, clientCred) {
+  try {
+    const cred = String(clientCred || '');
+    if (!studentId || cred.length < 16) return false;
+    const credHash = sha256Hex(cred);
+    const cache = CacheService.getScriptCache();
+    if (cache.get('DEV_HASH_' + studentId) === credHash) return true;
+    const devSheet = ss.getSheetByName(TAB_DEVICES);
+    if (!devSheet || devSheet.getLastRow() < 2) return false;
+    const data = devSheet.getRange(2, 1, devSheet.getLastRow() - 1, 5).getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (normalizeId(data[i][0]) === studentId && String(data[i][4]) === 'ACTIVE' && String(data[i][2]) === credHash) {
+        try { cache.put('DEV_HASH_' + studentId, credHash, 21600); } catch (e) {}
+        return true;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+
 function isForeignDeviceForStudent_(ss, studentId, credHash) {
   try {
     if (CacheService.getScriptCache().get('DEV_HASH_' + studentId) === credHash) return false;
@@ -3873,3 +3958,261 @@ function parseClassScheduleInfoBackend(text) {
     rawText: s
   };
 }
+
+function qrEncoderFactory_() {
+  var EC_M = [null,
+    [10, 1, 16, 0, 0], [16, 1, 28, 0, 0], [26, 1, 44, 0, 0], [18, 2, 32, 0, 0], [24, 2, 43, 0, 0],
+    [16, 4, 27, 0, 0], [18, 4, 31, 0, 0], [22, 2, 38, 2, 39], [22, 3, 36, 2, 37], [26, 4, 43, 1, 44],
+    [30, 1, 50, 4, 51], [22, 6, 36, 2, 37], [22, 8, 37, 1, 38], [24, 4, 40, 5, 41], [24, 5, 41, 5, 42],
+    [28, 7, 45, 3, 46], [28, 10, 46, 1, 47], [26, 9, 43, 4, 44], [26, 3, 44, 11, 45], [26, 3, 41, 13, 42]];
+  var ALIGN = [null, [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34], [6, 22, 38], [6, 24, 42], [6, 26, 46],
+    [6, 28, 50], [6, 30, 54], [6, 32, 58], [6, 34, 62], [6, 26, 46, 66], [6, 26, 48, 70], [6, 26, 50, 74],
+    [6, 30, 54, 78], [6, 30, 56, 82], [6, 30, 58, 86], [6, 34, 62, 90]];
+  var MAX_VERSION = 20;
+  var EXP = new Array(512), LOG = new Array(256);
+  var i, x = 1;
+  for (i = 0; i < 255; i++) {
+    EXP[i] = x; LOG[x] = i;
+    x <<= 1;
+    if (x & 0x100) x ^= 0x11D;
+  }
+  for (i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+
+  function gfMul(a, b) { return (a === 0 || b === 0) ? 0 : EXP[LOG[a] + LOG[b]]; }
+
+  function rsGenerator(deg) {
+    var g = [1];
+    for (var k = 0; k < deg; k++) {
+      var ng = [];
+      for (var j = 0; j <= g.length; j++) ng.push(0);
+      for (j = 0; j < g.length; j++) {
+        ng[j] ^= g[j];
+        ng[j + 1] ^= gfMul(g[j], EXP[k]);
+      }
+      g = ng;
+    }
+    return g;
+  }
+
+  function rsEncode(data, deg) {
+    var gen = rsGenerator(deg), res = [];
+    for (var k = 0; k < deg; k++) res.push(0);
+    for (k = 0; k < data.length; k++) {
+      var f = data[k] ^ res.shift();
+      res.push(0);
+      if (f !== 0) for (var j = 0; j < deg; j++) res[j] ^= gfMul(gen[j + 1], f);
+    }
+    return res;
+  }
+
+  function utf8Bytes(s) {
+    var out = [];
+    for (var k = 0; k < s.length; k++) {
+      var c = s.charCodeAt(k);
+      if (c >= 0xD800 && c < 0xDC00 && k + 1 < s.length) {
+        var d = s.charCodeAt(k + 1);
+        if (d >= 0xDC00 && d < 0xE000) { c = 0x10000 + ((c - 0xD800) << 10) + (d - 0xDC00); k++; }
+      }
+      if (c < 0x80) out.push(c);
+      else if (c < 0x800) out.push(0xC0 | (c >> 6), 0x80 | (c & 63));
+      else if (c < 0x10000) out.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+      else out.push(0xF0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+    }
+    return out;
+  }
+
+  function dataCodewords(v) { var e = EC_M[v]; return e[1] * e[2] + e[3] * e[4]; }
+
+  function byteCapacity(v) { return Math.floor((dataCodewords(v) * 8 - 4 - (v < 10 ? 8 : 16)) / 8); }
+
+  function buildCodewords(bytes, v) {
+    var e = EC_M[v], dc = dataCodewords(v), bits = [], k, j;
+    function put(val, len) { for (var b = len - 1; b >= 0; b--) bits.push((val >>> b) & 1); }
+    put(4, 4);
+    put(bytes.length, v < 10 ? 8 : 16);
+    for (k = 0; k < bytes.length; k++) put(bytes[k], 8);
+    for (k = 0; k < 4 && bits.length < dc * 8; k++) bits.push(0);
+    while (bits.length % 8) bits.push(0);
+    var data = [];
+    for (k = 0; k < bits.length; k += 8) {
+      var byteVal = 0;
+      for (j = 0; j < 8; j++) byteVal = (byteVal << 1) | bits[k + j];
+      data.push(byteVal);
+    }
+    for (k = 0; data.length < dc; k++) data.push(k % 2 ? 0x11 : 0xEC);
+    var blocks = [], ecBlocks = [], pos = 0, groups = [[e[1], e[2]], [e[3], e[4]]];
+    for (k = 0; k < 2; k++) {
+      for (j = 0; j < groups[k][0]; j++) {
+        var blk = data.slice(pos, pos + groups[k][1]);
+        pos += groups[k][1];
+        blocks.push(blk);
+        ecBlocks.push(rsEncode(blk, e[0]));
+      }
+    }
+    var out = [], maxLen = Math.max(e[2], e[4]);
+    for (k = 0; k < maxLen; k++) for (j = 0; j < blocks.length; j++) if (k < blocks[j].length) out.push(blocks[j][k]);
+    for (k = 0; k < e[0]; k++) for (j = 0; j < ecBlocks.length; j++) out.push(ecBlocks[j][k]);
+    return out;
+  }
+
+  function maskBit(mask, r, c) {
+    switch (mask) {
+      case 0: return (r + c) % 2 === 0;
+      case 1: return r % 2 === 0;
+      case 2: return c % 3 === 0;
+      case 3: return (r + c) % 3 === 0;
+      case 4: return (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0;
+      case 5: return (r * c) % 2 + (r * c) % 3 === 0;
+      case 6: return ((r * c) % 2 + (r * c) % 3) % 2 === 0;
+      default: return ((r + c) % 2 + (r * c) % 3) % 2 === 0;
+    }
+  }
+
+  function formatBits(mask) {
+    var data = mask, rem = data;
+    for (var k = 0; k < 10; k++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+    return ((data << 10) | rem) ^ 0x5412;
+  }
+
+  function versionBits(v) {
+    var rem = v;
+    for (var k = 0; k < 12; k++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1F25);
+    return (v << 12) | rem;
+  }
+
+  function penalty(m) {
+    var n = m.length, score = 0, r, c, k, run, dark = 0;
+    var P1 = [true, false, true, true, true, false, true, false, false, false, false];
+    var P2 = [false, false, false, false, true, false, true, true, true, false, true];
+    function at(a, b, horiz) { return horiz ? m[a][b] : m[b][a]; }
+    for (var pass = 0; pass < 2; pass++) {
+      var horiz = pass === 0;
+      for (r = 0; r < n; r++) {
+        run = 1;
+        for (c = 1; c <= n; c++) {
+          if (c < n && at(r, c, horiz) === at(r, c - 1, horiz)) { run++; continue; }
+          if (run >= 5) score += 3 + run - 5;
+          run = 1;
+        }
+        for (c = 0; c + 11 <= n; c++) {
+          var m1 = true, m2 = true;
+          for (k = 0; k < 11; k++) {
+            var val = at(r, c + k, horiz);
+            if (val !== P1[k]) m1 = false;
+            if (val !== P2[k]) m2 = false;
+          }
+          if (m1) score += 40;
+          if (m2) score += 40;
+        }
+      }
+    }
+    for (r = 0; r < n; r++) {
+      for (c = 0; c < n; c++) {
+        if (m[r][c]) dark++;
+        if (r + 1 < n && c + 1 < n && m[r][c] === m[r][c + 1] && m[r][c] === m[r + 1][c] && m[r][c] === m[r + 1][c + 1]) score += 3;
+      }
+    }
+    score += Math.floor(Math.abs(dark * 100 / (n * n) - 50) / 5) * 10;
+    return score;
+  }
+
+  function qrEncode(text) {
+    var bytes = utf8Bytes(String(text == null ? '' : text)), v = 1;
+    while (v <= MAX_VERSION && bytes.length > byteCapacity(v)) v++;
+    if (v > MAX_VERSION) throw new Error('Text too long for QR (' + bytes.length + ' bytes, max ' + byteCapacity(MAX_VERSION) + ')');
+    var n = 17 + 4 * v, mods = [], fn = [], r, c, k;
+    for (r = 0; r < n; r++) {
+      mods.push([]); fn.push([]);
+      for (c = 0; c < n; c++) { mods[r].push(false); fn[r].push(false); }
+    }
+    function setFn(row, col, dark) { mods[row][col] = dark; fn[row][col] = true; }
+    for (k = 0; k < n; k++) { setFn(6, k, k % 2 === 0); setFn(k, 6, k % 2 === 0); }
+    var centers = [[3, 3], [3, n - 4], [n - 4, 3]];
+    for (k = 0; k < 3; k++) {
+      for (var dr = -4; dr <= 4; dr++) {
+        for (var dc = -4; dc <= 4; dc++) {
+          var rr = centers[k][0] + dr, cc = centers[k][1] + dc;
+          if (rr < 0 || rr >= n || cc < 0 || cc >= n) continue;
+          var dist = Math.max(Math.abs(dr), Math.abs(dc));
+          setFn(rr, cc, dist !== 2 && dist !== 4);
+        }
+      }
+    }
+    var al = ALIGN[v];
+    for (var a = 0; a < al.length; a++) {
+      for (var b = 0; b < al.length; b++) {
+        if ((a === 0 && b === 0) || (a === 0 && b === al.length - 1) || (a === al.length - 1 && b === 0)) continue;
+        for (dr = -2; dr <= 2; dr++) {
+          for (dc = -2; dc <= 2; dc++) setFn(al[a] + dr, al[b] + dc, Math.max(Math.abs(dr), Math.abs(dc)) !== 1);
+        }
+      }
+    }
+    function drawFormat(mask) {
+      var f = formatBits(mask), bit;
+      for (var q = 0; q < 15; q++) {
+        bit = ((f >>> q) & 1) === 1;
+        if (q < 6) setFn(q, 8, bit);
+        else if (q < 8) setFn(q + 1, 8, bit);
+        else if (q === 8) setFn(8, 7, bit);
+        else setFn(8, 14 - q, bit);
+        if (q < 8) setFn(8, n - 1 - q, bit);
+        else setFn(n - 15 + q, 8, bit);
+      }
+      setFn(n - 8, 8, true);
+    }
+    drawFormat(0);
+    if (v >= 7) {
+      var vb = versionBits(v);
+      for (k = 0; k < 18; k++) {
+        var vbit = ((vb >>> k) & 1) === 1, p = n - 11 + (k % 3), q2 = Math.floor(k / 3);
+        setFn(q2, p, vbit);
+        setFn(p, q2, vbit);
+      }
+    }
+    var cw = buildCodewords(bytes, v), bitIdx = 0, total = cw.length * 8;
+    for (var right = n - 1; right >= 1; right -= 2) {
+      if (right === 6) right = 5;
+      for (var vert = 0; vert < n; vert++) {
+        for (var j = 0; j < 2; j++) {
+          c = right - j;
+          r = ((right + 1) & 2) === 0 ? n - 1 - vert : vert;
+          if (!fn[r][c] && bitIdx < total) {
+            mods[r][c] = ((cw[bitIdx >>> 3] >>> (7 - (bitIdx & 7))) & 1) === 1;
+            bitIdx++;
+          }
+        }
+      }
+    }
+    var best = null, bestScore = Infinity;
+    for (var mask = 0; mask < 8; mask++) {
+      var saved = mods;
+      mods = mods.map(function (row) { return row.slice(); });
+      for (r = 0; r < n; r++) for (c = 0; c < n; c++) if (!fn[r][c] && maskBit(mask, r, c)) mods[r][c] = !mods[r][c];
+      drawFormat(mask);
+      var s = penalty(mods);
+      if (s < bestScore) { bestScore = s; best = mods; }
+      mods = saved;
+    }
+    return best;
+  }
+
+  function qrDrawCanvas(canvas, text, moduleSize) {
+    var m = qrEncode(text), quiet = 4, scale = Math.max(4, Math.floor(moduleSize || 4));
+    var size = (m.length + quiet * 2) * scale;
+    canvas.width = size;
+    canvas.height = size;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#000000';
+    for (var r2 = 0; r2 < m.length; r2++) {
+      for (var c2 = 0; c2 < m.length; c2++) if (m[r2][c2]) ctx.fillRect((c2 + quiet) * scale, (r2 + quiet) * scale, scale, scale);
+    }
+    return m.length;
+  }
+
+  return { qrEncode: qrEncode, qrDrawCanvas: qrDrawCanvas, byteCapacity: byteCapacity, rsEncode: rsEncode, utf8Bytes: utf8Bytes };
+}
+
+const QR_ENCODER_JS_ = 'var CCS_QR_ = (' + qrEncoderFactory_.toString() + ')();\n' +
+  'var qrEncode = CCS_QR_.qrEncode;\nvar qrDrawCanvas = CCS_QR_.qrDrawCanvas;\n';

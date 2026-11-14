@@ -2,6 +2,23 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🔧 Version `v3.7.8` — *Security Patch: Lecturer Pairing QR No Longer Sent to a Third Party, PING Data Gated by Device Credential & Frontend Secret Removal*
+* **Lecturer Pairing QR Kept Off Third-Party Services (`code3.7.8.text`, `index.html`, `js/teacher.js`)**:
+  * The Master Key is no longer placed in any `quickchart.io` URL. Cell `B9` now holds a short instruction. Menu **View Teacher Pairing** opens a dialog that draws the QR inside the browser (built-in QR encoder, no external service) and shows the temporary 6-digit PC code and the Master Key behind a **Show** button. Master Key unchanged.
+  * The student onboarding QR (`A9`) contains no secret and is unchanged.
+* **PING No Longer Leaks Data to Anonymous Callers (`code3.7.8.text`)**:
+  * Student attendance stats and group lists are returned only when the request carries the student's device credential (new field `studentAuth`). Old app versions that do not send it still work but see no updated stats until they reload.
+  * Google Calendar events are reduced to class ID and times (no event titles).
+  * `activeQrSecret` is no longer returned to students.
+  * A cached receipt is never returned to a different student.
+* **Frontend Hardening (`js/student.js`, `js/teacher.js`, `js/schedule-config.js`)**:
+  * Class QR secrets removed from the public JS (`KNOWN_CLASS_SECRETS`). The projector shows `----` instead of computing a wrong PIN when the server seed is missing.
+  * The lecturer token is no longer copied back into the password field, and `?pair=` is removed from the address bar right after pairing.
+* **Manual Follow-Up for the Lecturer (action required)**:
+  * Outside class hours, change the three class `Active_QR_Secret` values in `Classes_Config`.
+  * Scan the pairing QR with a real phone to confirm it works.
+* **Tests (`.agent/skills/appscript-deploy/scripts/test-core.js`)**:
+  * `test-core.js` grows to 68 checks (QR encoder structure, PING gating, receipts, token hygiene).
 ### 🔧 Version `v3.7.7` — *Backend Security Patch: Fail-Closed GPS Validation, Bounded `STUDENT_AVG_3` Room Center, Global Lecturer Code Lockout & PIN Credential-Mismatch Guard*
 * **GPS Input Validation (`code3.7.7.text`, `handleStudentCheckIn`)**:
   * Check-in now rejects non-numeric, infinite or out-of-range `lat`, `lng` or `accuracy`. Previously a non-numeric accuracy such as `"abc"` made the distance `NaN` and skipped the radius check; distance validation is now fail-closed.
@@ -367,6 +384,23 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.7.8` — *Bản Vá Bảo Mật: Mã QR Ghép Nối Giảng Viên Không Còn Gửi Ra Bên Thứ Ba, Dữ Liệu PING Chỉ Trả Khi Có Thông Tin Xác Thực Thiết Bị & Gỡ Bí Mật Khỏi Frontend*
+* **Mã QR Ghép Nối Giảng Viên Không Gửi Ra Dịch Vụ Ngoài (`code3.7.8.text`, `index.html`, `js/teacher.js`)**:
+  * Master Key không còn nằm trong bất kỳ URL `quickchart.io` nào. Ô `B9` nay chỉ chứa hướng dẫn ngắn. Menu **View Teacher Pairing** mở hộp thoại vẽ QR ngay trong trình duyệt (bộ mã hóa QR tích hợp, không dùng dịch vụ ngoài), hiển thị mã PC 6 số tạm thời và Master Key sau nút **Hiện**. Master Key không đổi.
+  * Mã QR đăng ký sinh viên (`A9`) không chứa bí mật nên không đổi.
+* **PING Không Còn Lộ Dữ Liệu Cho Người Gọi Ẩn Danh (`code3.7.8.text`)**:
+  * Thống kê điểm danh và danh sách nhóm của sinh viên chỉ được trả về khi yêu cầu kèm thông tin xác thực thiết bị của sinh viên (trường mới `studentAuth`). Bản ứng dụng cũ không gửi trường này vẫn hoạt động nhưng sẽ không thấy thống kê mới cho đến khi tải lại.
+  * Sự kiện Google Calendar chỉ còn mã lớp và giờ học (không còn tiêu đề sự kiện).
+  * `activeQrSecret` không còn được trả về cho sinh viên.
+  * Biên nhận đã lưu không bao giờ được trả cho sinh viên khác.
+* **Củng Cố Frontend (`js/student.js`, `js/teacher.js`, `js/schedule-config.js`)**:
+  * Đã gỡ bí mật QR của lớp khỏi JS công khai (`KNOWN_CLASS_SECRETS`). Máy chiếu hiển thị `----` thay vì tính ra PIN sai khi thiếu seed phía máy chủ.
+  * Token giảng viên không còn được chép lại vào ô mật khẩu, và `?pair=` bị xóa khỏi thanh địa chỉ ngay sau khi ghép nối.
+* **Việc Thủ Công Cho Giảng Viên (cần làm)**:
+  * Ngoài giờ học, đổi 3 giá trị `Active_QR_Secret` của các lớp trong `Classes_Config`.
+  * Quét mã QR ghép nối bằng điện thoại thật để xác nhận hoạt động.
+* **Kiểm Thử (`.agent/skills/appscript-deploy/scripts/test-core.js`)**:
+  * `test-core.js` tăng lên 68 kiểm tra (cấu trúc bộ mã hóa QR, cổng PING, biên nhận, vệ sinh token).
 ### 🔧 Version `v3.7.7` — *Bản Vá Bảo Mật Backend: Kiểm Tra GPS Chặn Mặc Định (Fail-Closed), Giới Hạn Tâm Phòng `STUDENT_AVG_3`, Khóa Mã 6 Số Giảng Viên Toàn Cục & Chặn Lệch Tài Khoản Khi Dùng PIN*
 * **Kiểm Tra Dữ Liệu GPS (`code3.7.7.text`, `handleStudentCheckIn`)**:
   * Điểm danh nay từ chối `lat`, `lng` hoặc `accuracy` không phải số, vô cực hoặc ngoài phạm vi hợp lệ. Trước đây `accuracy` không phải số như `"abc"` làm khoảng cách thành `NaN` và bỏ qua kiểm tra bán kính; nay kiểm tra khoảng cách theo nguyên tắc chặn mặc định (fail-closed).
@@ -712,11 +746,11 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.7`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.8`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.7` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.8` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.7`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.8`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), 100% Centered Floating Confirmation Popups (`#confirm-modal`), Clean Non-AI Utilitarian Buttons, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `+600ms` Lead, `PIN_GRACE_MS = 2500`, `reqArrivalMs` & Instant `0ms` 1-Tap Switch) + `L -> P` Upgrade** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$ + Indoor Wi-Fi/Cell Fallback) + Discreet Fallback GPS Mode (`STUDENT_AVG_3` without stale-coordinate lockout)** |
@@ -724,6 +758,6 @@
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + In-Place Automated `clasp` Deployment (`appscript-deploy`)** |
 | **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **Authoritative In-Lock Session Re-Check (no stale-cache check-ins) + Centered Floating Confirmations (`0ms` Busy Lock) + `TEMP_PC_CODE` Preserved on `CLOSE_NOW` + Unified `+2 Phút` (`EXTEND_2M`) + `manualMarkSeqByStudent` Anti-Overwrite** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-RPC Pre-Lock Cache + `LockService` Guards on All Write/Rebuild Handlers (45 Concurrent Students in `< 1.6s`, Zero Double-Click Overwrites)** |
-| **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Global 30-Strike Lecturer Code Lockout + Fail-Closed GPS Validation + Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
+| **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Global 30-Strike Lecturer Code Lockout + Fail-Closed GPS Validation + Master Key Kept Off Third-Party QR URLs + PING Device-Credential Gate + Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.7`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.8`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |

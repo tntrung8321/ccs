@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.7)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.8)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -17,12 +17,6 @@ const LEGACY_LECTURER_APIS = [
 ];
 const DEFAULT_LECTURER_NAME = 'Tran Nguyen Trung';
 const DEFAULT_INST_ID = 'INST_KfweyxZcv4';
-
-const KNOWN_CLASS_SECRETS = {
-  '2610AVCB002': 'QR_2610AVCB002_CBGPRO',
-  '2610AVCB003': 'QR_2610AVCB003_GJOEZR',
-  '2610AVCB004': 'QR_2610AVCB004_DKH8QE'
-};
 
 const REMOVED_SAMPLE_CLASSES = ['ENG101_G1'];
 
@@ -2187,6 +2181,7 @@ function handleUrlDeepLinks() {
     try {
       const decoded = JSON.parse(atob(pairB64.replace(/-/g, '+').replace(/_/g, '/')));
       if (decoded.api && decoded.tkey) {
+        try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
         switchMode('TEACHER');
         document.getElementById('inp-tea-api').value = normalizeApiUrl(decoded.api);
         document.getElementById('inp-tea-token').value = decoded.tkey;

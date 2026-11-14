@@ -347,5 +347,359 @@ check('score formula: backend source still carries the same rules', () => {
   assert.ok(backendSrc.split('(equivAbsences > 6.0) || (attendanceScore < 0.0)').length - 1 >= 2, 'ban expression');
 });
 
+// ---------------------------------------------------------------- C3: no key in Sheet, private pairing dialog, QR encoder
+console.log('--- C3: pairing QR is not stored in the Sheet; dialog + QR encoder ---');
+const LINK_B64 = s => Buffer.from(s, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+function dashRecorder(vals) {
+  const log = [];
+  const mk = a1 => {
+    const o = { getValue: () => (vals[a1] === undefined ? '' : vals[a1]) };
+    ['setFormula', 'setValue'].forEach(m => { o[m] = v => { log.push({ m, a1, v }); return o; }; });
+    ['clearContent', 'setFontColor', 'setFontSize', 'setFontWeight'].forEach(m => { o[m] = () => { log.push({ m, a1 }); return o; }; });
+    return o;
+  };
+  return { log, getRange: a1 => mk(a1) };
+}
+function c3Env(lecturer) {
+  const env = buildEnv({ props: { TEACHER_MASTER_KEY: MASTER } });
+  env.ctx.Utilities.base64EncodeWebSafe = LINK_B64;
+  const dash = dashRecorder({
+    B2: lecturer || 'Dr. Test', B3: 'INST123', B4: 'https://script.google.com/macros/s/AKfake/exec', B5: 'https://example.github.io/ccs/'
+  });
+  env.dash = dash;
+  env.ssDash = { getSheetByName: n => (n === 'Setup_&_Dashboard' ? dash : env.ss.getSheetByName(n)) };
+  return env;
+}
+const hasSecret = s => s.indexOf(MASTER) >= 0 || /tkey/i.test(s);
+check('B9 after updateDashboardQRs has no IMAGE formula, quickchart, master key or tkey', () => {
+  const env = c3Env();
+  env.ctx.updateDashboardQRs(env.ssDash);
+  const b9 = env.dash.log.filter(e => e.a1 === 'B9');
+  assert.ok(b9.length > 0, 'B9 was never written');
+  const s = JSON.stringify(b9);
+  assert.ok(!/IMAGE\s*\(/i.test(s) && !/quickchart/i.test(s) && !hasSecret(s), s);
+  assert.ok(!b9.some(e => e.m === 'setFormula'), 'B9 has a formula');
+});
+check('A9 student QR formula contains no master key or tkey (including decoded payload)', () => {
+  const env = c3Env();
+  env.ctx.updateDashboardQRs(env.ssDash);
+  const a9 = env.dash.log.filter(e => e.a1 === 'A9' && e.m === 'setFormula');
+  assert.strictEqual(a9.length, 1);
+  const f = a9[0].v;
+  assert.ok(!hasSecret(f), 'raw formula leaks');
+  const m = decodeURIComponent(f).match(/onboard=([A-Za-z0-9_\-=]+)/);
+  assert.ok(m, 'onboard param not found');
+  const payload = Buffer.from(m[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+  assert.ok(!hasSecret(payload), 'payload leaks: ' + payload);
+  assert.strictEqual(JSON.parse(payload).type, 'ONBOARD');
+});
+check('no Sheet write at all (any cell) contains the master key or tkey', () => {
+  const env = c3Env();
+  env.ctx.updateDashboardQRs(env.ssDash);
+  assert.ok(!hasSecret(JSON.stringify(env.dash.log)));
+});
+const stripScripts = h => h.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<style[\s\S]*?<\/style>/g, '');
+check('pairing dialog HTML has no img, external script, http src or quickchart', () => {
+  const env = c3Env();
+  const link = env.ctx.buildTeacherPairingLink_(env.ssDash);
+  assert.ok(link.indexOf('/?pair=') > 0, 'link: ' + link);
+  const html = env.ctx.buildTeacherPairingDialogHtml_(link, '123456', MASTER);
+  assert.ok(!/<img/i.test(html), 'img');
+  assert.ok(!/<script[^>]*\ssrc=/i.test(html), 'script src');
+  assert.ok(!/src\s*=\s*["']?https?:/i.test(html), 'http src');
+  assert.ok(!/quickchart/i.test(html), 'quickchart');
+  assert.ok(html.indexOf('123456') >= 0, 'temp code missing');
+});
+check('master key only appears once, inside the hidden element (not in visible text before Show)', () => {
+  const env = c3Env();
+  const html = env.ctx.buildTeacherPairingDialogHtml_(env.ctx.buildTeacherPairingLink_(env.ssDash), '123456', MASTER);
+  assert.strictEqual(html.split(MASTER).length - 1, 1, 'master key occurrences');
+  const hidden = html.match(/<p id="mk" style="display:none">([^<]*)<\/p>/);
+  assert.ok(hidden && hidden[1] === MASTER, 'hidden element');
+  const visible = stripScripts(html).replace(hidden[0], '');
+  assert.ok(visible.indexOf(MASTER) < 0, 'visible text leaks master key');
+  assert.ok(!/tkey/i.test(visible), 'tkey in visible markup');
+});
+check('hostile lecturer name / key cannot terminate the inline script', () => {
+  const env = c3Env('</script><b>x');
+  const evil = '</script><b>x';
+  const link = env.ctx.buildTeacherPairingLink_(env.ssDash);
+  const h1 = env.ctx.buildTeacherPairingDialogHtml_(link, evil, evil);
+  const h2 = env.ctx.buildTeacherPairingDialogHtml_('https://x/?n=' + evil, '123456', MASTER);
+  [h1, h2].forEach((h, i) => {
+    assert.strictEqual(h.split('</script>').length - 1, 1, 'closers in html ' + (i + 1));
+    assert.ok(h.indexOf('<b>x') < 0, 'raw <b>x in html ' + (i + 1));
+  });
+  assert.ok(h2.indexOf('\\u003c/script\\u003e\\u003cb\\u003ex') > 0, 'link not JSON-escaped in script');
+  assert.strictEqual(env.ctx.toInlineScriptJson_(evil).indexOf('<'), -1);
+});
+check('showTeacherPairingDialog renders the dialog with the key only hidden and no Sheet leakage', () => {
+  const env = c3Env();
+  let shown = null, outHtml = '';
+  env.ctx.SpreadsheetApp.getActiveSpreadsheet = () => env.ssDash;
+  env.ctx.SpreadsheetApp.getUi = () => ({ showModalDialog: (o, t) => { shown = { o, t }; } });
+  env.ctx.HtmlService = { createHtmlOutput: h => { outHtml = h; const o = { setWidth: () => o, setHeight: () => o }; return o; } };
+  env.ctx.showTeacherPairingDialog();
+  assert.ok(shown, 'dialog not shown');
+  assert.ok(outHtml.indexOf('?pair=') > 0 && outHtml.split(MASTER).length - 1 === 1);
+  assert.ok(!hasSecret(JSON.stringify(env.dash.log)), 'Sheet leak');
+});
+
+const QR_SRC = vm.runInContext('QR_ENCODER_JS_', buildEnv().ctx);
+const qrCtx = vm.createContext({});
+vm.runInContext(QR_SRC, qrCtx);
+const qrM = t => qrCtx.qrEncode(t).map(r => Array.from(r));
+const bchRem = (val, poly, deg) => { let n = val; for (let i = 31; i >= deg; i--) if ((n >>> i) & 1) n ^= poly << (i - deg); return n; };
+check('QR encoder source has no "</" (safe to inline in a script element)', () => {
+  assert.ok(QR_SRC.indexOf('</') < 0);
+});
+check('QR ~450-char link: square n=17+4v, v=16, finders, timing, valid BCH format bits, copies agree', () => {
+  const link = 'https://example.github.io/ccs/?pair=' + 'Ab9-_'.repeat(82);
+  assert.ok(link.length >= 440 && link.length <= 450);
+  const m = qrM(link), n = m.length, v = (n - 17) / 4;
+  assert.ok(Number.isInteger(v) && v === 16, 'version ' + v);
+  m.forEach(r => assert.strictEqual(r.length, n));
+  [[0, 0], [0, n - 7], [n - 7, 0]].forEach(([r0, c0]) => {
+    for (let r = 0; r < 7; r++) for (let c = 0; c < 7; c++) {
+      const d = Math.max(Math.abs(r - 3), Math.abs(c - 3));
+      assert.strictEqual(m[r0 + r][c0 + c], d !== 2, 'finder ' + r0 + ',' + c0 + ' @' + r + ',' + c);
+    }
+  });
+  for (let i = 8; i < n - 8; i++) {
+    assert.strictEqual(m[6][i], i % 2 === 0, 'timing row ' + i);
+    assert.strictEqual(m[i][6], i % 2 === 0, 'timing col ' + i);
+  }
+  const A = [[8, 0], [8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [8, 7], [8, 8], [7, 8], [5, 8], [4, 8], [3, 8], [2, 8], [1, 8], [0, 8]];
+  const B = []; for (let r = n - 1; r >= n - 7; r--) B.push([r, 8]); for (let c = n - 8; c < n; c++) B.push([8, c]);
+  const rd = l => parseInt(l.map(([r, c]) => (m[r][c] ? '1' : '0')).join(''), 2);
+  const fa = rd(A), fb = rd(B);
+  assert.strictEqual(fa, fb, 'format copies differ');
+  assert.strictEqual(bchRem(fa ^ 0x5412, 0x537, 10), 0, 'format BCH');
+  assert.strictEqual(((fa ^ 0x5412) >>> 13), 0, 'ECL must be M');
+  assert.strictEqual(m[n - 8][8], true, 'dark module');
+});
+check('QR encoder: short string works (v1, 21x21) and is deterministic', () => {
+  const m = qrM('hello');
+  assert.strictEqual(m.length, 21);
+  assert.deepStrictEqual(qrM('hello'), m);
+});
+check('QR encoder: text over capacity throws "Text too long" (no silent garbage)', () => {
+  assert.throws(() => qrCtx.qrEncode('q'.repeat(800)), /too long/i);
+  assert.throws(() => qrCtx.qrEncode('q'.repeat(667)), /too long/i);
+  assert.strictEqual(qrCtx.qrEncode('q'.repeat(666)).length, 97);
+});
+
+// ---------------------------------------------------------------- H3: PING data minimisation, receipts
+console.log('--- H3: PING / receipt data minimisation ---');
+const GOOD_CRED = 'c'.repeat(24);
+function pingEnv(deviceRows) {
+  const env = buildEnv({ deviceRows: deviceRows || [] });
+  vm.runInContext(`
+    getClassesMap = () => ({ C1: { classId: 'C1', className: 'Class One', regOpen: true, activeQrSecret: 'QR_C1_SECRETXX' } });
+    getAllLatestSessionsMap = () => ({});
+    getStoredClassSchedulesMap = () => ({});
+    getTodayCalendarEventsCached = () => [{ title: 'C1', startTime: 'S', endTime: 'E' }, { title: 'nomatch', startTime: 'S', endTime: 'E' }];
+    getStudentAttendanceStatsMap = () => ({ C1: { present: 1 } });
+    getActiveGroupSplitForClass_ = () => ({ groups: 2 });
+    getLatestOpenSession = () => null;
+    getStudentClassAttendanceStats = () => ({});
+  `, env.ctx);
+  return env;
+}
+const ping = (env, body) => env.ctx.handlePing(env.ss, Object.assign({ action: 'PING' }, body));
+const devRow = (hash, status) => ['12345678', 'Test Student', hash, '', status || 'ACTIVE', 0, ''];
+check('PING without credential: classes present, no studentStats / activeGroupSplit, studentAuth false', () => {
+  const r = ping(pingEnv(), {});
+  assert.strictEqual(r.ok, true);
+  assert.ok(Array.isArray(r.classes) && r.classes.length === 1);
+  assert.ok(!('studentStats' in r), 'studentStats');
+  assert.ok(!r.classes.some(c => 'activeGroupSplit' in c), 'activeGroupSplit');
+  assert.strictEqual(r.studentAuth, false);
+});
+check('legacy PING with only studentId gets no private data', () => {
+  const r = ping(pingEnv([devRow(sha256(GOOD_CRED))]), { studentId: '12345678' });
+  assert.ok(!('studentStats' in r) && !r.classes.some(c => 'activeGroupSplit' in c));
+  assert.strictEqual(r.studentAuth, false);
+});
+check('PING with wrong credential gets no stats', () => {
+  const r = ping(pingEnv([devRow(sha256(GOOD_CRED))]), { studentId: '12345678', credential: 'x'.repeat(24) });
+  assert.ok(!('studentStats' in r) && r.studentAuth === false);
+});
+check('PING with credential matching cached DEV_HASH is authed with studentStats', () => {
+  const env = pingEnv();
+  env.cacheStore['DEV_HASH_12345678'] = sha256(GOOD_CRED);
+  const r = ping(env, { studentId: '12345678', credential: GOOD_CRED });
+  assert.strictEqual(r.studentAuth, true);
+  assert.ok(r.studentStats && r.studentStats.C1);
+  assert.ok(r.classes.some(c => 'activeGroupSplit' in c), 'on-roster student gets group split');
+});
+check('PING authed via Device_Registry ACTIVE row caches DEV_HASH afterwards', () => {
+  const env = pingEnv([devRow(sha256(GOOD_CRED))]);
+  assert.ok(!('DEV_HASH_12345678' in env.cacheStore));
+  const r = ping(env, { studentId: '12345678', credential: GOOD_CRED });
+  assert.strictEqual(r.studentAuth, true);
+  assert.ok('studentStats' in r);
+  assert.strictEqual(env.cacheStore['DEV_HASH_12345678'], sha256(GOOD_CRED));
+});
+check('credential shorter than 16 chars is never authed (even if the hash matches)', () => {
+  const short = 'c'.repeat(15);
+  const env = pingEnv([devRow(sha256(short))]);
+  env.cacheStore['DEV_HASH_12345678'] = sha256(short);
+  const r = ping(env, { studentId: '12345678', credential: short });
+  assert.strictEqual(r.studentAuth, false);
+  assert.ok(!('studentStats' in r));
+});
+check('REVOKED registry row is never authed', () => {
+  const r = ping(pingEnv([devRow(sha256(GOOD_CRED), 'REVOKED')]), { studentId: '12345678', credential: GOOD_CRED });
+  assert.strictEqual(r.studentAuth, false);
+  assert.ok(!('studentStats' in r));
+});
+check('authed student NOT on the class roster gets no activeGroupSplit key', () => {
+  const env = pingEnv([devRow(sha256(GOOD_CRED))]);
+  vm.runInContext('getClassRosterMap = () => ({ "99999999": { studentId: "99999999", fullName: "Other" } });', env.ctx);
+  const r = ping(env, { studentId: '12345678', credential: GOOD_CRED });
+  assert.strictEqual(r.studentAuth, true);
+  assert.ok(!r.classes.some(c => 'activeGroupSplit' in c), 'activeGroupSplit leaked');
+});
+check('PING public class entries never carry activeQrSecret', () => {
+  const env = pingEnv([devRow(sha256(GOOD_CRED))]);
+  const r = ping(env, { studentId: '12345678', credential: GOOD_CRED });
+  assert.ok(!JSON.stringify(r).includes('QR_C1_SECRETXX') && !r.classes.some(c => 'activeQrSecret' in c));
+});
+check('filterCalendarEventsForPing_: matching event -> {classId,startTime,endTime} without title; unmatched dropped', () => {
+  const env = pingEnv();
+  const out = env.ctx.filterCalendarEventsForPing_(
+    [{ title: 'C1', startTime: 'S1', endTime: 'E1' }, { title: 'unrelated meeting', startTime: 'S2', endTime: 'E2' }],
+    [{ classId: 'C1', className: 'Class One' }]);
+  assert.strictEqual(out.length, 1);
+  assert.deepStrictEqual(Object.keys(out[0]).sort(), ['classId', 'endTime', 'startTime']);
+  assert.ok(!('title' in out[0]));
+  assert.strictEqual(out[0].classId, 'C1');
+  const ping1 = ping(env, {});
+  assert.ok(ping1.calendarEvents.length === 1 && !('title' in ping1.calendarEvents[0]));
+});
+check('collectStudentEnrolledClasses_ items have no activeQrSecret', () => {
+  const env = pingEnv();
+  const classes = { C1: { classId: 'C1', className: 'Class One', regOpen: true, activeQrSecret: 'QR_C1_SECRETXX' } };
+  const res = env.ctx.collectStudentEnrolledClasses_(env.ss, classes, {}, '12345678');
+  assert.strictEqual(res.enrolledClasses.length, 1);
+  res.enrolledClasses.forEach(c => assert.ok(!('activeQrSecret' in c)));
+  assert.ok(!JSON.stringify(res).includes('QR_C1_SECRETXX'));
+});
+function receiptEnv() {
+  const env = buildEnv({ sessionRows: [sessionRow()] });
+  const att = mkSheet([]);
+  env.ssAtt = { getSheetByName: n => (n === 'Attendance_Log' ? att : env.ss.getSheetByName(n)) };
+  return env;
+}
+const RECEIPT = sid => JSON.stringify({ attendanceId: 'A1', requestId: 'RQ1', studentId: sid, status: 'P', classId: 'C1' });
+check('CHECK_RECEIPT: cached receipt of another student is not returned', () => {
+  const env = receiptEnv();
+  env.cacheStore['REQ_REC_RQ1'] = RECEIPT('99999999');
+  const r = env.ctx.handleCheckReceipt(env.ssAtt, { requestId: 'RQ1', studentId: '12345678' });
+  assert.strictEqual(r.ok, false);
+  assert.ok(!r.receipt && !JSON.stringify(r).includes('99999999'));
+});
+check('CHECK_RECEIPT: same-student cache hit still returns RECEIPT_FOUND', () => {
+  const env = receiptEnv();
+  env.cacheStore['REQ_REC_RQ1'] = RECEIPT('12345678');
+  const r = env.ctx.handleCheckReceipt(env.ssAtt, { requestId: 'RQ1', studentId: '12345678' });
+  assert.strictEqual(r.code, 'RECEIPT_FOUND');
+  assert.strictEqual(r.receipt.studentId, '12345678');
+});
+check('check-in pre-lock cache: another student\'s cached receipt is not returned as CONFIRMED_*', () => {
+  const env = buildEnv({ sessionRows: [sessionRow()] });
+  env.cacheStore['REQ_REC_RQX'] = RECEIPT('99999999');
+  const r = checkIn(env, { requestId: 'RQX' });
+  assert.ok(!(r.receipt && r.receipt.studentId === '99999999'), 'leaked other student receipt');
+  assert.ok(!/^CONFIRMED_/.test(String(r.code)) || !r.receipt || r.receipt.studentId !== '99999999');
+});
+check('check-in pre-lock cache: same student\'s cached receipt still returns CONFIRMED_PRESENT', () => {
+  const env = buildEnv({ sessionRows: [sessionRow()] });
+  env.cacheStore['REQ_REC_RQY'] = RECEIPT('12345678');
+  const r = checkIn(env, { requestId: 'RQY' });
+  assert.strictEqual(r.code, 'CONFIRMED_PRESENT');
+});
+
+// ---------------------------------------------------------------- H4: no static class secrets / PIN seed fallback (frontend)
+console.log('--- H4: frontend carries no class secrets ---');
+const jsDir = path.join(ROOT, 'js');
+const feFiles = fs.readdirSync(jsDir).filter(f => /\.js$/.test(f)).map(f => ['js/' + f, fs.readFileSync(path.join(jsDir, f), 'utf8')])
+  .concat([['index.html', fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')]]);
+const teaSrc = fs.readFileSync(path.join(jsDir, 'teacher.js'), 'utf8');
+check('no KNOWN_CLASS_SECRETS anywhere in js/*.js or index.html', () => {
+  feFiles.forEach(([f, s]) => assert.ok(s.indexOf('KNOWN_CLASS_SECRETS') < 0, f));
+});
+check('no literal QR_<CLASS>_<TOKEN> secret in js/*.js or index.html', () => {
+  feFiles.forEach(([f, s]) => {
+    const m = s.match(/QR_[A-Z0-9]+_[A-Z0-9]{4,}/);
+    assert.ok(!m, f + ': ' + (m && m[0]));
+  });
+});
+check('teacher.js PIN seed does not fall back to activeQrSecret', () => {
+  assert.ok(!/activeQrSecret/.test(teaSrc), 'activeQrSecret referenced in teacher.js');
+  assert.ok(/const seed = String\(\(ses && ses\.pinSeed\) \|\| ''\)/.test(teaSrc), 'seed expression');
+});
+check('projector shows ---- when pinSeed is missing, real PIN when present (extracted code)', () => {
+  const m = teaSrc.match(/const seed = [\s\S]*?: '0000'\);/);
+  assert.ok(m, 'cannot extract PIN expression');
+  const run = new Function('ses', 'getTeacherSyncedNowMs', 'computePin4FromSeed',
+    m[0] + '\nreturn pin4;');
+  const f = (ses) => run(ses, () => 1700000000000, scCtx.computePin4FromSeed);
+  assert.strictEqual(f({}), '----');
+  assert.strictEqual(f({ activeQrSecret: 'QR_C1_SECRETXX' }), '----');
+  assert.strictEqual(f({ pinSeed: '' }), '----');
+  assert.strictEqual(f(null), '----');
+  const pin = f({ pinSeed: 'abc123def456' });
+  assert.ok(/^\d{4}$/.test(pin), pin);
+});
+
+// ---------------------------------------------------------------- M16: Master Key does not linger in the DOM / URL
+console.log('--- M16: teacher token handling in the browser ---');
+const fnBody = (src, name) => {
+  const m = src.match(new RegExp('(?:async )?function ' + name + '\\([^)]*\\) \\{[\\s\\S]*?\\n\\}'));
+  assert.ok(m, 'cannot extract ' + name);
+  return m[0];
+};
+check('?pair= deep link: URL is cleaned (replaceState) BEFORE loginTeacher runs (extracted function)', () => {
+  const events = [];
+  const payload = LINK_B64(JSON.stringify({ type: 'TEACHER_PAIR', api: 'https://script.google.com/macros/s/AKfake/exec', tkey: MASTER }));
+  const els = { 'inp-tea-api': { value: '' }, 'inp-tea-token': { value: '' } };
+  const win = { location: { search: '?pair=' + payload, pathname: '/ccs/', hash: '' } };
+  const sandbox = {
+    window: win, location: win.location, URLSearchParams, atob: s => Buffer.from(s, 'base64').toString('binary'),
+    history: { replaceState: (a, b, url) => { events.push('replaceState:' + url); } },
+    document: { getElementById: id => els[id] || null },
+    switchMode: m => events.push('switchMode:' + m),
+    normalizeApiUrl: u => u,
+    loginTeacher: () => { events.push('loginTeacher:' + els['inp-tea-token'].value); },
+    getStudentProfiles: () => ({}), safeSetLocal: () => {}
+  };
+  const c = vm.createContext(sandbox);
+  vm.runInContext(fnBody(scSrc, 'handleUrlDeepLinks') + '\nhandleUrlDeepLinks();', c);
+  assert.deepStrictEqual(events.map(e => e.split(':')[0]), ['replaceState', 'switchMode', 'loginTeacher'], events.join(' | '));
+  assert.strictEqual(events[0], 'replaceState:/ccs/', 'replaceState must drop the query string');
+  assert.strictEqual(events[2], 'loginTeacher:' + MASTER);
+});
+check('schedule-config.js ?pair= branch: replaceState precedes loginTeacher() (static)', () => {
+  const branch = scSrc.slice(scSrc.indexOf('else if (pairB64)'));
+  const a = branch.indexOf('history.replaceState'), b = branch.indexOf('loginTeacher()');
+  assert.ok(a > 0 && b > 0 && a < b, 'order ' + a + '/' + b);
+});
+check('restoreTeacherSessionOnLoad no longer copies the stored token into inp-tea-token', () => {
+  const body = fnBody(teaSrc, 'restoreTeacherSessionOnLoad');
+  assert.ok(!/tokenInput\.value\s*=/.test(body), 'assigns tokenInput.value');
+  assert.ok(!/inp-tea-token['"]\)\.value\s*=/.test(body), 'assigns inp-tea-token value');
+  assert.ok(!/auth\.token/.test(body), 'reads auth.token');
+});
+check('loginTeacher clears the token input after a successful login (after saveTeacherAuth)', () => {
+  const body = fnBody(teaSrc, 'loginTeacher');
+  const a = body.indexOf('saveTeacherAuth('), b = body.indexOf("getElementById('inp-tea-token').value = ''");
+  assert.ok(a > 0 && b > a, 'clear must follow saveTeacherAuth: ' + a + '/' + b);
+});
+check('logoutTeacher also clears the token input', () => {
+  assert.ok(/inp-tea-token'\)\.value = ''/.test(fnBody(teaSrc, 'logoutTeacher')));
+});
+
 console.log(failures ? '\n' + failures + ' CORE TEST(S) FAILED' : '\nALL CORE TESTS PASSED!');
 process.exit(failures ? 1 : 0);

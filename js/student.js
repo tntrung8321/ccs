@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.7.7)
+ * STUDENT CONTROLLER (js/student.js — v3.7.8)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Official Attendance Score (Base 10.0), Same-Day Session Merging, Near-Limit Warning & Exam Ban (CẤM THI)
  *  - Live Classroom Group Assignment Card (#stu-group-card)
@@ -107,6 +107,8 @@ async function syncStudentLiveScheduleFromServer() {
     const pingPayload = { action: 'PING' };
     if (activeProfile && activeProfile.studentId) {
       pingPayload.studentId = activeProfile.studentId;
+      const pingCred = safeGetLocal('cc_device_cred', '') || safeGetCookie('cc_device_cred', '');
+      if (pingCred && pingCred.length >= 20) pingPayload.credential = pingCred;
     }
     const pingRes = await callBackend(apiUrl, pingPayload, 1);
     if (pingRes && pingRes.ok) {
@@ -118,9 +120,12 @@ async function syncStudentLiveScheduleFromServer() {
           if (sc && sc.classId) serverClassMap[sc.classId] = sc;
         });
         const statsMap = (pingRes.studentStats && typeof pingRes.studentStats === 'object') ? pingRes.studentStats : {};
+        const stuAuthed = pingRes.studentAuth === true;
         activeProfile.enrolledClasses = activeProfile.enrolledClasses.map(ec => {
+          ec = Object.assign({}, ec);
+          delete ec.activeQrSecret;
           const sc = serverClassMap[ec.classId];
-          const st = statsMap[ec.classId] || ec.attendanceStats || null;
+          const st = (stuAuthed && statsMap[ec.classId]) || ec.attendanceStats || null;
           return sc ? Object.assign({}, ec, {
             className: sc.className || ec.className,
             scheduleInfo: sc.scheduleInfo || ec.scheduleInfo,
@@ -129,7 +134,7 @@ async function syncStudentLiveScheduleFromServer() {
             activeSessionId: String(sc.activeSessionId || ''),
             activeQrMode: String(sc.activeQrMode || 'STATIC'),
             round2OpenedToday: Boolean(sc.round2OpenedToday),
-            activeGroupSplit: sc.activeGroupSplit !== undefined ? sc.activeGroupSplit : (ec.activeGroupSplit || null),
+            activeGroupSplit: (stuAuthed && sc.activeGroupSplit !== undefined) ? sc.activeGroupSplit : (ec.activeGroupSplit || null),
             attendanceStats: st
           }) : Object.assign({}, ec, { attendanceStats: st });
         });

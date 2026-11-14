@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.7.7)
+ * LECTURER CONTROLLER (js/teacher.js — v3.7.8)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -143,26 +143,19 @@ function updateProjectorPin10sUI() {
   if (mainCountEl && spotCountEl) {
     spotCountEl.textContent = mainCountEl.textContent;
   }
-  const activeCfg = (teacherState && Array.isArray(teacherState.classes))
-    ? teacherState.classes.find(c => c && c.classId === selectedTeacherClassId)
-    : null;
-  const seed = String(
-    (ses && ses.pinSeed) ||
-    (activeCfg && activeCfg.activeQrSecret) ||
-    KNOWN_CLASS_SECRETS[selectedTeacherClassId] ||
-    (ses && ses.sessionId) ||
-    ''
-  );
+  const seed = String((ses && ses.pinSeed) || '');
   const PROJECTOR_PIN_LEAD_MS = 600;
   const syncedNowMs = getTeacherSyncedNowMs() + PROJECTOR_PIN_LEAD_MS;
   const bucket10s = Math.floor(syncedNowMs / 10000);
-  const pin4 = typeof computePin4FromSeed === 'function'
-    ? computePin4FromSeed(seed, bucket10s)
-    : '0000';
+  const pin4 = !seed
+    ? '----'
+    : (typeof computePin4FromSeed === 'function'
+      ? computePin4FromSeed(seed, bucket10s)
+      : '0000');
 
   for (let i = 0; i < 4; i++) {
     const dEl = document.getElementById('tea-pin10s-d' + i);
-    if (dEl) dEl.textContent = pin4.charAt(i) || '0';
+    if (dEl) dEl.textContent = pin4.charAt(i) || (seed ? '0' : '-');
   }
 
   const elapsedInBucketMs = ((syncedNowMs % 10000) + 10000) % 10000;
@@ -243,7 +236,6 @@ async function restoreTeacherSessionOnLoad(auth) {
   const tokenInput = document.getElementById('inp-tea-token');
   const persistSelect = document.getElementById('sel-tea-persistence');
   if (apiInput) apiInput.value = normalizeApiUrl(auth.apiUrl);
-  if (tokenInput) tokenInput.value = auth.token || '';
   if (persistSelect) persistSelect.value = auth.persistence || 'LOCAL';
 
   document.getElementById('card-teacher-login').classList.add('hidden');
@@ -321,6 +313,7 @@ async function loginTeacher() {
   }
 
   saveTeacherAuth(apiUrl, token, persistence);
+  document.getElementById('inp-tea-token').value = '';
   teacherHasManuallySelectedClass = false;
   selectedTeacherClassId = '';
   safeSetSession('cc_tea_selected_class', '');
@@ -486,12 +479,6 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
   }
   teacherState = state;
   safeSetSession('cc_tea_state_cache', JSON.stringify(state));
-
-  cleanClasses.forEach(c => {
-    if (c.classId && c.activeQrSecret) {
-      KNOWN_CLASS_SECRETS[c.classId] = c.activeQrSecret;
-    }
-  });
 
   // Resolve real-time class from Google Calendar / Period Slots (123, 456, 789, 10-12, 13-15) / Open Session
   const scheduleMatch = resolveActiveClassBySchedule(cleanClasses, new Date());
@@ -1242,8 +1229,8 @@ async function teacherControlSession(subAction, extra = {}) {
         await applyTeacherState(res, false);
         showStatus(
           isEn
-            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.7.7.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
-            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.7.7.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.7.8.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.7.8.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
           'warn',
           'tea-session-inline-status'
         );
