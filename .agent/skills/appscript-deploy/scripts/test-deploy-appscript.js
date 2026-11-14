@@ -32,8 +32,10 @@ const {
 // 2. Test resolveProjectMetadata on actual workspace root
 {
   const meta = resolveProjectMetadata(ROOT_DIR);
-  assert.strictEqual(meta.codeFile, 'code3.7.1.text');
-  assert.strictEqual(meta.version, '3.7.1');
+  const latestOnDisk = resolveLatestCodeFile(ROOT_DIR);
+  assert.strictEqual(meta.codeFile, latestOnDisk.fileName);
+  assert.strictEqual(meta.version, latestOnDisk.version);
+  assert.strictEqual(meta.codeFile, `code${meta.version}.text`, 'File name must match SYSTEM_VERSION');
   assert.strictEqual(meta.scriptId, '1KL0rnBXXhflTa1ErNuKt461lVxyX7gKx80qWq9V_VFrVGeN82jzuKKnF');
   assert.strictEqual(
     meta.deploymentId,
