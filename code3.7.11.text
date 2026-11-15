@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.10)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.11)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.7.10';
+const SYSTEM_VERSION = '3.7.11';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -28,16 +28,16 @@ var PIN_GRACE_MS    = 2500;
  */
 function onOpen(e) {
   const ui = SpreadsheetApp.getUi();
-  ui.createMenu('🎓 Attendance Admin')
-    .addItem('🚀 1. Initialize / Verify System Setup', 'initializeAndVerifySystem')
+  ui.createMenu('Attendance Admin')
+    .addItem('1. Initialize / Verify System Setup', 'initializeAndVerifySystem')
     .addSeparator()
-    .addItem('➕ 2. Add New Class Wizard', 'showAddClassWizard')
-    .addItem('🔄 3. Sync / Rebuild Class Roster Grids', 'rebuildAllClassGridsMenu')
+    .addItem('2. Add New Class Wizard', 'showAddClassWizard')
+    .addItem('3. Sync / Rebuild Class Roster Grids', 'rebuildAllClassGridsMenu')
     .addSeparator()
-    .addItem('🔑 4. View Teacher Pairing & Temp PC Login Code', 'showTeacherPairingDialog')
-    .addItem('🔓 5. Reset a Student Device Lock (By Student ID)', 'resetStudentDeviceMenu')
+    .addItem('4. View Teacher Pairing & Temp PC Login Code', 'showTeacherPairingDialog')
+    .addItem('5. Reset a Student Device Lock (By Student ID)', 'resetStudentDeviceMenu')
     .addSeparator()
-    .addItem('📦 6. Start New Semester (Archive & Reset)', 'startNewSemesterWizard')
+    .addItem('6. Start New Semester (Archive & Reset)', 'startNewSemesterWizard')
     .addToUi();
 
   // Automatically trigger external Sync menu builder if defined in another .gs file
@@ -214,7 +214,7 @@ function updateDashboardQRs(ss) {
 }
 
 const TEACHER_PAIRING_B9_TEXT_ = 'Lecturer phone pairing QR is shown only in a private dialog.\n' +
-  'Open menu: 🎓 Attendance Admin -> 🔑 4. View Teacher Pairing & Temp PC Login Code\n' +
+  'Open menu: Attendance Admin -> 4. View Teacher Pairing & Temp PC Login Code\n' +
   '(No key is stored in this Sheet.)';
 
 function buildTeacherPairingLink_(ss) {
@@ -1554,6 +1554,7 @@ function verifyTeacherToken(ss, submittedToken, body) {
     return {
       ok: false,
       code: 'ERR_AUTH_LOCKED',
+      params: { mins: waitMins },
       message: '[TẠM KHÓA] Nhập sai quá 5 lần. Tạm khóa mã 6 số trong ' + waitMins + ' phút (Dùng Master Key hoặc đổi mã mới trên Sheet để vào ngay).'
     };
   }
@@ -1564,6 +1565,7 @@ function verifyTeacherToken(ss, submittedToken, body) {
     return {
       ok: false,
       code: 'ERR_AUTH_LOCKED',
+      params: { mins: 10 },
       message: '[TẠM KHÓA] Có quá nhiều lần nhập sai mã 6 số. Dùng Master Key hoặc đợi 10 phút.'
     };
   }
@@ -1615,6 +1617,7 @@ function verifyTeacherToken(ss, submittedToken, body) {
     return {
       ok: false,
       code: 'ERR_AUTH_LOCKED',
+      params: { mins: 10 },
       message: '[ĐÃ KHÓA] Nhập sai 5/5 lần. Đã khóa mã 6 số trong 10 phút (Dùng Master Key hoặc đổi mã mới trên Sheet để vào ngay).'
     };
   }
@@ -1771,7 +1774,8 @@ function handleTeacherStartSession(ss, body) {
 
 function handleTeacherStartSessionLocked_(ss, body) {
   const classId       = String(body.classId || '').trim();
-  const qrMode        = String(body.qrMode || 'STATIC').toUpperCase();
+  const reqQrModeP1   = String(body.qrMode || 'STATIC').toUpperCase();
+  const qrMode        = reqQrModeP1 === 'PIN_10S' ? 'STATIC' : reqQrModeP1;
   const usePhoneGps   = Boolean(body.usePhoneGps);
   const calibrateOnly = Boolean(body.calibrateOnly);
   const phoneLat      = Number(body.lat);
@@ -1782,6 +1786,9 @@ function handleTeacherStartSessionLocked_(ss, body) {
   if (!lock.tryLock(10000)) return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
 
   try {
+    if (isTeacherReqDone_(body)) {
+      return { __defer: true, rebuild: false, classId: classId, stateBody: { classId: classId } };
+    }
     const cache = CacheService.getScriptCache();
     const classes = getClassesMap(ss, true);
     const cfg = classes[classId];
@@ -1799,6 +1806,7 @@ function handleTeacherStartSessionLocked_(ss, body) {
           ss.getSheetByName(TAB_SESSIONS).getRange(latestSes.rowIndex, 8, 1, 2).setValues([[phoneLat, phoneLng]]);
         }
         invalidateClassCache(classId);
+        markTeacherReqDone_(body);
       }
       return { __defer: true, rebuild: false, classId: classId, stateBody: { classId: classId } };
     }
@@ -1827,6 +1835,7 @@ function handleTeacherStartSessionLocked_(ss, body) {
           }), 7200);
         } catch (e) {}
       }
+      if (hasTeacherGps || anchorMode === 'STUDENT_AVG_3') markTeacherReqDone_(body);
       return { __defer: true, rebuild: false, classId: classId, stateBody: { classId: classId } };
     }
 
@@ -1904,6 +1913,7 @@ function handleTeacherStartSessionLocked_(ss, body) {
 
     SpreadsheetApp.flush();
     invalidateClassCache(classId);
+    markTeacherReqDone_(body);
     return { __defer: true, rebuild: false, classId: classId, stateBody: { classId: classId } };
   } finally {
     lock.releaseLock();
@@ -1941,6 +1951,9 @@ function handleTeacherControlSessionLocked_(ss, body) {
     return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
   }
   try {
+  if (isTeacherReqDone_(body)) {
+    return { __defer: true, rebuild: false, classId: classId, stateBody: { classId: classId } };
+  }
   const sesSheet  = ss.getSheetByName(TAB_SESSIONS);
 
   if (sesSheet.getLastRow() < 2) return jsonResponse({ ok: false, code: 'ERR_NO_SESSION' });
@@ -2163,15 +2176,33 @@ function handleTeacherControlSessionLocked_(ss, body) {
     invalidateClassCache(classId);
   } else if (subAction === 'SET_QR_MODE') {
     const newMode = String(body.qrMode || 'STATIC').toUpperCase();
+    if (newMode === 'PIN_10S' && !isRound2Session_(targetSesId, rowVals[2])) {
+      return jsonResponse({ ok: false, code: 'ERR_PIN_ROUND1' });
+    }
     sesSheet.getRange(targetRow, 11).setValue(newMode);
     SpreadsheetApp.flush();
     invalidateClassCache(classId);
   }
 
+  if (['CANCEL_MISTAKEN_SESSION', 'CLOSE_NOW', 'OPEN_ROUND_2', 'EXTEND_2M', 'REOPEN_5M', 'SET_QR_MODE'].indexOf(subAction) !== -1) {
+    markTeacherReqDone_(body);
+  }
   return { __defer: true, rebuild: deferRebuild, classId: classId, stateBody: { classId: classId } };
   } finally {
     lock.releaseLock();
   }
+}
+
+function isTeacherReqDone_(body) {
+  const rid = String((body && body.requestId) || '').trim();
+  if (!rid) return false;
+  try { return !!CacheService.getScriptCache().get('TEA_REQ_' + rid); } catch (e) { return false; }
+}
+
+function markTeacherReqDone_(body) {
+  const rid = String((body && body.requestId) || '').trim();
+  if (!rid) return;
+  try { CacheService.getScriptCache().put('TEA_REQ_' + rid, '1', 600); } catch (e) {}
 }
 
 function runDeferredTeacherState_(ss, res) {

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.7.10)
+ * STUDENT CONTROLLER (js/student.js — v3.7.11)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Official Attendance Score (Base 10.0), Same-Day Session Merging, Near-Limit Warning & Exam Ban (CẤM THI)
  *  - Live Classroom Group Assignment Card (#stu-group-card)
@@ -113,6 +113,7 @@ async function syncStudentLiveScheduleFromServer() {
     const pingRes = await callBackend(apiUrl, pingPayload, 1);
     if (pingRes && pingRes.ok) {
       ingestServerScheduleData(pingRes);
+      let enrolledChanged = false;
       // Merge any updated class metadata (such as scheduleInfo / sessionOpenNow / attendanceStats) into stored enrolledClasses
       if (activeProfile && Array.isArray(pingRes.classes) && Array.isArray(activeProfile.enrolledClasses)) {
         const serverClassMap = {};
@@ -121,6 +122,7 @@ async function syncStudentLiveScheduleFromServer() {
         });
         const statsMap = (pingRes.studentStats && typeof pingRes.studentStats === 'object') ? pingRes.studentStats : {};
         const stuAuthed = pingRes.studentAuth === true;
+        const enrolledBeforeJson = JSON.stringify(activeProfile.enrolledClasses);
         activeProfile.enrolledClasses = activeProfile.enrolledClasses.map(ec => {
           ec = Object.assign({}, ec);
           delete ec.activeQrSecret;
@@ -138,7 +140,8 @@ async function syncStudentLiveScheduleFromServer() {
             attendanceStats: st
           }) : Object.assign({}, ec, { attendanceStats: st });
         });
-        saveStudentProfile(activeInst, activeProfile);
+        enrolledChanged = JSON.stringify(activeProfile.enrolledClasses) !== enrolledBeforeJson;
+        if (enrolledChanged) saveStudentProfile(activeInst, activeProfile);
       }
       if (currentMode === 'STUDENT' && instIds.length > 0) {
         const pinBox = document.getElementById('stu-p2-pin-box');
@@ -161,7 +164,8 @@ async function syncStudentLiveScheduleFromServer() {
           }
           cancelStudentPin10sModal();
         }
-        onStudentInstChange(true);
+        const selFocusEl = document.getElementById('sel-student-class');
+        if (enrolledChanged || !selFocusEl || document.activeElement !== selFocusEl) onStudentInstChange(true);
       }
     }
   } catch (e) {}
@@ -509,39 +513,39 @@ function getMergedStudentClassStats(studentId, classId, serverStats) {
     });
   }
 
-  const localHistory = getLocalStudentAttendanceHistory(sid, cid);
+  const serverDayKeys = new Set();
+  if (Array.isArray(srv.history)) {
+    srv.history.forEach(item => {
+      if (!item) return;
+      const k = normalizeSessionDayKey(item.dayKey || item.date || item.sessionId || '');
+      if (k && String(item.status || '-').trim().toUpperCase() !== 'OPEN') serverDayKeys.add(k);
+    });
+  }
+  const srvCountTotal = Number(srv.total || 0) || (Number(srv.P || 0) + Number(srv.L || 0) + Number(srv.E || 0) + Number(srv.A || 0));
+  const useLocalSupplement = (Array.isArray(srv.history) && srv.history.length > 0) || srvCountTotal === 0;
+
+  let supP = 0, supL = 0, supE = 0, supA = 0;
+  const localHistory = useLocalSupplement ? getLocalStudentAttendanceHistory(sid, cid) : [];
   localHistory.forEach(item => {
     if (!item || !item.dayKey) return;
     const dKey = normalizeSessionDayKey(item.dayKey);
     if (hasSheetSchedule && /^\d{4}-\d{2}-\d{2}$/.test(dKey) && !allowedSheetSet.has(dKey)) {
       return;
     }
+    if (serverDayKeys.has(dKey) || dayMap[dKey]) return;
     const localSt = item.status === '-' ? 'A' : item.status;
-    const existing = dayMap[dKey];
-    if (!existing) {
-      dayMap[dKey] = {
-        dayKey: dKey,
-        status: localSt,
-        date: item.date || formatDisplayDateFromKey(dKey),
-        time: item.time || '',
-        ts: Number(item.ts || 0),
-        fromServer: false
-      };
-    } else {
-      // Server 'E' or 'P' approved on sheet takes priority; local check-in upgrades 'A' if checked in today
-      let mergedSt = existing.status;
-      if (localSt === 'P' || existing.status === 'P') mergedSt = 'P';
-      else if (localSt === 'E' || existing.status === 'E') mergedSt = 'E';
-      else if (localSt === 'L' || existing.status === 'L') mergedSt = 'L';
-      dayMap[dKey] = {
-        dayKey: dKey,
-        status: mergedSt,
-        date: existing.date || item.date || formatDisplayDateFromKey(dKey),
-        time: item.time || existing.time || '',
-        ts: Math.max(Number(item.ts || 0), Number(existing.ts || 0)),
-        fromServer: true
-      };
-    }
+    dayMap[dKey] = {
+      dayKey: dKey,
+      status: localSt,
+      date: item.date || formatDisplayDateFromKey(dKey),
+      time: item.time || '',
+      ts: Number(item.ts || 0),
+      fromServer: false
+    };
+    if (localSt === 'P') supP++;
+    else if (localSt === 'L') supL++;
+    else if (localSt === 'E') supE++;
+    else if (localSt === 'A') supA++;
   });
 
   const mergedHistory = Object.values(dayMap).sort((a, b) => {
@@ -549,22 +553,10 @@ function getMergedStudentClassStats(studentId, classId, serverStats) {
     return b.ts - a.ts;
   });
 
-  let histP = 0, histL = 0, histE = 0, histA = 0;
-  mergedHistory.forEach(item => {
-    const v = item.status;
-    if (v === 'P') histP++;
-    else if (v === 'L') histL++;
-    else if (v === 'E') histE++;
-    else if (v === 'A') histA++;
-  });
-
-  const srvTotal = Number(srv.P || 0) + Number(srv.L || 0) + Number(srv.E || 0) + Number(srv.A || 0);
-  const histTotal = histP + histL + histE + histA;
-
-  const finalP = srvTotal > histTotal ? Math.max(Number(srv.P || 0), histP) : (histTotal > 0 ? histP : Number(srv.P || 0));
-  const finalL = srvTotal > histTotal ? Math.max(Number(srv.L || 0), histL) : (histTotal > 0 ? histL : Number(srv.L || 0));
-  const finalE = srvTotal > histTotal ? Math.max(Number(srv.E || 0), histE) : (histTotal > 0 ? histE : Number(srv.E || 0));
-  const finalA = srvTotal > histTotal ? Math.max(Number(srv.A || 0), histA) : (histTotal > 0 ? histA : Number(srv.A || 0));
+  const finalP = Number(srv.P || 0) + supP;
+  const finalL = Number(srv.L || 0) + supL;
+  const finalE = Number(srv.E || 0) + supE;
+  const finalA = Number(srv.A || 0) + supA;
 
   const computed = computeAttendanceScoreAndExamStatus(finalP, finalL, finalE, finalA, srv.manualExamBan);
   computed.history = mergedHistory;
@@ -617,7 +609,7 @@ function renderStudentGroupCard(studentId, classObj) {
 
   card.innerHTML = `
     <div class="stu-group-header">
-      <span>${isEn ? `Assigned Discussion Group: Group #${myGroup.groupNumber}` : `Nhóm thảo luận trên lớp: Nhóm ${myGroup.groupNumber}`}</span>
+      <span>${isEn ? `Assigned Discussion Group: Group #${escapeHtml(String(myGroup.groupNumber))}` : `Nhóm thảo luận trên lớp: Nhóm ${escapeHtml(String(myGroup.groupNumber))}`}</span>
       <span>${(myGroup.members || []).length} ${isEn ? 'members' : 'thành viên'}</span>
     </div>
     <div class="stu-group-members">${memberNames}</div>
@@ -1379,7 +1371,7 @@ async function executeStudentCheckIn(qrString, preLockedGpsPos = null, pinTiming
   try {
     // Always acquire fresh live GPS on check-in (or use the just-locked Round 2 GPS fix during 10s PIN entry)
     window.cachedGPS = null;
-    let pos = (preLockedGpsPos && isValidGpsPos(preLockedGpsPos)) ? preLockedGpsPos : null;
+    let pos = (preLockedGpsPos && isValidGpsPos(preLockedGpsPos) && (Date.now() - Number(preLockedGpsPos.timestamp)) <= 60000) ? preLockedGpsPos : null;
     try {
       if (!pos) {
         pos = await getAccuratePosition();

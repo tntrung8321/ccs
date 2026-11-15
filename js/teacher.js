@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.7.10)
+ * LECTURER CONTROLLER (js/teacher.js — v3.7.11)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -102,6 +102,27 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
+
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement) exitPinSpotlightMode();
+});
+
+function newTeacherRequestId() {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  } catch (e) {}
+  return 'rq-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function stopAllTeacherTimers() {
+  if (typeof stopTeacherPolling === 'function') stopTeacherPolling();
+  if (teacherCountdownTimer) {
+    clearInterval(teacherCountdownTimer);
+    teacherCountdownTimer = null;
+  }
+  stopTeacherPin10sProjectorLoop();
+  teacherPin10sClockSyncedForSesId = '';
+}
 
 function stopTeacherPin10sProjectorLoop() {
   exitPinSpotlightMode();
@@ -305,7 +326,7 @@ async function loginTeacher() {
 
   if (!res || !res.ok) {
     showStatus(
-      res && res.message ? res.message : formatServerMessage(res ? res.code : 'ERR_UNAUTHORIZED', {}, ''),
+      formatServerMessage(res ? res.code : 'ERR_UNAUTHORIZED', res && res.params, res && res.message),
       'err',
       'tea-login-inline-status'
     );
@@ -346,7 +367,7 @@ function logoutTeacher() {
   teacherHasManuallySelectedClass = false;
   selectedTeacherClassId = '';
   cancelOpenSessionConfirm();
-  stopTeacherPolling();
+  stopAllTeacherTimers();
   document.getElementById('box-teacher-dashboard').classList.add('hidden');
   document.getElementById('card-teacher-login').classList.remove('hidden');
 }
@@ -976,6 +997,7 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
 
   const res = await callBackend(auth.apiUrl, {
     action: 'TEACHER_START_SESSION',
+    requestId: newTeacherRequestId(),
     teacherToken: auth.token,
     classId: classId,
     usePhoneGps: useGps,
@@ -1015,7 +1037,7 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
     );
   } else {
     showStatus(
-      res && res.message ? res.message : (isEn ? 'Unable to open attendance session.' : 'Không thể mở phiên điểm danh.'),
+      res && (res.code || res.message) ? formatServerMessage(res.code, res.params, res.message) : (isEn ? 'Unable to open attendance session.' : 'Không thể mở phiên điểm danh.'),
       'err',
       'tea-session-inline-status'
     );
@@ -1179,7 +1201,8 @@ async function teacherControlSession(subAction, extra = {}) {
       action: 'TEACHER_CONTROL_SESSION',
       teacherToken: auth.token,
       classId: classId,
-      subAction: subAction
+      subAction: subAction,
+      requestId: newTeacherRequestId()
     }, extra));
     if (res && res.ok) {
       // Fallback if the deployed Google Apps Script Web App is still on an older Code.gs (< v3.6.1) that ignored CANCEL_MISTAKEN_SESSION
@@ -1207,11 +1230,12 @@ async function teacherControlSession(subAction, extra = {}) {
             action: 'TEACHER_CONTROL_SESSION',
             teacherToken: auth.token,
             classId: classId,
-            subAction: 'CLOSE_NOW'
+            subAction: 'CLOSE_NOW',
+            requestId: newTeacherRequestId()
           }) || res;
         } else {
           await callBackend(auth.apiUrl, {
-            action: 'TEACHER_REBUILD_SHEET',
+            action: 'TEACHER_REBUILD_REPORT',
             teacherToken: auth.token,
             classId: classId
           });
@@ -1229,8 +1253,8 @@ async function teacherControlSession(subAction, extra = {}) {
         await applyTeacherState(res, false);
         showStatus(
           isEn
-            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.7.10.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
-            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.7.10.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.7.11.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.7.11.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
           'warn',
           'tea-session-inline-status'
         );
@@ -1625,13 +1649,14 @@ function renderTeacherRoster() {
     const pulseE = isRowPulsing && activePulse.status === 'E' ? 'mark-pulse-E' : '';
     const pulseDash = isRowPulsing && activePulse.status === '-' ? 'mark-pulse-dash' : '';
     const safeSid = escapeHtml(st.studentId);
-    const targetRoundArg = !p2Opened ? 'P1' : viewMode;
+    const targetRoundArg = escapeJsArg(!p2Opened ? 'P1' : viewMode);
+    const jsSid = escapeJsArg(st.studentId);
     const disabledAttr = isFinalReadOnly ? 'disabled' : '';
     const readOnlyClass = isFinalReadOnly ? 'btn-mark-readonly' : '';
 
     return `
       <div class="roster-item ${suspectNote ? 'suspect-row' : ''}">
-        <div class="roster-student-info ${p2Opened ? 'roster-info-clickable' : ''}" ${p2Opened ? `onclick="toggleStudentRowP2Detail('${safeSid}')"` : ''}>
+        <div class="roster-student-info ${p2Opened ? 'roster-info-clickable' : ''}" ${p2Opened ? `onclick="toggleStudentRowP2Detail('${jsSid}')"` : ''}>
           <strong title="MSSV: ${safeSid}">${escapeHtml(st.fullName)}${escapeHtml(maskedTail)}</strong>
           ${cleanTime ? `<span style="font-size:0.75rem; color:var(--muted); font-family:var(--font-mono);">${escapeHtml(cleanTime)}</span>` : ''}
           ${badgeText ? `<span style="font-size:0.74rem; color:#0f766e; font-weight:600; font-family:var(--font-mono);">${escapeHtml(badgeText)}</span>` : ''}
@@ -1639,11 +1664,11 @@ function renderTeacherRoster() {
           ${suspectNote ? `<span class="suspect-tag">[${isEn ? 'SUSPECT' : 'NGHI VẤN'}] ${escapeHtml(suspectNote)}</span>` : ''}
         </div>
         <div class="roster-actions">
-          <button type="button" class="btn btn-outline btn-sm ${rowSt === 'P' ? 'btn-mark-active-P' : ''} ${readOnlyClass} ${pulseP}" ${disabledAttr} title="${isFinalReadOnly ? escapeHtml(readOnlyTitle) : (isEn ? 'Mark Present (P)' : 'Đánh dấu Có mặt (P)')}" onclick="teacherManualMark('${safeSid}','P','${targetRoundArg}')">P</button>
-          <button type="button" class="btn btn-outline btn-sm ${rowSt === 'L' ? 'btn-mark-active-L' : ''} ${readOnlyClass} ${pulseL}" ${disabledAttr} title="${isFinalReadOnly ? escapeHtml(readOnlyTitle) : (isEn ? 'Mark Late (L)' : 'Đánh dấu Đi trễ (L)')}" onclick="teacherManualMark('${safeSid}','L','${targetRoundArg}')">L</button>
-          <button type="button" class="btn btn-outline btn-sm ${rowSt === 'E' ? 'btn-mark-active-E' : ''} ${readOnlyClass} ${pulseE}" ${disabledAttr} title="${isFinalReadOnly ? escapeHtml(readOnlyTitle) : (isEn ? 'Mark Excused (E)' : 'Đánh dấu Có phép (E)')}" onclick="teacherManualMark('${safeSid}','E','${targetRoundArg}')">E</button>
-          <button type="button" class="btn btn-outline btn-sm ${rowSt === '-' && isFinalReadOnly ? 'btn-mark-active--' : ''} ${readOnlyClass} ${pulseDash}" ${disabledAttr} title="${isFinalReadOnly ? escapeHtml(readOnlyTitle) : (isEn ? 'Revoke attendance (-)' : 'Hủy điểm danh (-)')}" onclick="teacherManualMark('${safeSid}','-','${targetRoundArg}')">-</button>
-          <button type="button" id="btn-unlock-${safeSid}" class="btn btn-outline btn-sm" title="${isEn ? 'Reset device lock' : 'Đặt lại khóa thiết bị'}" onclick="teacherResetStudentDevice('${safeSid}', this)">${isEn ? 'Unlock' : 'Mở khóa'}</button>
+          <button type="button" class="btn btn-outline btn-sm ${rowSt === 'P' ? 'btn-mark-active-P' : ''} ${readOnlyClass} ${pulseP}" ${disabledAttr} title="${isFinalReadOnly ? escapeHtml(readOnlyTitle) : (isEn ? 'Mark Present (P)' : 'Đánh dấu Có mặt (P)')}" onclick="teacherManualMark('${jsSid}','P','${targetRoundArg}')">P</button>
+          <button type="button" class="btn btn-outline btn-sm ${rowSt === 'L' ? 'btn-mark-active-L' : ''} ${readOnlyClass} ${pulseL}" ${disabledAttr} title="${isFinalReadOnly ? escapeHtml(readOnlyTitle) : (isEn ? 'Mark Late (L)' : 'Đánh dấu Đi trễ (L)')}" onclick="teacherManualMark('${jsSid}','L','${targetRoundArg}')">L</button>
+          <button type="button" class="btn btn-outline btn-sm ${rowSt === 'E' ? 'btn-mark-active-E' : ''} ${readOnlyClass} ${pulseE}" ${disabledAttr} title="${isFinalReadOnly ? escapeHtml(readOnlyTitle) : (isEn ? 'Mark Excused (E)' : 'Đánh dấu Có phép (E)')}" onclick="teacherManualMark('${jsSid}','E','${targetRoundArg}')">E</button>
+          <button type="button" class="btn btn-outline btn-sm ${rowSt === '-' && isFinalReadOnly ? 'btn-mark-active--' : ''} ${readOnlyClass} ${pulseDash}" ${disabledAttr} title="${isFinalReadOnly ? escapeHtml(readOnlyTitle) : (isEn ? 'Revoke attendance (-)' : 'Hủy điểm danh (-)')}" onclick="teacherManualMark('${jsSid}','-','${targetRoundArg}')">-</button>
+          <button type="button" id="btn-unlock-${safeSid}" class="btn btn-outline btn-sm" title="${isEn ? 'Reset device lock' : 'Đặt lại khóa thiết bị'}" onclick="teacherResetStudentDevice('${jsSid}', this)">${isEn ? 'Unlock' : 'Mở khóa'}</button>
         </div>
       </div>
     `;
@@ -1785,7 +1810,7 @@ function triggerRandomSpotCheck() {
         ${escapeHtml(displayName)}
       </div>
       <div style="font-size:0.8rem; color:var(--text-secondary); font-family:var(--font-mono);">
-        ${isEn ? `Final Status: ${effectiveStatus} • Checked in at: ${displayTime}` : `Kết quả: ${effectiveStatus} • Điểm danh lúc: ${displayTime}`}
+        ${isEn ? `Final Status: ${effectiveStatus} • Checked in at: ${escapeHtml(displayTime)}` : `Kết quả: ${effectiveStatus} • Điểm danh lúc: ${escapeHtml(displayTime)}`}
       </div>
     </div>
   `;
@@ -2229,7 +2254,7 @@ function renderHistoryCalendarWidget() {
         isSelected ? 'cal-day-selected' : ''
       ].filter(Boolean).join(' ');
       cells.push(`
-        <button type="button" class="${cellClass}" onclick="selectHistoryCalendarDay('${dayKey}')" title="${isEn ? `Session B${sesNum || ''} (${dayKey}): ${pPlusL}/${tot} Present` : `Buổi B${sesNum || ''} (${dd}/${mm}/${yr}): Có mặt ${pPlusL}/${tot}`}">
+        <button type="button" class="${cellClass}" onclick="selectHistoryCalendarDay('${escapeJsArg(dayKey)}')" title="${isEn ? `Session B${sesNum || ''} (${dayKey}): ${pPlusL}/${tot} Present` : `Buổi B${sesNum || ''} (${dd}/${mm}/${yr}): Có mặt ${pPlusL}/${tot}`}">
           <div class="cal-day-top">
             <span class="cal-day-num">${d}</span>
             <span class="${dotClass}"></span>
@@ -2373,12 +2398,12 @@ function renderHistoryModalList() {
 
   container.innerHTML = items.map(item => {
     const rowDomId = `${escapeHtml(item.studentId)}_${escapeHtml(item.dayKey)}`;
-    const safeSid = escapeHtml(item.studentId);
-    const safeName = escapeHtml(item.fullName);
-    const safeDayKey = escapeHtml(item.dayKey);
-    const safeDate = escapeHtml(item.date);
-    const safeSesId = escapeHtml(item.sessionId);
-    const curSt = item.status;
+    const safeSid = escapeJsArg(item.studentId);
+    const safeName = escapeJsArg(item.fullName);
+    const safeDayKey = escapeJsArg(item.dayKey);
+    const safeDate = escapeJsArg(item.date);
+    const safeSesId = escapeJsArg(item.sessionId);
+    const curSt = escapeJsArg(item.status);
     const isHistRowPulsing = Boolean(
       activeHistPulse &&
       activeHistPulse.studentId === item.studentId &&
@@ -2393,8 +2418,8 @@ function renderHistoryModalList() {
       <div class="past-ses-row" id="past-row-${rowDomId}">
         <div class="past-ses-row-main">
           <div>
-            <strong>${safeName}</strong>
-            <span style="font-size:0.75rem; color:var(--muted); margin-left:6px; font-family:var(--font-mono);">${safeDate}</span>
+            <strong>${escapeHtml(item.fullName)}</strong>
+            <span style="font-size:0.75rem; color:var(--muted); margin-left:6px; font-family:var(--font-mono);">${escapeHtml(item.date)}</span>
             <span id="past-pill-${rowDomId}" class="status-pill st-${curSt}" style="margin-left:6px;">${escapeHtml(curSt)}</span>
           </div>
           <div style="display:flex; gap:4px;">
@@ -2550,7 +2575,7 @@ function renderGroupMakerModalContent(groupSize, reshuffle = false) {
     ).join('');
     return `
       <div class="group-box">
-        <div class="group-box-title">${isEn ? `Group #${g.groupNumber}` : `Nhóm ${g.groupNumber}`} (${g.members.length})</div>
+        <div class="group-box-title">${isEn ? `Group #${escapeHtml(g.groupNumber)}` : `Nhóm ${escapeHtml(g.groupNumber)}`} (${g.members.length})</div>
         ${membersHtml}
       </div>
     `;
@@ -2976,7 +3001,7 @@ async function executeTeacherResetStudentDevice(studentId, btnEl = null) {
       showStatus(formatServerMessage('DEVICE_RESET_OK', { id: studentId }), 'success', 'tea-session-inline-status');
     } else {
       showStatus(
-        res && res.message ? res.message : (isEn ? 'Unable to unlock device.' : 'Không thể mở khóa thiết bị.'),
+        res && (res.code || res.message) ? formatServerMessage(res.code, res.params, res.message) : (isEn ? 'Unable to unlock device.' : 'Không thể mở khóa thiết bị.'),
         'warn',
         'tea-session-inline-status'
       );
@@ -3061,8 +3086,16 @@ async function teacherRebuildSheet() {
   } finally {
     if (syncBtn) {
       syncBtn.disabled = false;
-      syncBtn.textContent = I18N[currentLang].tea_rebuild_sheet;
+      syncBtn.textContent = I18N[currentLang].tea_rebuild_sheet_btn;
     }
+  }
+  if (!res || !res.ok) {
+    showStatus(
+      formatServerMessage(res ? res.code : 'ERR_NETWORK', res && res.params, res && res.message),
+      'err',
+      'tea-admin-inline-status'
+    );
+    return;
   }
   if (res && res.ok) {
     if (typeof pulseButtonConfirm === 'function') {

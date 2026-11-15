@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.7.10)
+ * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.7.11)
  * ============================================================================
  * Architecture : Two-Way Google Sheets & Excel (.XLSX) Drive Synchronization
- * Companion    : Code.gs (code3.7.10.text) & Frontend UI (index.html, js/*.js)
+ * Companion    : Code.gs (code3.7.11.text) & Frontend UI (index.html, js/*.js)
  * Release Notes: See changelog.md and RULES.md for version history & rules.
  * ============================================================================
  */
@@ -12,11 +12,11 @@
 // 1. DEFAULT CONFIGURATION (EASY TO EDIT IN CODE OR VIA MENU ITEM #5)
 // ============================================================================
 
-const SYNC_MENU_TITLE = '📋 Roster & Sheet Sync';
+const SYNC_MENU_TITLE = 'Roster & Sheet Sync';
 
 /**
  * Default attendance mark style written to the target Google Sheet / .XLSX file.
- * Configurable via Menu -> 📋 Roster & Sheet Sync -> ⚙️ 5. Attendance Mark Settings
+ * Configurable via Menu -> Roster & Sheet Sync -> 5. Attendance Mark Settings
  */
 const DEFAULT_ATTENDANCE_STYLE = {
   mode: 'CENTER',          // 'CENTER' (Blank / Yellow / Orange / x), 'PLA' (P / L / E / A), or 'CUSTOM'
@@ -73,14 +73,14 @@ function buildCenterSyncMenuOnly_() {
   try {
     SpreadsheetApp.getUi()
       .createMenu(SYNC_MENU_TITLE)
-      .addItem('📥 1. Sync Student Rosters (From Drive)', 'syncStudentRosters')
+      .addItem('1. Sync Student Rosters (From Drive)', 'syncStudentRosters')
       .addSeparator()
-      .addItem('🔄 2. Sync Today\'s Attendance (To Drive)', 'syncTodayAttendance')
-      .addItem('↩️ 3. Undo Last Action (Sync or Delete)', 'undoLastAction')
+      .addItem('2. Sync Today\'s Attendance (To Drive)', 'syncTodayAttendance')
+      .addItem('3. Undo Last Action (Sync or Delete)', 'undoLastAction')
       .addSeparator()
-      .addItem('🗑️ 4. Delete Completed Classes', 'openDeleteClassesDialog')
+      .addItem('4. Delete Completed Classes', 'openDeleteClassesDialog')
       .addSeparator()
-      .addItem('⚙️ 5. Attendance Mark Settings', 'openAttendanceStyleDialog')
+      .addItem('5. Attendance Mark Settings', 'openAttendanceStyleDialog')
       .addToUi();
   } catch (e) {}
 }
@@ -239,7 +239,7 @@ function syncStudentRosters() {
   if (classItems.length === 0) {
     showAlert_(
       'ℹ️ No classes found in \'Classes_Config\'.\n\n' +
-      'Please use \'🎓 Attendance Admin -> ➕ 2. Add New Class Wizard\' to create a class first.'
+      'Please use \'Attendance Admin -> 2. Add New Class Wizard\' to create a class first.'
     );
     return;
   }
@@ -997,7 +997,7 @@ function openDeleteClassesDialog() {
     '[[div style="font-family: Arial, sans-serif; padding: 12px; color: #1f2937;"]]' +
       '[[p style="margin-top:0; font-size:13px; color:#374151; line-height:1.4;"]]' +
         'Tick the completed class(es) you want to remove from this Master QR Sheet. ' +
-        'A backup snapshot will be saved automatically so you can restore them via [[b]]↩️ 3. Undo Last Action[[/b]] if needed.' +
+        'A backup snapshot will be saved automatically so you can restore them via [[b]]3. Undo Last Action[[/b]] if needed.' +
       '[[/p]]' +
       '[[div style="max-height:220px; overflow-y:auto; margin-bottom:14px;"]]' +
         checkboxesTpl +
@@ -1055,7 +1055,7 @@ function deleteSelectedClasses(selectedClassIds) {
     'Confirm Class Deletion',
     'Are you sure you want to delete the selected class(es): ' + classListStr + '?\n\n' +
     '• Class tab(s), Classes_Config, Sessions_Log, Attendance_Log, and Device_Registry for these classes will be cleaned up.\n' +
-    '• You can undo this deletion anytime via \'↩️ 3. Undo Last Action\'.',
+    '• You can undo this deletion anytime via \'3. Undo Last Action\'.',
     ui.ButtonSet.YES_NO
   );
 
@@ -1153,7 +1153,7 @@ function deleteSelectedClasses(selectedClassIds) {
     '• Sessions_Log rows removed: ' + snapshot.sessionRows.length + '\n' +
     '• Attendance_Log rows removed: ' + snapshot.attendanceRows.length + '\n' +
     '• Device_Registry rows removed: ' + snapshot.deviceRows.length + '\n\n' +
-    '💡 Tip: If you deleted a class by mistake, click \'↩️ 3. Undo Last Action\' to restore everything.'
+    '💡 Tip: If you deleted a class by mistake, click \'3. Undo Last Action\' to restore everything.'
   );
 
   return { cancelled: false };

@@ -1474,5 +1474,331 @@ check('sync.txt: no raw setProperty(AUTO_SYNCED_SESSIONS_KEY) left outside updat
   assert.ok(fnSrc(syncSrc, 'updateSyncedSessionsMap_').indexOf('setProperty(AUTO_SYNCED_SESSIONS_KEY') > 0);
 });
 
-console.log(failures ? '\n' + failures + ' CORE TEST(S) FAILED' : '\nALL CORE TESTS PASSED!');
-process.exit(failures ? 1 : 0);
+// ================================================================ v3.7.11 phase 4 regression tests
+const p4Async = [];
+const acheck = (name, fn) => p4Async.push([name, fn]);
+const sesLog = env => env.sheets.Sessions_Log.rows;
+const ctl = (env, sub, extra) => env.ctx.handleTeacherControlSession(env.ss, Object.assign({ classId: 'C1', subAction: sub }, extra || {}));
+const ms = v => new Date(v).getTime();
+const near = (a, b, tol) => Math.abs(a - b) <= (tol || 5000);
+
+console.log('--- P4-1: EXTEND_2M four branches ---');
+check('EXTEND_2M on a closed session (same day): reopens from now + 2m, present = close', () => {
+  const row = sesRowP3('SES_C1_1', 'C1'); row[4] = iso(Date.now() - 20e3); row[5] = iso(Date.now() - 10e3); row[6] = iso(Date.now() - 5e3);
+  const env = ctrlEnv([row]);
+  const r = ctl(env, 'EXTEND_2M'); assert.strictEqual(r.state, true, JSON.stringify(r));
+  const w = sesLog(env)[0];
+  assert.ok(near(ms(w[4]), Date.now() + 120e3), 'present ' + w[4]);
+  assert.strictEqual(ms(w[4]), ms(w[5]));
+  assert.strictEqual(w[6], '', 'manual close must be cleared');
+});
+check('EXTEND_2M on Round 2 (_R2): close +2m, present = close', () => {
+  const row = sesRowP3('SES_C1_2_R2', 'C1'); const base = Date.now() + 120e3; row[4] = iso(base); row[5] = iso(base);
+  const env = ctrlEnv([row]);
+  ctl(env, 'EXTEND_2M');
+  const w = sesLog(env)[0];
+  assert.strictEqual(ms(w[5]), base + 120e3);
+  assert.strictEqual(ms(w[4]), ms(w[5]));
+});
+check('EXTEND_2M on Round 1 still within Present window: present +2m, late tail length kept', () => {
+  const row = sesRowP3('SES_C1_1', 'C1'); const pres = Date.now() + 300e3, cls = Date.now() + 900e3; row[4] = iso(pres); row[5] = iso(cls);
+  const env = ctrlEnv([row]);
+  ctl(env, 'EXTEND_2M');
+  const w = sesLog(env)[0];
+  assert.strictEqual(ms(w[4]), pres + 120e3);
+  assert.strictEqual(ms(w[5]) - ms(w[4]), cls - pres, 'late tail changed');
+});
+check('EXTEND_2M on Round 1 past Present window (in late): present = now+2m, close kept when later', () => {
+  const row = sesRowP3('SES_C1_1', 'C1'); const cls = Date.now() + 600e3; row[4] = iso(Date.now() - 10e3); row[5] = iso(cls);
+  const env = ctrlEnv([row]);
+  ctl(env, 'EXTEND_2M');
+  const w = sesLog(env)[0];
+  assert.ok(near(ms(w[4]), Date.now() + 120e3));
+  assert.strictEqual(ms(w[5]), cls);
+});
+check('EXTEND_2M on Round 1 past Present window with close before new present: close = new present', () => {
+  const row = sesRowP3('SES_C1_1', 'C1'); row[4] = iso(Date.now() - 10e3); row[5] = iso(Date.now() + 30e3);
+  const env = ctrlEnv([row]);
+  ctl(env, 'EXTEND_2M');
+  const w = sesLog(env)[0];
+  assert.strictEqual(ms(w[5]), ms(w[4]));
+  assert.ok(near(ms(w[4]), Date.now() + 120e3));
+});
+
+console.log('--- P4-2: requestId idempotency ---');
+const rowEnd = env => ms(sesLog(env)[0][5]);
+check('EXTEND_2M twice with the same requestId adds +2m only once', () => {
+  const env = ctrlEnv([sesRowP3('SES_C1_1', 'C1')]);
+  const c0 = rowEnd(env);
+  ctl(env, 'EXTEND_2M', { requestId: 'RQ_A' });
+  const c1 = rowEnd(env);
+  const r = ctl(env, 'EXTEND_2M', { requestId: 'RQ_A' });
+  assert.strictEqual(r.state, true, 'duplicate must still return state: ' + JSON.stringify(r));
+  assert.strictEqual(c1 - c0, 120e3);
+  assert.strictEqual(rowEnd(env), c1, 'second call extended again');
+  assert.ok('TEA_REQ_RQ_A' in env.cacheStore);
+});
+check('EXTEND_2M twice with different requestIds adds +4m', () => {
+  const env = ctrlEnv([sesRowP3('SES_C1_1', 'C1')]);
+  const c0 = rowEnd(env);
+  ctl(env, 'EXTEND_2M', { requestId: 'RQ_A' }); ctl(env, 'EXTEND_2M', { requestId: 'RQ_B' });
+  assert.strictEqual(rowEnd(env) - c0, 240e3);
+});
+check('EXTEND_2M without requestId is never deduplicated', () => {
+  const env = ctrlEnv([sesRowP3('SES_C1_1', 'C1')]);
+  const c0 = rowEnd(env);
+  ctl(env, 'EXTEND_2M'); ctl(env, 'EXTEND_2M');
+  assert.strictEqual(rowEnd(env) - c0, 240e3);
+  assert.ok(!Object.keys(env.cacheStore).some(k => k.indexOf('TEA_REQ_') === 0));
+});
+check('START_SESSION twice with the same requestId appends one row only', () => {
+  const env = ctrlEnv([]);
+  vm.runInContext(`getLatestOpenSession = () => null;`, env.ctx);
+  env.ctx.handleTeacherStartSession(env.ss, { classId: 'C1', requestId: 'RQ_S' });
+  const r = env.ctx.handleTeacherStartSession(env.ss, { classId: 'C1', requestId: 'RQ_S' });
+  assert.strictEqual(r.state, true, JSON.stringify(r));
+  assert.strictEqual(sesLog(env).length, 1);
+});
+check('START_SESSION twice without requestId is not blocked by the guard', () => {
+  const env = ctrlEnv([]);
+  vm.runInContext(`getLatestOpenSession = () => null;`, env.ctx);
+  env.ctx.handleTeacherStartSession(env.ss, { classId: 'C1' });
+  env.ctx.handleTeacherStartSession(env.ss, { classId: 'C1' });
+  assert.strictEqual(sesLog(env).length, 2);
+});
+check('failed call (ERR_NO_SESSION) does not write the TEA_REQ_ cache key (retry stays possible)', () => {
+  const env = ctrlEnv([]);
+  const r = ctl(env, 'EXTEND_2M', { requestId: 'RQ_F' });
+  assert.strictEqual(r.code, 'ERR_NO_SESSION');
+  assert.ok(!('TEA_REQ_RQ_F' in env.cacheStore));
+  const env2 = ctrlEnv([sesRowP3('SES_C1_1', 'C1')]);
+  assert.strictEqual(env2.ctx.handleTeacherStartSession(env2.ss, { classId: 'NOPE', requestId: 'RQ_G' }).code, 'ERR_INVALID_CLASS');
+  assert.ok(!('TEA_REQ_RQ_G' in env2.cacheStore));
+});
+
+console.log('--- P4-3: M6 PIN_10S only on Round 2 ---');
+check('SET_QR_MODE PIN_10S on Round 1 -> ERR_PIN_ROUND1, column 11 untouched, no dedupe mark', () => {
+  const env = ctrlEnv([sesRowP3('SES_C1_1', 'C1')]);
+  const r = ctl(env, 'SET_QR_MODE', { qrMode: 'PIN_10S', requestId: 'RQ_Q' });
+  assert.strictEqual(r.code, 'ERR_PIN_ROUND1', JSON.stringify(r));
+  assert.ok(!env.sheets.Sessions_Log.writes.some(w => w.c === 11), 'column 11 written');
+  assert.strictEqual(sesLog(env)[0][10], 'STATIC');
+  assert.ok(!('TEA_REQ_RQ_Q' in env.cacheStore));
+});
+check('SET_QR_MODE PIN_10S on Round 2 (_R2) is written to column 11', () => {
+  const env = ctrlEnv([sesRowP3('SES_C1_2_R2', 'C1')]);
+  const r = ctl(env, 'SET_QR_MODE', { qrMode: 'PIN_10S' });
+  assert.strictEqual(r.state, true, JSON.stringify(r));
+  assert.ok(env.sheets.Sessions_Log.writes.some(w => w.c === 11 && w.v[0][0] === 'PIN_10S'));
+});
+check('SET_QR_MODE PIN_10S on a _P2-labelled session is accepted too', () => {
+  const row = sesRowP3('SES_C1_X', 'C1'); row[2] = '15Nov_0900_P2';
+  const env = ctrlEnv([row]);
+  assert.strictEqual(ctl(env, 'SET_QR_MODE', { qrMode: 'PIN_10S' }).state, true);
+});
+check('SET_QR_MODE ROTATING on Round 1 still allowed', () => {
+  const env = ctrlEnv([sesRowP3('SES_C1_1', 'C1')]);
+  assert.strictEqual(ctl(env, 'SET_QR_MODE', { qrMode: 'ROTATING' }).state, true);
+  assert.strictEqual(env.sheets.Sessions_Log.writes.filter(w => w.c === 11).pop().v[0][0], 'ROTATING');
+});
+check('START_SESSION Round 1 with qrMode PIN_10S is stored as STATIC', () => {
+  const env = ctrlEnv([]);
+  vm.runInContext(`getLatestOpenSession = () => null;`, env.ctx);
+  env.ctx.handleTeacherStartSession(env.ss, { classId: 'C1', qrMode: 'PIN_10S' });
+  assert.strictEqual(sesLog(env)[0][10], 'STATIC');
+});
+
+console.log('--- P4-4: L3 ERR_AUTH_LOCKED carries params.mins ---');
+check('lockout response has numeric params.mins in 1..10', () => {
+  const env = authEnv();
+  let last;
+  for (let i = 0; i < 8; i++) last = verify(env, String(100000 + i), 'fp_same');
+  assert.strictEqual(last.code, 'ERR_AUTH_LOCKED', JSON.stringify(last));
+  assert.ok(last.params && Number.isInteger(last.params.mins) && last.params.mins >= 1 && last.params.mins <= 10, JSON.stringify(last.params));
+  const again = verify(env, '123456', 'fp_same');
+  assert.strictEqual(again.code, 'ERR_AUTH_LOCKED');
+  assert.ok(again.params && again.params.mins >= 1 && again.params.mins <= 10, JSON.stringify(again.params));
+});
+check('global lockout response has params.mins', () => {
+  const env = authEnv();
+  let last;
+  for (let i = 0; i < 60; i++) last = verify(env, String(100000 + i), 'fp_' + i);
+  assert.strictEqual(last.code, 'ERR_AUTH_LOCKED');
+  assert.ok(last.params && last.params.mins === 10, JSON.stringify(last.params));
+});
+
+console.log('--- P4-5: H7 getMergedStudentClassStats ---');
+const h7Ctx = vm.createContext({});
+vm.runInContext(extractFns(stSrc, ['computeAttendanceScoreAndExamStatus', 'getMergedStudentClassStats']), h7Ctx);
+vm.runInContext(`
+  var __local = [], __course = [], __localCalls = 0;
+  getTodayDateKey = () => '2026-11-15';
+  getClassCourseSessionDates = () => __course;
+  normalizeSessionDayKey = v => { const m = String(v || '').match(/\\d{4}-\\d{2}-\\d{2}/); return m ? m[0] : ''; };
+  formatDisplayDateFromKey = k => k.split('-').reverse().join('/');
+  getLocalStudentAttendanceHistory = () => { __localCalls++; return __local; };
+`, h7Ctx);
+const H7_DAYS = ['2026-11-08', '2026-11-09', '2026-11-10', '2026-11-11'];
+function h7(srv, local, course) {
+  h7Ctx.__local = local || []; h7Ctx.__course = (course || H7_DAYS).map(d => ({ dayKey: d })); h7Ctx.__localCalls = 0;
+  return h7Ctx.getMergedStudentClassStats('12345678', 'C1', srv);
+}
+const hs = (P, L, E, A, history) => ({ P, L, E, A, total: P + L + E + A, manualExamBan: false, history });
+check('H7: server "-" (absent) + local P on the same day stays A', () => {
+  const r = h7(hs(0, 0, 0, 1, [{ dayKey: '2026-11-08', status: '-' }]), [{ dayKey: '2026-11-08', status: 'P' }]);
+  assert.strictEqual(r.A, 1); assert.strictEqual(r.P, 0);
+  assert.strictEqual(r.history.find(x => x.dayKey === '2026-11-08').status, 'A');
+});
+check('H7: server A + local P on the same day stays A', () => {
+  const r = h7(hs(0, 0, 0, 1, [{ dayKey: '2026-11-08', status: 'A' }]), [{ dayKey: '2026-11-08', status: 'P' }]);
+  assert.strictEqual(r.A, 1); assert.strictEqual(r.P, 0);
+});
+check('H7: server E + local P on the same day stays E', () => {
+  const r = h7(hs(0, 0, 1, 0, [{ dayKey: '2026-11-08', status: 'E' }]), [{ dayKey: '2026-11-08', status: 'P' }]);
+  assert.strictEqual(r.E, 1); assert.strictEqual(r.P, 0);
+});
+check('H7: day present only locally is supplemented', () => {
+  const r = h7(hs(1, 0, 0, 0, [{ dayKey: '2026-11-08', status: 'P' }]), [{ dayKey: '2026-11-09', status: 'P' }, { dayKey: '2026-11-10', status: 'L' }]);
+  assert.strictEqual(r.P, 2); assert.strictEqual(r.L, 1);
+  assert.strictEqual(r.history.length, 3);
+});
+check('H7: total P+L+E+A never exceeds the number of schedule days (off-schedule local days ignored)', () => {
+  const local = ['2026-11-08', '2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13'].map(d => ({ dayKey: d, status: 'P' }));
+  const r = h7(hs(1, 0, 0, 0, [{ dayKey: '2026-11-08', status: 'P' }]), local);
+  assert.ok(r.P + r.L + r.E + r.A <= H7_DAYS.length, 'total ' + r.total);
+  assert.strictEqual(r.P, 4);
+});
+check('H7: server history empty but total > 0 -> server counts only, local not consulted', () => {
+  const r = h7(hs(3, 0, 0, 1, []), [{ dayKey: '2026-11-09', status: 'P' }]);
+  assert.strictEqual(r.P, 3); assert.strictEqual(r.A, 1); assert.strictEqual(r.total, 4);
+  assert.strictEqual(h7Ctx.__localCalls, 0);
+});
+check('H7: server OPEN day does not block the local supplement', () => {
+  const r = h7(hs(1, 0, 0, 0, [{ dayKey: '2026-11-08', status: 'P' }, { dayKey: '2026-11-09', status: 'OPEN' }]), [{ dayKey: '2026-11-09', status: 'P' }]);
+  assert.strictEqual(r.P, 2);
+  assert.strictEqual(r.history.find(x => x.dayKey === '2026-11-09').status, 'P');
+});
+check('H7: no history, no counts -> local history is used fully', () => {
+  const r = h7(hs(0, 0, 0, 0, []), [{ dayKey: '2026-11-08', status: 'P' }, { dayKey: '2026-11-09', status: '-' }]);
+  assert.strictEqual(r.P, 1); assert.strictEqual(r.A, 1);
+});
+
+console.log('--- P4-6: callBackend (retry / requestId / timeout) ---');
+const cbCtx = vm.createContext({});
+vm.runInContext('async ' + extractFns(scSrc, ['callBackend']) + '\n' + extractFns(scSrc, ['getBackendTimeoutMs']), cbCtx);
+const cbRun = async (payload, script, retries) => {
+  const calls = []; let i = 0;
+  Object.assign(cbCtx, {
+    normalizeApiUrl: u => u, ingestServerScheduleData: () => {}, showStatus: () => {},
+    I18N: { en: { ERR_SERVER_BUSY: 'busy' } }, currentLang: 'en',
+    AbortController: class { constructor() { this.signal = {}; } abort() {} },
+    setTimeout: (fn, t) => { if (t < 5000) { fn(); } return 1; },
+    clearTimeout: () => {},
+    fetch: async (url, opts) => {
+      calls.push(JSON.parse(opts.body));
+      const s = script[Math.min(i++, script.length - 1)];
+      if (s.throw) throw s.throw;
+      return { ok: s.ok !== false, status: s.status || 200, json: async () => { if (s.badJson) throw new Error('bad json'); return s.body; } };
+    }
+  });
+  const res = await (retries === undefined ? cbCtx.callBackend('u', payload) : cbCtx.callBackend('u', payload, retries));
+  return { res, calls };
+};
+const netErr = { throw: new Error('Failed to fetch') };
+acheck('callBackend: TEACHER_CONTROL_SESSION without requestId + network error -> exactly 1 fetch', async () => {
+  const { res, calls } = await cbRun({ action: 'TEACHER_CONTROL_SESSION' }, [netErr]);
+  assert.strictEqual(calls.length, 1); assert.strictEqual(res.code, 'ERR_NETWORK');
+});
+acheck('callBackend: PING + network error -> 3 fetches', async () => {
+  const { res, calls } = await cbRun({ action: 'PING' }, [netErr]);
+  assert.strictEqual(calls.length, 3); assert.strictEqual(res.code, 'ERR_NETWORK');
+});
+acheck('callBackend: command with requestId retries with the same requestId and succeeds', async () => {
+  const { res, calls } = await cbRun({ action: 'TEACHER_CONTROL_SESSION', requestId: 'RQ1' }, [netErr, { body: { ok: true } }]);
+  assert.strictEqual(calls.length, 2); assert.strictEqual(res.ok, true);
+  assert.ok(calls.every(c => c.requestId === 'RQ1'));
+});
+acheck('callBackend: response !ok with non-JSON body -> ERR_NETWORK', async () => {
+  const { res } = await cbRun({ action: 'STUDENT_CHECKIN' }, [{ ok: false, status: 500, badJson: true }], 0);
+  assert.strictEqual(res.code, 'ERR_NETWORK');
+});
+acheck('callBackend: invalid JSON -> ERR_NETWORK', async () => {
+  const { res } = await cbRun({ action: 'TEACHER_CONTROL_SESSION' }, [{ badJson: true }]);
+  assert.strictEqual(res.code, 'ERR_NETWORK');
+});
+acheck('callBackend: abort -> ERR_TIMEOUT', async () => {
+  const e = new Error('aborted'); e.name = 'AbortError';
+  const { res, calls } = await cbRun({ action: 'TEACHER_CONTROL_SESSION' }, [{ throw: e }]);
+  assert.strictEqual(res.code, 'ERR_TIMEOUT'); assert.strictEqual(calls.length, 1);
+});
+acheck('callBackend: TEACHER_AUTH network error is never retried (even with requestId)', async () => {
+  const { calls } = await cbRun({ action: 'TEACHER_AUTH', requestId: 'RQ2' }, [netErr]);
+  assert.strictEqual(calls.length, 1);
+});
+acheck('callBackend: ERR_SERVER_BUSY is retried for every action (incl. no requestId)', async () => {
+  const { res, calls } = await cbRun({ action: 'TEACHER_CONTROL_SESSION' }, [{ body: { ok: false, code: 'ERR_SERVER_BUSY' } }, { body: { ok: true } }]);
+  assert.strictEqual(calls.length, 2); assert.strictEqual(res.ok, true);
+});
+acheck('callBackend: ERR_SERVER_BUSY on the last attempt is returned to the caller', async () => {
+  const { res, calls } = await cbRun({ action: 'TEACHER_AUTH' }, [{ body: { ok: false, code: 'ERR_SERVER_BUSY' } }]);
+  assert.strictEqual(calls.length, 3); assert.strictEqual(res.code, 'ERR_SERVER_BUSY');
+});
+check('getBackendTimeoutMs: per-action timeouts', () => {
+  assert.strictEqual(cbCtx.getBackendTimeoutMs('TEACHER_REBUILD_REPORT'), 90000);
+  assert.strictEqual(cbCtx.getBackendTimeoutMs('STUDENT_CHECKIN'), 25000);
+  assert.strictEqual(cbCtx.getBackendTimeoutMs('TEACHER_CONTROL_SESSION'), 45000);
+  assert.strictEqual(cbCtx.getBackendTimeoutMs('TEACHER_GET_STATE'), 15000);
+  assert.strictEqual(cbCtx.getBackendTimeoutMs('TEACHER_AUTH'), 15000);
+  assert.strictEqual(cbCtx.getBackendTimeoutMs('PING'), 15000);
+});
+
+console.log('--- P4-7: static checks (teacher.js / schedule-config.js) ---');
+check('teacher.js: rebuild button i18n key used, TEACHER_REBUILD_SHEET gone everywhere in js/', () => {
+  assert.ok(/tea_rebuild_sheet_btn/.test(teaSrc));
+  assert.ok(!/TEACHER_REBUILD_SHEET/.test(teaSrc));
+  feFiles.forEach(([n, s]) => assert.ok(!/TEACHER_REBUILD_SHEET/.test(s), n));
+});
+check('teacher.js: fullscreenchange listener exits the pin spotlight', () => {
+  assert.ok(/addEventListener\('fullscreenchange'[\s\S]{0,120}exitPinSpotlightMode\(\)/.test(teaSrc));
+});
+check('teacher.js: logoutTeacher calls stopAllTeacherTimers', () => {
+  assert.ok(/stopAllTeacherTimers\(\)/.test(fnBody(teaSrc, 'logoutTeacher')));
+});
+check('teacher.js: stopAllTeacherTimers stops polling, countdown and the PIN projector loop', () => {
+  const b = fnBody(teaSrc, 'stopAllTeacherTimers');
+  assert.ok(/stopTeacherPolling/.test(b) && /teacherCountdownTimer/.test(b) && /stopTeacherPin10sProjectorLoop/.test(b));
+});
+check('escapeJsArg("O\'Neil") is safe inside onclick="f(\'...\')" after HTML-entity decoding', () => {
+  const c = vm.createContext({}); vm.runInContext(extractFns(scSrc, ['escapeHtml', 'escapeJsArg']), c);
+  const enc = c.escapeJsArg("O'Neil");
+  assert.ok(!/'/.test(enc), 'raw quote left in attribute: ' + enc);
+  const decoded = enc.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  let got; c.f = v => { got = v; };
+  vm.runInContext("f('" + decoded + "')", c);
+  assert.strictEqual(got, "O'Neil");
+  const evil = c.escapeJsArg("x');alert(1);//\\");
+  const dec2 = evil.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  got = undefined; vm.runInContext("f('" + dec2 + "')", c);
+  assert.strictEqual(got, "x');alert(1);//\\");
+});
+check('escapeHtml escapes & < > " \' and null/undefined -> empty', () => {
+  const c = vm.createContext({}); vm.runInContext(extractFns(scSrc, ['escapeHtml']), c);
+  assert.strictEqual(c.escapeHtml('<a href="x">&\'</a>'), '&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;');
+  assert.strictEqual(c.escapeHtml(null), ''); assert.strictEqual(c.escapeHtml(undefined), '');
+});
+check('stripRemainingEmojis keeps newlines but removes emojis', () => {
+  const c = vm.createContext({}); vm.runInContext(extractFns(scSrc, ['stripRemainingEmojis']), c);
+  assert.strictEqual(c.stripRemainingEmojis('a\n\nb'), 'a\n\nb');
+  assert.strictEqual(c.stripRemainingEmojis('a\nb'), 'a\nb');
+  assert.strictEqual(c.stripRemainingEmojis('a\n\n\n\nb'), 'a\n\nb');
+  assert.strictEqual(c.stripRemainingEmojis('ok \u{1F680}'), 'ok');
+});
+
+(async () => {
+  for (const [name, fn] of p4Async) {
+    try { await fn(); console.log('  OK   ' + name); }
+    catch (e) { failures++; console.log('  FAIL ' + name + '\n       ' + String(e.message).split('\n')[0]); }
+  }
+  console.log(failures ? '\n' + failures + ' CORE TEST(S) FAILED' : '\nALL CORE TESTS PASSED!');
+  process.exit(failures ? 1 : 0);
+})();

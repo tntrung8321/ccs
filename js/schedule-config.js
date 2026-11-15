@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.10)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.11)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -684,6 +684,14 @@ const I18N = {
     ERR_GPS_UNAVAILABLE: "[LỖI TÍN HIỆU GPS] Trình duyệt đã có quyền Vị trí nhưng điện thoại chưa bắt được sóng định vị trong phòng. Vui lòng bật biểu tượng Wi-Fi (để hỗ trợ định vị trong nhà) và bật Dịch vụ định vị trên điện thoại rồi bấm lại.",
     ERR_SERVER_BUSY: "Hệ thống đang xử lý, vui lòng chờ giây lát...",
     ERR_UNAUTHORIZED: "[TỪ CHỐI] Mật khẩu phiên không đúng hoặc đã hết hạn. Hãy kiểm tra lại ô C9 trên Google Sheet.",
+    ERR_MISSING_FIELDS: "[THIẾU THÔNG TIN] Vui lòng nhập đầy đủ các trường bắt buộc.",
+    ERR_INVALID_CLASS: "[LỚP KHÔNG HỢP LỆ] Mã lớp không đúng hoặc không tồn tại.",
+    ERR_NOT_FOUND: "[KHÔNG TÌM THẤY] Không tìm thấy dữ liệu được yêu cầu.",
+    ERR_NO_SESSION: "[CHƯA CÓ PHIÊN] Chưa có phiên điểm danh nào cho buổi học này.",
+    ERR_NETWORK: "[LỖI MẠNG] Không kết nối được tới máy chủ. Vui lòng kiểm tra kết nối mạng rồi thử lại.",
+    ERR_TIMEOUT: "[QUÁ THỜI GIAN] Máy chủ phản hồi quá lâu. Vui lòng thử lại.",
+    ERR_PIN_ROUND1: "[CHỈ PHIÊN 2] Chế độ mã PIN 10 giây chỉ áp dụng cho Phiên 2.",
+    ERR_AUTH_LOCKED: "[TẠM KHÓA] Nhập sai mã 6 số quá nhiều lần. Vui lòng thử lại sau {mins} phút.",
     DEVICE_RESET_OK: "[ĐÃ MỞ KHÓA] Đã đặt lại khóa thiết bị cho sinh viên {id}.",
     btn_open_external_browser: "Mở ngay bằng trình duyệt chính",
     btn_copy_browser_url: "Sao chép link mở Safari / Chrome",
@@ -796,6 +804,14 @@ const I18N = {
     ERR_GPS_UNAVAILABLE: "[GPS SIGNAL ERROR] Browser has Location permission, but your phone could not lock onto an indoor GPS signal. Please turn on Wi-Fi (for indoor positioning) and Location Services on your phone, then try again.",
     ERR_SERVER_BUSY: "System is processing requests, please wait a moment...",
     ERR_UNAUTHORIZED: "[UNAUTHORIZED] Invalid or expired session code. Please check Cell C9 in your Google Sheet.",
+    ERR_MISSING_FIELDS: "[MISSING INFO] Please fill in all required fields.",
+    ERR_INVALID_CLASS: "[INVALID CLASS] Class code is incorrect or does not exist.",
+    ERR_NOT_FOUND: "[NOT FOUND] The requested data could not be found.",
+    ERR_NO_SESSION: "[NO SESSION] No attendance session has been opened for this class yet.",
+    ERR_NETWORK: "[NETWORK ERROR] Could not reach the server. Please check your internet connection and try again.",
+    ERR_TIMEOUT: "[TIMEOUT] The server took too long to respond. Please try again.",
+    ERR_PIN_ROUND1: "[ROUND 2 ONLY] The 10-second PIN mode only applies to Round 2.",
+    ERR_AUTH_LOCKED: "[TEMPORARILY LOCKED] Too many incorrect 6-digit codes. Please try again in {mins} minutes.",
     DEVICE_RESET_OK: "[UNLOCKED] Device lock has been reset for Student ID {id}.",
     btn_open_external_browser: "Open in main browser",
     btn_copy_browser_url: "Copy link for Safari / Chrome",
@@ -1377,37 +1393,71 @@ function stripRemainingEmojis(text) {
   if (!text) return '';
   return String(text)
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '')
-    .replace(/\s{2,}/g, ' ')
+    .replace(/[^\S\n]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function getBackendTimeoutMs(action) {
+  const a = String(action || '');
+  if (a === 'TEACHER_REBUILD_REPORT') return 90000;
+  if (a === 'STUDENT_CHECKIN') return 25000;
+  if (a.indexOf('TEACHER_') === 0 && a !== 'TEACHER_GET_STATE' && a !== 'TEACHER_AUTH') return 45000;
+  return 15000;
 }
 
 async function callBackend(apiUrl, payload, retries = 2) {
   const targetUrl = normalizeApiUrl(apiUrl);
+  const action = payload && payload.action ? String(payload.action) : '';
+  const netRetryOk = action !== 'TEACHER_AUTH' && (
+    ['PING', 'TEACHER_GET_STATE', 'STUDENT_CHECKIN', 'CHECK_RECEIPT'].indexOf(action) !== -1 ||
+    Boolean(payload && payload.requestId)
+  );
+  const timeoutMs = getBackendTimeoutMs(action);
+  let lastErr = { ok: false, code: 'ERR_NETWORK' };
   for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    let timedOut = false;
     try {
       const response = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload),
-        redirect: 'follow'
+        redirect: 'follow',
+        signal: controller ? controller.signal : undefined
       });
-      const data = await response.json();
-      if (data && (data.calendarEvents || data.classSchedules || data.classes)) {
-        ingestServerScheduleData(data);
+      let data = null;
+      try {
+        data = await response.json();
+      } catch (parseErr) {
+        data = null;
       }
-      if (data.code === 'ERR_SERVER_BUSY' && attempt < retries) {
-        showStatus(I18N[currentLang].ERR_SERVER_BUSY, 'warn');
-        await new Promise(r => setTimeout(r, 1100 + Math.random() * 800));
-        continue;
+      if (timer) clearTimeout(timer);
+      if (!data || typeof data !== 'object') {
+        lastErr = { ok: false, code: 'ERR_NETWORK', message: response.ok ? 'Invalid response' : 'HTTP ' + response.status };
+      } else {
+        if (data.calendarEvents || data.classSchedules || data.classes) {
+          ingestServerScheduleData(data);
+        }
+        if (data.code === 'ERR_SERVER_BUSY' && attempt < retries) {
+          showStatus(I18N[currentLang].ERR_SERVER_BUSY, 'warn');
+          await new Promise(r => setTimeout(r, 1100 + Math.random() * 800));
+          continue;
+        }
+        return data;
       }
-      return data;
     } catch (err) {
-      if (attempt === retries) {
-        return { ok: false, code: 'ERR_NETWORK', message: err.message };
-      }
-      await new Promise(r => setTimeout(r, 900));
+      if (timer) clearTimeout(timer);
+      timedOut = Boolean(err && err.name === 'AbortError');
+      lastErr = timedOut
+        ? { ok: false, code: 'ERR_TIMEOUT', message: err.message }
+        : { ok: false, code: 'ERR_NETWORK', message: err && err.message };
     }
+    if (!netRetryOk || attempt === retries) return lastErr;
+    await new Promise(r => setTimeout(r, 900));
   }
+  return lastErr;
 }
 
 let isAppModalBusy = false;
@@ -2038,7 +2088,8 @@ function switchMode(mode) {
       restoreTeacherSessionOnLoad(auth);
     }
   } else {
-    if (typeof stopTeacherPolling === 'function') stopTeacherPolling();
+    if (typeof stopAllTeacherTimers === 'function') stopAllTeacherTimers();
+    else if (typeof stopTeacherPolling === 'function') stopTeacherPolling();
     teaBtn.classList.remove('active');
     stuBtn.classList.add('active');
     teaView.classList.add('hidden');
@@ -2285,7 +2336,12 @@ function escapeHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeJsArg(s) {
+  return escapeHtml(String(s === null || s === undefined ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
 }
 
 function getTodayDateKey() {
