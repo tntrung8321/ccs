@@ -3289,7 +3289,7 @@ function pickStudentIdCell_(raw, disp) {
 
 const DEFAULT_ATTENDANCE_RULES_ = {
   version: 1,
-  presetId: 'iuh',
+  presetId: 'default',
   baseScore: 10,
   deductA: 1,
   deductL: 0.5,

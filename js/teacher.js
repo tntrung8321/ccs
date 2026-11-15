@@ -3159,7 +3159,7 @@ let teacherRulesPresets = mergeRulePresetList([]);
 let teacherRulesPresetsLoaded = false;
 let rulesPanelKey = '';
 let rulesPanelSaved = null;
-let rulesBasedOn = 'iuh';
+let rulesBasedOn = 'default';
 
 const RULE_NUM_FIELDS = [
   { k: 'baseScore', vi: 'Điểm gốc', en: 'Base score', step: '0.5' },
@@ -3200,16 +3200,26 @@ function rulePresetRules_(p) {
 function findMatchingRulePreset_(rules) {
   const strip = r => JSON.stringify(Object.assign({}, normalizeAttendanceRules(r), { presetId: '' }));
   const target = strip(rules);
-  return teacherRulesPresets.find(p => strip(rulePresetRules_(p)) === target) || null;
+  const wanted = String((rules && rules.presetId) || '');
+  return teacherRulesPresets.find(p => p.id === wanted && strip(rulePresetRules_(p)) === target) || null;
+}
+
+function rulePresetShort_(p) {
+  const lang = currentLang === 'en' ? 'en' : 'vi';
+  return (p.short && (p.short[lang] || p.short.vi)) || rulePresetLabel_(p);
+}
+
+function rulesFieldHtml_(keys, isEn) {
+  return keys.map(k => {
+    const f = RULE_NUM_FIELDS.find(x => x.k === k);
+    return `<div class="rules-field"><label for="rf-${f.k}">${isEn ? f.en : f.vi}</label><input type="number" id="rf-${f.k}" step="${f.step}" oninput="onRulesFieldInput()" /></div>`;
+  }).join('');
 }
 
 function ruleSummaryName_(saved) {
-  const isEn = currentLang === 'en';
   const match = findMatchingRulePreset_(saved);
-  if (match) return rulePresetLabel_(match);
-  const base = teacherRulesPresets.find(p => p.id === saved.presetId);
-  const baseTxt = base ? (isEn ? ` (based on ${base.id.toUpperCase()})` : ` (dựa trên ${base.id.toUpperCase()})`) : '';
-  return (isEn ? 'Custom' : 'Tùy chỉnh') + baseTxt;
+  if (match) return rulePresetShort_(match);
+  return currentLang === 'en' ? 'Custom' : 'Tùy chỉnh';
 }
 
 function renderTeacherRulesPanel(activeCfg) {
@@ -3234,7 +3244,7 @@ function buildRulesForm_(saved) {
   if (!body) return;
   const isEn = currentLang === 'en';
   const match = findMatchingRulePreset_(saved);
-  rulesBasedOn = saved.presetId || 'iuh';
+  rulesBasedOn = saved.presetId || 'default';
   const presetOpts = teacherRulesPresets.map(p =>
     `<option value="${escapeHtml(p.id)}">${escapeHtml(rulePresetLabel_(p))}</option>`).join('');
   const modeOpts = [
@@ -3243,12 +3253,9 @@ function buildRulesForm_(saved) {
     ['SCORE', isEn ? 'By score only' : 'Chỉ theo điểm'],
     ['OFF', isEn ? 'No exam ban' : 'Không cấm thi']
   ].map(o => `<option value="${o[0]}">${o[1]}</option>`).join('');
-  const numFields = RULE_NUM_FIELDS.map(f => `
-    <div class="rules-field"><label for="rf-${f.k}">${isEn ? f.en : f.vi}</label>
-    <input type="number" id="rf-${f.k}" step="${f.step}" oninput="onRulesFieldInput()" /></div>`).join('');
   body.innerHTML = `
     <div class="rules-field"><label for="sel-rules-preset">${isEn ? 'Policy' : 'Quy chế'}</label>
-      <select id="sel-rules-preset" onchange="onRulesPresetChange()">${presetOpts}<option value="custom">${isEn ? 'Custom' : 'Tùy chỉnh'}</option></select></div>
+      <select id="sel-rules-preset" onchange="onRulesPresetChange()"><option value="custom">${isEn ? 'Custom' : 'Tùy chỉnh'}</option>${presetOpts}</select></div>
     <div id="rules-preset-note" class="rules-note"></div>
     <details class="rules-sub"><summary>${isEn ? 'Edit details' : 'Chỉnh chi tiết'}</summary>
       <div class="rules-fields">
@@ -3257,7 +3264,11 @@ function buildRulesForm_(saved) {
         <div class="rules-field"><label for="rf-banAbsences">${isEn ? 'Ban when absences exceed' : 'Cấm thi khi vắng quá'}</label>
           <div class="rules-inline"><input type="number" id="rf-banAbsences" step="0.5" oninput="onRulesFieldInput()" />
           <select id="rf-banAbsUnit" onchange="onRulesFieldInput()"><option value="COUNT">${isEn ? 'sessions' : 'buổi'}</option><option value="PERCENT">${isEn ? '% of total' : '% tổng số buổi'}</option></select></div></div>
-        ${numFields}
+        ${rulesFieldHtml_(['banScoreBelow', 'baseScore'], isEn)}
+        <div class="rules-trio">${rulesFieldHtml_(['deductA', 'deductL', 'deductE'], isEn)}</div>
+        <details class="rules-adv"><summary>${isEn ? 'Advanced' : 'Nâng cao'}</summary>
+          <div class="rules-fields-inner">${rulesFieldHtml_(['eToAbsence', 'totalSessions', 'warnAbsMargin', 'warnScoreMargin'], isEn)}</div>
+        </details>
       </div>
     </details>
     <div id="rules-preview" class="rules-preview hidden"></div>
@@ -3299,9 +3310,7 @@ function updateRulesCustomLabel_() {
   if (!sel) return;
   const opt = Array.from(sel.options).find(o => o.value === 'custom');
   if (!opt) return;
-  const isEn = currentLang === 'en';
-  const base = teacherRulesPresets.find(p => p.id === rulesBasedOn);
-  opt.textContent = (isEn ? 'Custom' : 'Tùy chỉnh') + (base ? (isEn ? ` (based on ${base.id.toUpperCase()})` : ` (dựa trên ${base.id.toUpperCase()})`) : '');
+  opt.textContent = currentLang === 'en' ? 'Custom' : 'Tùy chỉnh';
 }
 
 function updateRulesNote_() {
@@ -3377,8 +3386,10 @@ async function saveTeacherRules() {
     });
     if (res && res.ok) {
       rulesPanelKey = '';
+      const changedCount = previewAttendanceRuleChange((teacherState && teacherState.roster) || [], rulesPanelSaved, readRulesForm_()).length;
       await applyTeacherState(res, false);
-      showStatus(isEn ? 'Attendance policy saved.' : 'Đã lưu quy chế chuyên cần.', 'success', 'tea-rules-inline-status');
+      const tail = changedCount > 0 ? (isEn ? ` ${changedCount} student(s) changed status.` : ` ${changedCount} sinh viên đổi trạng thái.`) : '';
+      showStatus((isEn ? 'Attendance policy saved.' : 'Đã lưu quy chế chuyên cần.') + tail, 'success', 'tea-rules-inline-status');
     } else {
       showStatus(formatServerMessage(res && res.code ? res.code : 'ERR_NETWORK'), 'err', 'tea-rules-inline-status');
     }
@@ -3417,7 +3428,7 @@ function importTeacherRules(input) {
       showStatus(isEn ? 'This is not a valid CCS policy file.' : 'File này không phải file quy chế của CCS.', 'err', 'tea-rules-inline-status');
       return;
     }
-    rulesBasedOn = parsed.rules.presetId || 'iuh';
+    rulesBasedOn = parsed.rules.presetId || 'default';
     fillRulesFields_(parsed.rules);
     onRulesFieldInput();
     showStatus(isEn ? 'Policy loaded. Review the preview, then press Save.' : 'Đã nạp quy chế. Xem trước rồi bấm Lưu.', 'success', 'tea-rules-inline-status');

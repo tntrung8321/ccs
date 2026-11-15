@@ -558,7 +558,13 @@ function updateStoredStudentClassStats(instId, classId, statsObj) {
   const p = profiles[instId];
   if (!p || !Array.isArray(p.enrolledClasses)) return;
   p.enrolledClasses = p.enrolledClasses.map(ec =>
-    ec && ec.classId === classId ? Object.assign({}, ec, { attendanceStats: statsObj }) : ec
+    ec && ec.classId === classId
+      ? Object.assign({}, ec, {
+          attendanceStats: statsObj.rules
+            ? statsObj
+            : Object.assign({}, statsObj, { rules: ec.attendanceStats ? ec.attendanceStats.rules : undefined })
+        })
+      : ec
   );
   saveStudentProfile(instId, p);
 }

@@ -3,7 +3,7 @@
 
 const DEFAULT_ATTENDANCE_RULES = {
   version: 1,
-  presetId: 'iuh',
+  presetId: 'default',
   baseScore: 10,
   deductA: 1,
   deductL: 0.5,
@@ -21,13 +21,15 @@ const DEFAULT_ATTENDANCE_RULES = {
 const BUILTIN_RULE_PRESETS = [
   {
     id: 'iuh',
-    label: { vi: 'Chuyên cần – Đại học Công nghiệp TP.HCM (IUH)', en: 'Attendance – Industrial University of HCMC (IUH)' },
-    note: { vi: 'Cộng đồng đóng góp, 11/2026. Hãy đối chiếu quy chế trường.', en: 'Community-contributed, 11/2026. Check your school policy.' },
+    label: { vi: 'Đại học Công nghiệp TP.HCM (IUH)', en: 'Industrial University of HCMC (IUH)' },
+    short: { vi: 'IUH', en: 'IUH' },
+    note: { vi: 'Cộng đồng đóng góp 11/2026, hãy đối chiếu quy chế trường.', en: 'Community-contributed 11/2026, check your school policy.' },
     rules: {}
   },
   {
     id: 'none',
     label: { vi: 'Chỉ điểm danh, không cấm thi', en: 'Attendance only, no exam ban' },
+    short: { vi: 'Không cấm thi', en: 'No exam ban' },
     note: { vi: 'Vẫn tính điểm chuyên cần nhưng không hiện cảnh báo hay cấm thi.', en: 'Score is still computed; no warning or exam ban shown.' },
     rules: { banMode: 'OFF' }
   }
@@ -124,7 +126,7 @@ function mergeRulePresetList(extra) {
   const list = BUILTIN_RULE_PRESETS.slice();
   (Array.isArray(extra) ? extra : []).forEach(p => {
     if (!p || !p.id || !p.label || list.some(x => x.id === p.id)) return;
-    list.push({ id: String(p.id), label: p.label, note: p.note || {}, rules: (p.rules && typeof p.rules === 'object') ? p.rules : {} });
+    list.push({ id: String(p.id), label: p.label, short: p.short, note: p.note || {}, rules: (p.rules && typeof p.rules === 'object') ? p.rules : {} });
   });
   return list;
 }
