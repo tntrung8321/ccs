@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.7.11)
+ * LECTURER CONTROLLER (js/teacher.js — v3.8.0)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -862,7 +862,7 @@ function setupTeacherCountdown(ses, hasSelectedClass = true) {
     if (isR2) {
       const remSec = Math.max(0, Math.floor((ses.closesAtMs - now) / 1000));
       badge.className = 'badge-ok';
-      badge.textContent = enNow ? 'ROUND 2 OPEN (VERIFICATION)' : 'ĐANG MỞ ĐIỂM DANH LẦN 2';
+      badge.textContent = enNow ? 'ROUND 2 OPEN (VERIFICATION)' : 'ĐANG MỞ ĐIỂM DANH PHIÊN 2';
       timerEl.textContent = formatMmSs(remSec);
     } else if (now <= ses.presentUntilMs) {
       const remSec = Math.max(0, Math.floor((ses.presentUntilMs - now) / 1000));
@@ -1064,17 +1064,17 @@ function promptOpenRound2Confirm() {
     : (isEn ? '1-Tap GPS' : '1-Chạm GPS');
 
   openConfirmModal(
-    isEn ? 'Open Round 2 Check-In' : 'Xác nhận Mở Điểm Danh Lần 2',
+    isEn ? 'Open Round 2 Check-In' : 'Xác nhận Mở Điểm Danh Phiên 2',
     isEn
       ? `Open Round 2 check-in for [${classId}] (${durationMinutes} mins • ${modeDesc})? Note: Round 2 can only be opened once per class day.`
-      : `Mở điểm danh Lần 2 cho lớp [${classId}] (${durationMinutes} phút • ${modeDesc})? Lưu ý: Mỗi buổi học chỉ mở Lần 2 tối đa 1 lần.`,
-    isEn ? 'Confirm Open Round 2' : 'Xác nhận mở Lần 2',
+      : `Mở điểm danh Phiên 2 cho lớp [${classId}] (${durationMinutes} phút • ${modeDesc})? Lưu ý: Mỗi buổi học chỉ mở Phiên 2 tối đa 1 lần.`,
+    isEn ? 'Confirm Open Round 2' : 'Xác nhận mở Phiên 2',
     async () => {
       await openRound2Session();
     },
     {
       confirmClass: 'btn btn-accent',
-      busyLabel: isEn ? 'Confirmed — Opening Round 2...' : 'Đã xác nhận — Đang mở Lần 2...'
+      busyLabel: isEn ? 'Confirmed — Opening Round 2...' : 'Đã xác nhận — Đang mở Phiên 2...'
     }
   );
 }
@@ -1253,8 +1253,8 @@ async function teacherControlSession(subAction, extra = {}) {
         await applyTeacherState(res, false);
         showStatus(
           isEn
-            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.7.11.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
-            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.7.11.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.8.0.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.8.0.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
           'warn',
           'tea-session-inline-status'
         );
@@ -1274,7 +1274,7 @@ async function teacherControlSession(subAction, extra = {}) {
           showStatus(
             isEn
               ? `Opened Round 2 verification check-in (${extra.qrMode === 'PIN_10S' ? '10s Rotating PIN' : '1-Tap GPS'}).`
-              : `Đã mở điểm danh Lần 2 (${extra.qrMode === 'PIN_10S' ? 'Mã PIN 10 giây' : '1-Chạm GPS'}).`,
+              : `Đã mở điểm danh Phiên 2 (${extra.qrMode === 'PIN_10S' ? 'Mã PIN 10 giây' : '1-Chạm GPS'}).`,
             'success',
             'tea-session-inline-status'
           );
@@ -2101,7 +2101,7 @@ function openAttendanceHistoryManagerModal(initialDayKey) {
     <div id="hist-calendar-box" class="hist-calendar-card"></div>
     <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-        <input type="text" id="inp-hist-search" oninput="renderHistoryModalList()" placeholder="${isEn ? 'Search student name or ID...' : 'Tìm họ tên hoặc MSSV...'}" style="margin-bottom:0; padding:7px 10px; flex:1; min-width:180px;" />
+        <input type="text" id="inp-hist-search" aria-label="${isEn ? 'Search student' : 'Tìm sinh viên'}" oninput="renderHistoryModalList()" placeholder="${isEn ? 'Search student name or ID...' : 'Tìm họ tên hoặc MSSV...'}" style="margin-bottom:0; padding:7px 10px; flex:1; min-width:180px;" />
       </div>
       <div id="hist-selected-day-summary" class="hist-day-summary-bar"></div>
     </div>
@@ -2125,6 +2125,10 @@ function openAttendanceHistoryManagerModal(initialDayKey) {
 
   // If full attendanceStats history was not yet loaded in cache, trigger a fresh sync in the background
   if (!list[0] || !list[0].attendanceStats || !Array.isArray(list[0].attendanceStats.history)) {
+    const rowsEl = document.getElementById('hist-modal-rows');
+    if (rowsEl) {
+      rowsEl.innerHTML = `<div class="history-loading">${isEn ? 'Loading history...' : 'Đang tải lịch sử...'}</div>`;
+    }
     refreshTeacherState(true);
   }
 }
@@ -2297,9 +2301,9 @@ function renderHistoryCalendarWidget() {
   calBox.innerHTML = `
     <div class="hist-cal-toolbar">
       <div class="hist-cal-nav">
-        <button type="button" class="btn btn-outline btn-sm hist-cal-nav-btn" onclick="changeHistoryCalendarMonth(-1)">◀</button>
+        <button type="button" class="btn btn-outline btn-sm hist-cal-nav-btn" onclick="changeHistoryCalendarMonth(-1)">&lsaquo;</button>
         <span class="hist-cal-month-title">${escapeHtml(monthTitle)}</span>
-        <button type="button" class="btn btn-outline btn-sm hist-cal-nav-btn" onclick="changeHistoryCalendarMonth(1)">▶</button>
+        <button type="button" class="btn btn-outline btn-sm hist-cal-nav-btn" onclick="changeHistoryCalendarMonth(1)">&rsaquo;</button>
       </div>
       <div class="hist-cal-legend">
         <span><span class="chip-dot dot-done"></span>${isEn ? 'Attended' : 'Đã điểm danh'}</span>
@@ -2798,7 +2802,7 @@ function updateTeacherLiveCountersFromRoster() {
   }
 }
 
-async function teacherManualMark(studentId, status, explicitTargetRound = '') {
+async function teacherManualMark(studentId, status, explicitTargetRound = '', silent = false) {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value || selectedTeacherClassId;
   if (!auth || !classId) return;
@@ -2861,10 +2865,15 @@ async function teacherManualMark(studentId, status, explicitTargetRound = '') {
   const nowTimeStr = `${pad2(nowD.getHours())}:${pad2(nowD.getMinutes())}`;
   let prevSnapshot = null;
 
+  let undoPrevStatus = '-';
+  let undoLabelName = studentId;
   if (teacherState && Array.isArray(teacherState.roster)) {
     const targetRow = teacherState.roster.find(r => r && r.studentId === studentId);
     if (targetRow) {
       prevSnapshot = Object.assign({}, targetRow);
+      const prevSt = String(getStudentStatusForRoundView(targetRow, targetRound === 'P2' ? 'P2' : 'P1', p2Opened) || '');
+      undoPrevStatus = (prevSt === 'P' || prevSt === 'L' || prevSt === 'E') ? prevSt : '-';
+      if (showRosterNames && targetRow.fullName) undoLabelName = targetRow.fullName;
     }
   }
 
@@ -2937,6 +2946,15 @@ async function teacherManualMark(studentId, status, explicitTargetRound = '') {
 
   if (res && res.ok) {
     await applyTeacherState(res, false);
+    if (!silent && typeof showUndoToast === 'function') {
+      const isEnToast = currentLang === 'en';
+      const stLabel = status === '-' ? (isEnToast ? 'Absent / revoked' : 'Vắng / hủy') : status;
+      showUndoToast(
+        isEnToast ? `Marked ${undoLabelName}: ${stLabel}` : `Đã chấm ${undoLabelName}: ${stLabel}`,
+        isEnToast ? 'Undo' : 'Hoàn tác',
+        () => teacherManualMark(studentId, undoPrevStatus, targetRound, true)
+      );
+    }
   } else {
     if (prevSnapshot && teacherState && Array.isArray(teacherState.roster)) {
       const targetRow = teacherState.roster.find(r => r && r.studentId === studentId);

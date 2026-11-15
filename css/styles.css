@@ -10,7 +10,7 @@
   --surface: #f1f5f9;
   --text: #0f172a;
   --text-secondary: #334155;
-  --muted: #64748b;
+  --muted: #546178;
   --border: #cbd5e1;
   --border-subtle: #e2e8f0;
   --success-bg: #f0fdf4;
@@ -128,9 +128,10 @@ button, input, select, textarea {
   background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.25);
-  padding: 5px 11px;
+  padding: 9px 12px;
+  min-height: 40px;
   border-radius: 6px;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 100ms ease-out, color 100ms ease-out, border-color 100ms ease-out;
@@ -803,8 +804,9 @@ select.unselected-warning {
 
 .roster-actions .btn-sm {
   padding: 4px 8px;
-  font-size: 0.76rem;
-  min-width: 26px;
+  font-size: 0.8rem;
+  min-width: 40px;
+  min-height: 40px;
 }
 
 .roster-actions .btn-mark-active-P,
@@ -1989,7 +1991,7 @@ select.unselected-warning {
   font-weight: 700;
   font-size: 0.88rem;
   flex: 1;
-  min-width: 210px;
+  min-width: min(210px, 100%);
   width: auto;
 }
 
@@ -2230,10 +2232,11 @@ select.unselected-warning {
 .round-segmented .seg-btn {
   border: none;
   background: transparent;
-  padding: 4px 10px;
+  padding: 8px 12px;
+  min-height: 36px;
   border-radius: 5px;
   font-family: var(--font-sans);
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 700;
   color: #475569;
   cursor: pointer;
@@ -2275,8 +2278,8 @@ select.unselected-warning {
 }
 
 .btn-checkin-hero.btn-checkin-round2 {
-  background: #0d9488 !important;
-  border-color: #0f766e !important;
+  background: #0f766e !important;
+  border-color: #115e59 !important;
   color: #ffffff !important;
 }
 
@@ -2419,5 +2422,101 @@ select.unselected-warning {
   }
   .no-print {
     display: none !important;
+  }
+}
+
+/* v3.8.0 accessibility and feedback */
+:focus-visible {
+  outline: 3px solid #1d4ed8;
+  outline-offset: 2px;
+}
+
+.modal-card:focus {
+  outline: none;
+}
+
+.roster-info-clickable:focus-visible,
+[role="button"]:focus-visible {
+  outline: 3px solid #1d4ed8;
+  outline-offset: 2px;
+}
+
+.undo-toast {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 18px;
+  margin: 0 auto;
+  width: fit-content;
+  min-width: min(340px, calc(100vw - 32px));
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 12px 10px 16px;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 0.86rem;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.35);
+}
+
+.undo-toast.hidden {
+  display: none;
+}
+
+.undo-toast button {
+  min-height: 40px;
+  white-space: nowrap;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  background: transparent;
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.offline-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 8000;
+  padding: 8px 16px;
+  background: #92400e;
+  color: #ffffff;
+  text-align: center;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.offline-bar.hidden {
+  display: none;
+}
+
+.history-loading {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+@media (max-width: 480px) {
+  .roster-item {
+    flex-wrap: wrap;
+  }
+
+  .roster-student-info {
+    flex: 1 1 100%;
+  }
+
+  .roster-actions {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .roster-actions .btn-sm {
+    flex: 1 1 40px;
   }
 }

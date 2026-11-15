@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.7.11)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.8.0)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -705,27 +705,27 @@ const I18N = {
     stu_att_l: "Đi trễ",
     stu_att_e: "Có phép",
     stu_att_a: "Vắng",
-    tea_open_p2_btn: "Mở điểm danh Lần 2 (Đột xuất)",
-    tea_open_round2_btn: "Mở điểm danh Lần 2 (Đột xuất)",
+    tea_open_p2_btn: "Mở điểm danh Phiên 2 (Đột xuất)",
+    tea_open_round2_btn: "Mở điểm danh Phiên 2 (Đột xuất)",
     tea_p2_duration_label: "Thời lượng:",
     tea_p2_mins_unit: "phút",
     tea_p2_pin10s_label: "Bật Mã PIN 10s",
     tea_switch_1tap_btn: "Chuyển về 1-Chạm (Không PIN)",
     tea_copy_present_btn: "Sao chép DS",
-    stu_round2_checkin_btn: "ĐIỂM DANH LẦN 2",
+    stu_round2_checkin_btn: "ĐIỂM DANH PHIÊN 2",
     PIN_EXPIRED: "[MÃ PIN HẾT HẠN] Mã PIN 10 giây vừa đổi. Vui lòng nhìn bảng chiếu và nhập lại 4 số mới.",
     PIN_WRONG: "[SAI MÃ PIN] Mã PIN 4 số không khớp với bảng chiếu. Vui lòng nhập lại.",
     PIN_LOCKED: "[TẠM KHÓA MÃ PIN] Bạn đã nhập sai mã PIN quá nhiều lần. Vui lòng chờ {seconds} giây rồi nhìn bảng chiếu nhập lại.",
-    ERR_PIN_REQUIRED: "[YÊU CẦU MÃ PIN] Phiên điểm danh Lần 2 đang bật Mã PIN 10 giây. Vui lòng nhập 4 số trên bảng chiếu.",
-    ERR_P1_STILL_OPEN: "[CHƯA ĐÓNG PHIÊN 1] Vui lòng đóng Phiên 1 trước khi mở điểm danh Lần 2.",
-    ERR_ROUND2_ALREADY_USED: "[ĐÃ DÙNG LẦN 2] Mỗi buổi học chỉ mở tối đa 1 lần điểm danh Lần 2.",
+    ERR_PIN_REQUIRED: "[YÊU CẦU MÃ PIN] Phiên điểm danh Phiên 2 đang bật Mã PIN 10 giây. Vui lòng nhập 4 số trên bảng chiếu.",
+    ERR_P1_STILL_OPEN: "[CHƯA ĐÓNG PHIÊN 1] Vui lòng đóng Phiên 1 trước khi mở điểm danh Phiên 2.",
+    ERR_ROUND2_ALREADY_USED: "[ĐÃ DÙNG PHIÊN 2] Mỗi buổi học chỉ mở tối đa 1 lần điểm danh Phiên 2.",
     ERR_REOPEN_BLOCKED_BY_P2: "[KHÓA MỞ LẠI P1] Không thể mở lại Phiên 1 vì Phiên 2 đã được mở trong buổi học này.",
     ERR_FINAL_READ_ONLY: "[CHỈ ĐỂ XEM] Tab Kết quả cuối chỉ để xem. Vui lòng chuyển sang tab Phiên 1 hoặc Phiên 2 để chấm tay.",
     ERR_PRIVATE_BROWSING: "[CHẾ ĐỘ ẨN DANH / RIÊNG TƯ] Không hỗ trợ đăng ký hoặc điểm danh trong Tab Ẩn danh (trình duyệt sẽ tự xóa mã khóa khi đóng tab). Vui lòng mở bằng tab Safari hoặc Chrome thông thường.",
     tea_cancel_mistaken_btn: "Hủy phiên nhầm",
     tea_cancel_mistaken_title: "Xóa bỏ phiên vừa mở nhầm hôm nay (Không tính vào lịch sử)",
     stu_p2_pin_hint: "Tự động nộp ngay khi gõ đủ 4 số",
-    tea_pin_proj_title: "MÃ PIN ĐIỂM DANH LẦN 2 (ĐỔI MỖI 10 GIÂY)",
+    tea_pin_proj_title: "MÃ PIN ĐIỂM DANH PHIÊN 2 (ĐỔI MỖI 10 GIÂY)",
     tea_pin_spot_hint: "Nhấp đúp vào khung PIN để phóng to toàn màn hình • Nhấn Esc để thu nhỏ",
     tea_hide_names: "Ẩn tên",
     tea_show_names: "Hiện tên",
@@ -1541,12 +1541,25 @@ function openAppModal(title, bodyText, confirmLabel, onConfirm, options = {}) {
       }
     };
   }
+  appModalReturnFocusEl = document.activeElement;
   document.getElementById('app-modal').classList.remove('hidden');
+  if (cardEl && typeof cardEl.focus === 'function') cardEl.focus();
+}
+
+let appModalReturnFocusEl = null;
+let confirmModalReturnFocusEl = null;
+
+function restoreModalFocus_(el) {
+  if (el && el.isConnected && typeof el.focus === 'function') {
+    try { el.focus(); } catch (e) {}
+  }
 }
 
 function closeAppModal(force = false) {
   if (isAppModalBusy && !force) return;
   document.getElementById('app-modal').classList.add('hidden');
+  restoreModalFocus_(appModalReturnFocusEl);
+  appModalReturnFocusEl = null;
   const cardEl = document.getElementById('app-modal-card');
   if (cardEl) cardEl.classList.remove('modal-wide');
   const extraBtn = document.getElementById('app-modal-extra');
@@ -1607,7 +1620,10 @@ function openConfirmModal(title, bodyText, confirmLabel, onConfirm, options = {}
     }
   };
 
+  confirmModalReturnFocusEl = document.activeElement;
   modalEl.classList.remove('hidden');
+  const confirmCardEl = modalEl.querySelector('.modal-card');
+  if (confirmCardEl && typeof confirmCardEl.focus === 'function') confirmCardEl.focus();
   if (options && typeof options.onMount === 'function') {
     options.onMount(confirmBtn, cancelBtn);
   }
@@ -1617,6 +1633,8 @@ function closeConfirmModal(force = false) {
   if (isConfirmModalBusy && !force) return;
   const modalEl = document.getElementById('confirm-modal');
   if (modalEl) modalEl.classList.add('hidden');
+  restoreModalFocus_(confirmModalReturnFocusEl);
+  confirmModalReturnFocusEl = null;
   const cancelBtn = document.getElementById('confirm-modal-cancel');
   if (cancelBtn) cancelBtn.disabled = false;
   const confirmBtn = document.getElementById('confirm-modal-ok');
@@ -2348,3 +2366,45 @@ function getTodayDateKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+/* v3.8.0 offline indicator and undo toast */
+let undoToastTimer_ = null;
+
+function hideUndoToast() {
+  const el = document.getElementById('undo-toast');
+  if (undoToastTimer_) { clearTimeout(undoToastTimer_); undoToastTimer_ = null; }
+  if (el) { el.classList.add('hidden'); el.textContent = ''; }
+}
+
+function showUndoToast(message, undoLabel, onUndo, ms = 5000) {
+  const el = document.getElementById('undo-toast');
+  if (!el) return;
+  hideUndoToast();
+  const span = document.createElement('span');
+  span.textContent = stripRemainingEmojis(message);
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = undoLabel;
+  btn.onclick = () => {
+    hideUndoToast();
+    if (typeof onUndo === 'function') onUndo();
+  };
+  el.appendChild(span);
+  el.appendChild(btn);
+  el.classList.remove('hidden');
+  undoToastTimer_ = setTimeout(hideUndoToast, ms);
+}
+
+function updateOfflineBar_() {
+  const el = document.getElementById('offline-bar');
+  if (!el) return;
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  el.textContent = currentLang === 'en'
+    ? 'No internet connection. Changes cannot be saved until you are back online.'
+    : 'Mất kết nối mạng. Thay đổi chưa thể lưu cho đến khi có mạng lại.';
+  el.classList.toggle('hidden', !offline);
+}
+
+window.addEventListener('online', updateOfflineBar_);
+window.addEventListener('offline', updateOfflineBar_);
+document.addEventListener('DOMContentLoaded', updateOfflineBar_);

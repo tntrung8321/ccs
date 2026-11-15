@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#1e3a8a" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -12,7 +12,7 @@
   <title>ClassCheck — Hệ Thống Điểm Danh Định Vị</title>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.7.11" />
+  <link rel="stylesheet" href="css/styles.css?v=3.8.0" />
 </head>
 <body>
 
@@ -129,7 +129,7 @@
     </div>
 
     <!-- GLOBAL STATUS / RECEIPT ALERT -->
-    <div id="status-box" class="alert hidden"></div>
+    <div id="status-box" class="alert hidden" role="status" aria-live="polite"></div>
 
     <!-- ================================================================== -->
     <!-- VIEW 1: STUDENT MODE                                               -->
@@ -151,7 +151,7 @@
           </div>
 
           <label id="lbl-student-inst" class="hidden" data-i18n="stu_select_lecturer">Giảng viên:</label>
-          <select id="sel-student-inst" class="hidden" onchange="onStudentInstChange(false)"></select>
+          <select id="sel-student-inst" aria-label="Trường / Institution" class="hidden" onchange="onStudentInstChange(false)"></select>
 
           <label for="sel-student-class" data-i18n="stu_select_class">Lớp học phần:</label>
           <select id="sel-student-class" style="margin-bottom:0;"></select>
@@ -175,12 +175,12 @@
         <!-- ONBOARDING / LINK NEW COURSE SUB-PANEL (SHOWN ONLY BEFORE FIRST STUDENT ID BINDING) -->
         <div id="box-add-course" class="hidden" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border-subtle);">
           <label id="lbl-student-id" for="inp-student-id" data-i18n="stu_id_label">Mã số sinh viên:</label>
-          <input type="text" id="inp-student-id" data-i18n-placeholder="stu_id_placeholder" placeholder="Nhập mã số sinh viên..." autocomplete="off" />
+          <input type="text" id="inp-student-id" aria-label="MSSV / Student ID" data-i18n-placeholder="stu_id_placeholder" placeholder="Nhập mã số sinh viên..." autocomplete="off" />
 
           <button type="button" id="btn-submit-onboard" class="btn btn-primary" onclick="promptStudentOnboardConfirm()" data-i18n="stu_register_btn">Lưu và Liên kết thiết bị</button>
 
           <!-- INLINE CONTEXTUAL FEEDBACK FOR ONBOARDING -->
-          <div id="onboard-inline-status" class="inline-feedback hidden"></div>
+          <div id="onboard-inline-status" class="inline-feedback hidden" role="status" aria-live="polite"></div>
         </div>
       </div>
 
@@ -273,7 +273,7 @@
         </div>
 
         <!-- INLINE CONTEXTUAL FEEDBACK FOR CHECK-IN -->
-        <div id="checkin-inline-status" class="inline-feedback hidden"></div>
+        <div id="checkin-inline-status" class="inline-feedback hidden" role="status" aria-live="polite"></div>
 
         <!-- TODAY'S VERIFIED RECEIPT PERSISTENCE -->
         <div id="student-today-receipt" class="receipt-card hidden"></div>
@@ -308,7 +308,7 @@
         </select>
 
         <button type="button" id="btn-tea-login" class="btn btn-primary" onclick="loginTeacher()" data-i18n="tea_login_btn">Đăng nhập Giảng viên</button>
-        <div id="tea-login-inline-status" class="inline-feedback hidden"></div>
+        <div id="tea-login-inline-status" class="inline-feedback hidden" role="status" aria-live="polite"></div>
 
         <div style="margin-top:10px; display:flex; justify-content:flex-end; align-items:center;">
           <a href="javascript:void(0)" style="font-size:0.76rem; color:var(--muted); text-decoration:none;" onclick="toggleTeacherApiBox()" data-i18n="tea_config_url_link">
@@ -318,7 +318,7 @@
 
         <div id="box-tea-api-advanced" class="hidden" style="margin-top:10px; padding:10px; background:var(--surface); border-radius:8px; border:1px solid var(--border);">
           <label for="inp-tea-api" data-i18n="tea_api_url_label">Đường dẫn máy chủ (Ô B4 trên Google Sheet):</label>
-          <input type="text" id="inp-tea-api" placeholder="https://script.google.com/macros/s/.../exec" style="margin-bottom:6px;" />
+          <input type="text" id="inp-tea-api" aria-label="API URL" placeholder="https://script.google.com/macros/s/.../exec" style="margin-bottom:6px;" />
           <button type="button" class="btn btn-outline btn-sm" onclick="resetToDefaultLecturerApi()" data-i18n="tea_reset_url_btn">Khôi phục đường dẫn mặc định</button>
         </div>
       </div>
@@ -338,7 +338,7 @@
 
           <!-- REAL-TIME CLASS SELECTION & OVERVIEW BOX -->
           <div class="teacher-class-overview">
-            <select id="sel-tea-class" onchange="onTeacherClassChange()" style="margin-bottom:0;"></select>
+            <select id="sel-tea-class" aria-label="Lớp học phần / Class" onchange="onTeacherClassChange()" style="margin-bottom:0;"></select>
             <div id="tea-schedule-hint" class="schedule-hint-bar"></div>
             <div id="tea-course-progress-strip" class="course-progress-strip hidden"></div>
           </div>
@@ -366,7 +366,7 @@
                 <div id="tea-p2-launch-strip" class="p2-outside-launch-bar hidden">
                   <button type="button" id="btn-tea-open-round2" class="btn btn-accent btn-open-p2-main" onclick="promptOpenRound2Confirm()">
                     <svg class="icon"><use href="#ic-check"></use></svg>
-                    <span id="lbl-tea-open-round2" data-i18n="tea_open_p2_btn">Mở điểm danh Lần 2 (Đột xuất)</span>
+                    <span id="lbl-tea-open-round2" data-i18n="tea_open_p2_btn">Mở điểm danh Phiên 2 (Đột xuất)</span>
                   </button>
                   <div class="p2-inline-opts">
                     <label class="p2-opt-pill" for="inp-tea-p2-mins">
@@ -383,7 +383,7 @@
 
                 <!-- Live 10-Second Rotating PIN Projector Box (Shown when Round 2 is open with PIN_10S) -->
                 <div id="tea-p2-pin-projector-box" class="p2-projector-pin-card hidden" ondblclick="togglePinSpotlightMode(event)" title="Nhấp đúp chuột (Double-click) để phóng to PIN toàn màn hình">
-                  <div class="p2-projector-pin-title" id="lbl-tea-pin-projector-title" data-i18n="tea_pin_proj_title">MÃ PIN ĐIỂM DANH LẦN 2 (ĐỔI MỖI 10 GIÂY)</div>
+                  <div class="p2-projector-pin-title" id="lbl-tea-pin-projector-title" data-i18n="tea_pin_proj_title">MÃ PIN ĐIỂM DANH PHIÊN 2 (ĐỔI MỖI 10 GIÂY)</div>
                   <div class="p2-pin-spotlight-meta" id="tea-pin-spotlight-meta">
                     <span id="tea-pin-spot-timer">00:00</span>
                     <span class="spot-meta-sep">•</span>
@@ -432,7 +432,7 @@
                   <button type="button" id="btn-tea-close" class="btn btn-danger btn-sm" onclick="promptCloseSessionConfirm()" data-i18n="tea_close_btn">Đóng phiên</button>
                 </div>
 
-                <div id="tea-session-inline-status" class="inline-feedback hidden"></div>
+                <div id="tea-session-inline-status" class="inline-feedback hidden" role="status" aria-live="polite"></div>
               </div>
             </div>
           </div>
@@ -476,7 +476,7 @@
                 <button type="button" id="seg-round-final" class="seg-btn active" data-round-view="FINAL" onclick="setTeacherRosterRoundView('FINAL')">Kết quả cuối</button>
               </div>
             </div>
-            <input type="text" id="inp-roster-search" data-i18n-placeholder="tea_search_placeholder" placeholder="Tìm họ tên hoặc mã số sinh viên (Nhấn Enter để đánh dấu Có mặt)..." oninput="renderTeacherRoster()" onkeydown="handleRosterSearchKeydown(event)" style="margin-bottom:0;" />
+            <input type="text" id="inp-roster-search" aria-label="Tìm sinh viên / Search students" data-i18n-placeholder="tea_search_placeholder" placeholder="Tìm họ tên hoặc mã số sinh viên (Nhấn Enter để đánh dấu Có mặt)..." oninput="renderTeacherRoster()" onkeydown="handleRosterSearchKeydown(event)" style="margin-bottom:0;" />
           </div>
 
           <div id="tea-roster-container" class="roster-list"></div>
@@ -502,7 +502,7 @@
               Đăng xuất
             </button>
           </div>
-          <div id="tea-admin-inline-status" class="inline-feedback hidden"></div>
+          <div id="tea-admin-inline-status" class="inline-feedback hidden" role="status" aria-live="polite"></div>
         </div>
 
       </div>
@@ -510,9 +510,12 @@
 
   </main>
 
+  <div id="offline-bar" class="offline-bar hidden no-print" role="status" aria-live="polite"></div>
+  <div id="undo-toast" class="undo-toast hidden no-print" role="status" aria-live="polite"></div>
+
   <!-- IN-PAGE APPLICATION MODAL -->
   <div id="app-modal" class="modal-backdrop hidden no-print" onclick="if(event.target===this)closeAppModal()">
-    <div id="app-modal-card" class="modal-card">
+    <div id="app-modal-card" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="app-modal-title" tabindex="-1">
       <div id="app-modal-title" class="modal-title" data-i18n="modal_confirm_title">Xác nhận</div>
       <div id="app-modal-body" class="modal-body"></div>
       <div class="btn-row">
@@ -525,7 +528,7 @@
 
   <!-- CENTERED FLOATING CONFIRMATION POPUP (STACKS ABOVE ALL VIEWS & MODALS) -->
   <div id="confirm-modal" class="modal-backdrop modal-backdrop-confirm hidden no-print" onclick="if(event.target===this)closeConfirmModal()">
-    <div class="modal-card modal-card-confirm">
+    <div class="modal-card modal-card-confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" tabindex="-1">
       <div id="confirm-modal-title" class="modal-title">Xác nhận</div>
       <div id="confirm-modal-body" class="modal-body"></div>
       <div class="btn-row">
@@ -536,8 +539,8 @@
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/schedule-config.js?v=3.7.11"></script>
-  <script src="js/student.js?v=3.7.11"></script>
-  <script src="js/teacher.js?v=3.7.11"></script>
+  <script src="js/schedule-config.js?v=3.8.0"></script>
+  <script src="js/student.js?v=3.8.0"></script>
+  <script src="js/teacher.js?v=3.8.0"></script>
 </body>
 </html>

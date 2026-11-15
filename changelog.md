@@ -2,6 +2,21 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🔧 Version `v3.8.0` — *Accessibility, Mobile Layout & Undo Release (Frontend)*
+* **Frontend-Only Release**: backend logic is unchanged. Only the `SYSTEM_VERSION` constant and the file name changed (`code3.8.0.text`). No Apps Script deploy is needed.
+* **Undo for Manual Marks**: after the lecturer marks `P / L / E / -` by hand, a 5-second "Undo" bar appears (no confirmation box).
+* **Accessibility**:
+  * Pinch-zoom is allowed (`user-scalable=no` removed).
+  * `aria-live` on the status box and inline feedback; `aria-label` on the search box and selects.
+  * Modals use `role="dialog"`, move focus into the dialog on open and return focus on close.
+  * Visible `:focus-visible` outlines.
+  * Minimum tap targets: P/L/E/- buttons `40px`, pill and segmented buttons `36px`.
+  * Contrast: `--muted` set to `#546178`; the Session 2 button uses `#0f766e`.
+* **Mobile Layout**: at `<= 480px` the roster stacks the student name above the action buttons.
+* **Connectivity & Loading**: an offline banner appears when the network drops; the history view shows a "Loading history" state.
+* **Terminology & Symbols**: "Lần 2" is now "Phiên 2" throughout; calendar arrows changed from `◀ ▶` to `‹ ›`.
+* **Version Bump (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.8.0.text`)**:
+  * Version set to `3.8.0` (cache busters `?v=3.8.0`).
 ### 🔧 Version `v3.7.11` — *Network Safety, Student Stats Consistency & Robustness Patch*
 * **Network Timeouts & Safe Retries**:
   * Every request now has a timeout (15–90 seconds, depending on the action).
@@ -438,6 +453,21 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.8.0` — *Bản Phát Hành Trợ Năng, Bố Cục Di Động & Hoàn Tác (Frontend)*
+* **Chỉ Frontend**: logic backend không đổi. Chỉ hằng số `SYSTEM_VERSION` và tên file đổi thành `code3.8.0.text`. Không cần deploy lại Apps Script.
+* **Hoàn Tác Chấm Tay**: sau khi giảng viên chấm tay `P / L / E / -`, hiện thanh "Hoàn tác" trong 5 giây (không có hộp xác nhận).
+* **Trợ Năng**:
+  * Cho phép thu phóng (đã bỏ `user-scalable=no`).
+  * `aria-live` cho hộp trạng thái và thông báo nội tuyến; `aria-label` cho ô tìm kiếm và các select.
+  * Modal có `role="dialog"`, đưa focus vào trong khi mở và trả focus khi đóng.
+  * Viền `:focus-visible` hiển thị rõ.
+  * Vùng chạm tối thiểu: nút P/L/E/- `40px`, nút pill và segmented `36px`.
+  * Tương phản: `--muted` đặt thành `#546178`; nút Phiên 2 dùng `#0f766e`.
+* **Bố Cục Di Động**: ở `<= 480px`, danh sách xếp tên sinh viên phía trên các nút thao tác.
+* **Kết Nối & Tải Dữ Liệu**: hiện thanh báo khi mất mạng (offline); màn lịch sử hiển thị trạng thái "Đang tải lịch sử".
+* **Thuật Ngữ & Ký Hiệu**: "Lần 2" đổi thành "Phiên 2" xuyên suốt; mũi tên lịch đổi từ `◀ ▶` sang `‹ ›`.
+* **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.8.0.text`)**:
+  * Đặt phiên bản `3.8.0` (cache `?v=3.8.0`).
 ### 🔧 Version `v3.7.11` — *Bản Vá An Toàn Mạng, Thống Kê Sinh Viên Nhất Quán & Tăng Độ Bền*
 * **Timeout Mạng & Gửi Lại An Toàn**:
   * Mọi yêu cầu nay có timeout (15–90 giây, tùy hành động).
@@ -854,12 +884,12 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.11`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.8.0`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.11` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.8.0` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.11`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
-| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), 100% Centered Floating Confirmation Popups (`#confirm-modal`), Clean Non-AI Utilitarian Buttons, Official Attendance Score & `CẤM THI`** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.8.0`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), 100% Centered Floating Confirmation Popups (`#confirm-modal`), Clean Non-AI Utilitarian Buttons, 5-Second Undo Bar, `role="dialog"` Focus-Managed Modals, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `+600ms` Lead, `PIN_GRACE_MS = 2500`, `reqArrivalMs` & Instant `0ms` 1-Tap Switch) + `L -> P` Upgrade** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$ + Indoor Wi-Fi/Cell Fallback) + Discreet Fallback GPS Mode (`STUDENT_AVG_3` without stale-coordinate lockout)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Backend Open-Session Auto-Fallback)** |
@@ -868,4 +898,4 @@
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-RPC Pre-Lock Cache + `LockService` Guards on All Write/Rebuild Handlers (45 Concurrent Students in `< 1.6s`, Zero Double-Click Overwrites)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Global 30-Strike Lecturer Code Lockout + Fail-Closed GPS Validation + Master Key Kept Off Third-Party QR URLs + PING Device-Credential Gate + Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.11`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.8.0`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
