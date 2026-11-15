@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.9)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.10)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.7.9';
+const SYSTEM_VERSION = '3.7.10';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -1977,6 +1977,7 @@ function handleTeacherControlSessionLocked_(ss, body) {
   if (subAction === 'CANCEL_MISTAKEN_SESSION') {
     const deletedSesIds = {};
     if (targetSesId) deletedSesIds[targetSesId] = true;
+    const cancelOnlyR2 = isRound2Session_(targetSesId, rowVals[2]);
 
     let prevLat = 0, prevLng = 0;
     for (let i = data.length - 1; i >= 0; i--) {
@@ -1986,7 +1987,7 @@ function handleTeacherControlSessionLocked_(ss, body) {
       const rDayKey = rOpenedMs > 0
         ? Utilities.formatDate(new Date(rOpenedMs), TIMEZONE, 'yyyy-MM-dd')
         : '';
-      if (rSesId === targetSesId || (sesDayKey && rDayKey === sesDayKey)) {
+      if (cancelOnlyR2 ? (i === targetRow - 2) : (rSesId === targetSesId || (sesDayKey && rDayKey === sesDayKey))) {
         if (rSesId) deletedSesIds[rSesId] = true;
         sesSheet.deleteRow(i + 2);
       } else if (!prevLat && Number(data[i][7]) && Number(data[i][8])) {
@@ -1994,7 +1995,7 @@ function handleTeacherControlSessionLocked_(ss, body) {
         prevLng = Number(data[i][8]);
       }
     }
-    if (prevLat && prevLng) {
+    if (!cancelOnlyR2 && prevLat && prevLng) {
       const cfg = getClassesMap(ss, true)[classId];
       if (cfg && cfg.rowIndex) ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[prevLat, prevLng]]);
     }
@@ -2021,7 +2022,7 @@ function handleTeacherControlSessionLocked_(ss, body) {
     } catch (e) {}
     invalidateSessionAttendanceMaps_(data.map(r => r[0]));
 
-    if (sesDayKey) {
+    if (sesDayKey && !cancelOnlyR2) {
       removeMakeUpDateFromScheduleMeta_(classId, sesDayKey);
     }
     SpreadsheetApp.flush();

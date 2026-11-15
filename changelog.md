@@ -2,6 +2,11 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🔧 Version `v3.7.10` — *Bug Fix: Cancelling a Mistaken Round 2 Session Deletes Only That Session*
+* **Cancel Mistaken Session Scope (`code3.7.10.text`, `CANCEL_MISTAKEN_SESSION`)**:
+  * Fix: cancelling a mistaken Round 2 (Phiên 2) session now deletes only that Round 2 session and its check-ins; Phiên 1 and its marks are kept. Cancelling a Phiên 1 session still removes the whole day.
+* **Version Bump (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`)**:
+  * Version set to `3.7.10` (cache busters `?v=3.7.10`).
 ### 🔧 Version `v3.7.9` — *Backend Stability Patch: Sync Writes Under Script Lock, Check-Ins No Longer Blocked by Heavy Work, Cache Fixes & Leading-Zero Student IDs*
 * **Master Sheet Writes Under Script Lock (`code3.7.9.text`, `sync.txt`)**:
   * Class delete/restore, roster import, the 15-minute auto sync and the manual sync now take the script lock, so a check-in written at the same moment can no longer be lost.
@@ -409,6 +414,11 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.7.10` — *Sửa Lỗi: Huỷ Phiên Lần 2 Nhầm Chỉ Xoá Đúng Phiên Đó*
+* **Phạm Vi Huỷ Phiên Mở Nhầm (`code3.7.10.text`, `CANCEL_MISTAKEN_SESSION`)**:
+  * Sửa: huỷ phiên mở nhầm khi đang ở Phiên 2 (Lần 2) chỉ xoá đúng Phiên 2 và các lượt điểm danh của nó; giữ nguyên Phiên 1 và điểm của Phiên 1. Huỷ Phiên 1 vẫn xoá cả ngày.
+* **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`)**:
+  * Đặt phiên bản `3.7.10` (cache `?v=3.7.10`).
 ### 🔧 Version `v3.7.9` — *Bản Vá Ổn Định Backend: Ghi Sổ Master Sheet Dưới Khóa Script, Điểm Danh Không Còn Bị Chặn Bởi Việc Nặng, Sửa Cache & Giữ Số 0 Đầu Mã Sinh Viên*
 * **Ghi Master Sheet Dưới Khóa Script (`code3.7.9.text`, `sync.txt`)**:
   * Xóa/khôi phục lớp, nhập danh sách lớp, đồng bộ tự động 15 phút và đồng bộ thủ công nay đều giữ khóa script, nên lượt điểm danh ghi đúng lúc đó không còn bị mất.
@@ -796,11 +806,11 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.9`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.10`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.9` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.10` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.9`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.10`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), 100% Centered Floating Confirmation Popups (`#confirm-modal`), Clean Non-AI Utilitarian Buttons, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `+600ms` Lead, `PIN_GRACE_MS = 2500`, `reqArrivalMs` & Instant `0ms` 1-Tap Switch) + `L -> P` Upgrade** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$ + Indoor Wi-Fi/Cell Fallback) + Discreet Fallback GPS Mode (`STUDENT_AVG_3` without stale-coordinate lockout)** |
@@ -810,4 +820,4 @@
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-RPC Pre-Lock Cache + `LockService` Guards on All Write/Rebuild Handlers (45 Concurrent Students in `< 1.6s`, Zero Double-Click Overwrites)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Global 30-Strike Lecturer Code Lockout + Fail-Closed GPS Validation + Master Key Kept Off Third-Party QR URLs + PING Device-Credential Gate + Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.9`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.10`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |

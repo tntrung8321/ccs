@@ -876,6 +876,25 @@ check('CANCEL_MISTAKEN_SESSION clears SES_ATT_MAP_V36_ of sessions of OTHER clas
   assert.deepStrictEqual(ses.rows.map(x => x[0]), ['SES_C2_1']);
   assert.deepStrictEqual(att.rows.map(x => x[2]), ['SES_C2_1']);
 });
+check('L7: CANCEL on a Round 2 session deletes only that R2 session + its attendance; Phiên 1 and its marks stay', () => {
+  const ses = rsheet([sesRowP3('SES_C1_1', 'C1'), sesRowP3('SES_C1_1_R2', 'C1')]);
+  const att = rsheet([attRowP3('SES_C1_1', '12345678', 'P'), attRowP3('SES_C1_1_R2', '12345678', 'P'), attRowP3('SES_C1_1_R2', '87654321', 'P')]);
+  const env = p3Env({ sheets: { Sessions_Log: ses, Attendance_Log: att, Classes_Config: rsheet([classRow('C1')]) } });
+  hookState(env);
+  const r = env.ctx.handleTeacherControlSession(env.ss, { classId: 'C1', subAction: 'CANCEL_MISTAKEN_SESSION' });
+  assert.strictEqual(r.state, true, JSON.stringify(r));
+  assert.deepStrictEqual(ses.rows.map(x => x[0]), ['SES_C1_1']);
+  assert.deepStrictEqual(att.rows.map(x => x[2]), ['SES_C1_1']);
+});
+check('L7: CANCEL on a Phiên 1 target still deletes the whole day (P1 + R2 of the same day)', () => {
+  const ses = rsheet([sesRowP3('SES_C1_1_R2', 'C1'), sesRowP3('SES_C1_1', 'C1')]);
+  const att = rsheet([attRowP3('SES_C1_1', '12345678', 'P'), attRowP3('SES_C1_1_R2', '12345678', 'P')]);
+  const env = p3Env({ sheets: { Sessions_Log: ses, Attendance_Log: att, Classes_Config: rsheet([classRow('C1')]) } });
+  hookState(env);
+  env.ctx.handleTeacherControlSession(env.ss, { classId: 'C1', subAction: 'CANCEL_MISTAKEN_SESSION' });
+  assert.strictEqual(ses.rows.length, 0);
+  assert.strictEqual(att.rows.length, 0);
+});
 check('invalidateSessionAttendanceMaps_: clears only given ids, trims, dedupes, ignores empty/invalid entries', () => {
   const env = p3Env({ sync: false });
   ['a', 'b', 'c'].forEach(id => { env.cacheStore['SES_ATT_MAP_V36_' + id] = '{}'; });
