@@ -12,7 +12,7 @@
   <title>ClassCheck — Hệ Thống Điểm Danh Định Vị</title>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.8.1" />
+  <link rel="stylesheet" href="css/styles.css?v=3.9.0" />
 </head>
 <body>
 
@@ -371,7 +371,7 @@
                   <div class="p2-inline-opts">
                     <label class="p2-opt-pill" for="inp-tea-p2-mins">
                       <span data-i18n="tea_p2_duration_label">Thời lượng:</span>
-                      <input type="number" id="inp-tea-p2-mins" min="1" max="15" value="3" />
+                      <input type="number" id="inp-tea-p2-mins" min="1" max="15" value="5" />
                       <span data-i18n="tea_p2_mins_unit">phút</span>
                     </label>
                     <label class="p2-opt-pill" for="chk-tea-p2-pin10s">
@@ -503,6 +503,11 @@
             </button>
           </div>
           <div id="tea-admin-inline-status" class="inline-feedback hidden" role="status" aria-live="polite"></div>
+
+          <details id="tea-rules-box" class="rules-box hidden">
+            <summary id="tea-rules-summary">Quy chế chuyên cần</summary>
+            <div id="tea-rules-body" class="rules-body"></div>
+          </details>
         </div>
 
       </div>
@@ -539,8 +544,9 @@
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/schedule-config.js?v=3.8.1"></script>
-  <script src="js/student.js?v=3.8.1"></script>
-  <script src="js/teacher.js?v=3.8.1"></script>
+  <script src="js/attendance-rules.js?v=3.9.0"></script>
+  <script src="js/schedule-config.js?v=3.9.0"></script>
+  <script src="js/student.js?v=3.9.0"></script>
+  <script src="js/teacher.js?v=3.9.0"></script>
 </body>
 </html>

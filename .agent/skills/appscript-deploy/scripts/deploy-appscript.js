@@ -201,9 +201,21 @@ function runClasp(args, cwd) {
   };
 }
 
+function runTestSuite() {
+  const runner = path.join(__dirname, 'run-all-tests.js');
+  const result = spawnSync(process.execPath, [runner], {
+    cwd: path.resolve(__dirname, '../../../..'),
+    stdio: 'inherit'
+  });
+  if (result.error) return { ok: false, reason: `Không chạy được run-all-tests.js: ${result.error.message}` };
+  if (result.status !== 0) return { ok: false, reason: `run-all-tests.js thoát với mã ${result.status === null ? 'null' : result.status}` };
+  return { ok: true };
+}
+
 function main() {
   const args = process.argv.slice(2);
   const stageOnly = args.includes('--stage-only') || args.includes('--dry-run');
+  const skipTests = args.includes('--skip-tests');
   const rootDir = path.resolve(__dirname, '../../../..');
 
   const staged = stageAppsScriptFiles(rootDir);
@@ -220,6 +232,19 @@ function main() {
     console.log(`  1) clasp ${cmds.pushArgs.join(' ')}`);
     console.log(`  2) clasp ${cmds.deployArgs.join(' ')}`);
     return;
+  }
+
+  if (skipTests) {
+    console.warn('⚠️ [--skip-tests] Bỏ qua bộ test trước khi deploy. Chỉ dùng khi bạn chắc chắn.');
+  } else {
+    console.log('🧪 Running test suite (run-all-tests.js) before deploy...');
+    const testRes = runTestSuite();
+    if (!testRes.ok) {
+      console.error(`❌ Deploy bị dừng: ${testRes.reason}. Không push lên Apps Script.`);
+      console.error('👉 Sửa lỗi test, hoặc chạy lại với --skip-tests nếu cố ý bỏ qua.');
+      process.exit(1);
+    }
+    console.log('✅ Tất cả test đạt.');
   }
 
   const clasprcPath = path.join(os.homedir(), '.clasprc.json');

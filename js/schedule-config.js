@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.8.1)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.9.0)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -347,14 +347,6 @@ function parseDaysOfWeekFromText(rawText) {
   if (/\b(saturday|sat)\b/i.test(s)) addDay(6);
 
   return days;
-}
-
-/**
- * Parses the first day of week (0 = Sunday .. 6 = Saturday) from Vietnamese or English text.
- */
-function parseDayOfWeekFromText(rawText) {
-  const days = parseDaysOfWeekFromText(rawText);
-  return days.length > 0 ? days[0] : null;
 }
 
 function normalizeClassCodeKey(str) {
@@ -721,7 +713,7 @@ const I18N = {
     ERR_ROUND2_ALREADY_USED: "[ĐÃ DÙNG PHIÊN 2] Mỗi buổi học chỉ mở tối đa 1 lần điểm danh Phiên 2.",
     ERR_REOPEN_BLOCKED_BY_P2: "[KHÓA MỞ LẠI P1] Không thể mở lại Phiên 1 vì Phiên 2 đã được mở trong buổi học này.",
     ERR_FINAL_READ_ONLY: "[CHỈ ĐỂ XEM] Tab Kết quả cuối chỉ để xem. Vui lòng chuyển sang tab Phiên 1 hoặc Phiên 2 để chấm tay.",
-    ERR_PRIVATE_BROWSING: "[CHẾ ĐỘ ẨN DANH / RIÊNG TƯ] Không hỗ trợ đăng ký hoặc điểm danh trong Tab Ẩn danh (trình duyệt sẽ tự xóa mã khóa khi đóng tab). Vui lòng mở bằng tab Safari hoặc Chrome thông thường.",
+    ERR_PRIVATE_BROWSING: "Bạn đang mở ở chế độ ẩn danh nên không lưu được thiết bị. Hãy mở link này bằng Safari hoặc Chrome thường (không ẩn danh) rồi thử lại.",
     tea_cancel_mistaken_btn: "Hủy phiên nhầm",
     tea_cancel_mistaken_title: "Xóa bỏ phiên vừa mở nhầm hôm nay (Không tính vào lịch sử)",
     stu_p2_pin_hint: "Tự động nộp ngay khi gõ đủ 4 số",
@@ -841,7 +833,7 @@ const I18N = {
     ERR_ROUND2_ALREADY_USED: "[ROUND 2 USED] Maximum 1 Round 2 session per class day.",
     ERR_REOPEN_BLOCKED_BY_P2: "[REOPEN P1 BLOCKED] Cannot reopen Round 1 because Round 2 has already been opened today.",
     ERR_FINAL_READ_ONLY: "[READ ONLY] Final Result tab is read-only. Switch to Round 1 or Round 2 tab to mark manually.",
-    ERR_PRIVATE_BROWSING: "[PRIVATE / INCOGNITO MODE] Do not register or check in inside a Private/Incognito tab (storage is wiped on close, causing device lock). Please open a normal Safari or Chrome tab.",
+    ERR_PRIVATE_BROWSING: "You are in private/incognito mode, so this device cannot be saved. Open this link in regular Safari or Chrome (not incognito) and try again.",
     tea_cancel_mistaken_btn: "Cancel Mistaken",
     tea_cancel_mistaken_title: "Delete mistaken session opened today (Excluded from history)",
     stu_p2_pin_hint: "Auto-submits once all 4 digits are typed",
@@ -1654,7 +1646,6 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-window.cachedGPS = null;
 window.activeGpsPromise = null;
 window.lastVerifiedLiveGps = null; // { pos, verifiedAtMs } — 15s live handshake between Check GPS / Onboard and Check-In
 
@@ -1801,7 +1792,6 @@ function acquireLiveHighAccuracyGps(maxWaitMs = 4500, settleAfterFirstFixMs = 25
 }
 
 function getAccuratePosition() {
-  window.cachedGPS = null;
 
   if (
     window.lastVerifiedLiveGps &&
@@ -1823,7 +1813,6 @@ function getAccuratePosition() {
   window.activeGpsPromise = (async () => {
     try {
       const pos = await acquireLiveHighAccuracyGps(4500, 2500, 100);
-      window.cachedGPS = null;
       hideGpsPermissionGuideBox();
       return pos;
     } catch (err1) {
@@ -1836,7 +1825,6 @@ function getAccuratePosition() {
         if (!navigator.geolocation) return reject(err1);
         navigator.geolocation.getCurrentPosition(
           (pos2) => {
-            window.cachedGPS = null;
             if (isValidGpsPos(pos2)) {
               hideGpsPermissionGuideBox();
               resolve(pos2);
@@ -1853,7 +1841,6 @@ function getAccuratePosition() {
       });
     } finally {
       window.activeGpsPromise = null;
-      window.cachedGPS = null;
     }
   })();
 
@@ -2073,13 +2060,6 @@ function openInExternalMainBrowser() {
   }
 }
 
-async function sha256Browser(message) {
-  const msgBuffer = new TextEncoder().encode(message);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => ('00' + b.toString(16)).slice(-2)).join('');
-}
-
 function syncStudentViewportScrollLock() {
   document.body.classList.remove('student-locked-scroll');
 }
@@ -2270,11 +2250,11 @@ function formatServerMessage(code, params = {}, fallback = '') {
 
 const INLINE_STATUS_IDS = [
   'onboard-inline-status',
-  'gps-inline-status',
   'checkin-inline-status',
   'tea-login-inline-status',
   'tea-session-inline-status',
-  'tea-admin-inline-status'
+  'tea-admin-inline-status',
+  'tea-rules-inline-status'
 ];
 
 function showInlineStatus(targetId, msg, type = 'warn') {
@@ -2357,6 +2337,10 @@ function formatClassOptionLabel(c) {
   if (!name || name === id) return id;
   if (name.toUpperCase().startsWith(id.toUpperCase())) return name;
   return `${id} — ${name}`;
+}
+
+function foldSearchText(str) {
+  return String(str || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase().trim();
 }
 
 function escapeHtml(str) {

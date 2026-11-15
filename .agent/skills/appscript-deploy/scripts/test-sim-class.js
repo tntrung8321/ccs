@@ -179,6 +179,7 @@ check('class roll: every day has exactly one history row per student and stats k
 // ---------------------------------------------------------------- 2. student side vs teacher side
 console.log('--- SIM-2: student phone (student.js merge, stale local history) vs teacher side ---');
 const stCtx = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/attendance-rules.js'), 'utf8'), stCtx);
 vm.runInContext(extractFns(stSrc, ['computeAttendanceScoreAndExamStatus', 'getMergedStudentClassStats']), stCtx);
 vm.runInContext(`
   var __local = [], __course = [];
@@ -251,7 +252,7 @@ const GAP_PROBES = [
   ['ABCDEF', 'letters only'],
   ['12', 'shorter than 3 characters'],
   ['1234567890123456789012', 'longer than 20 characters'],
-  ['20001234.0', 'Excel float text (".0" is stripped by Sync, not by the backend)']
+  ['20001234.0', 'Excel float text (".0" is stripped by both Sync and the backend)']
 ];
 GAP_PROBES.forEach(([id, why]) => {
   const sync = env.ctx.normalizeStudentId_(id);

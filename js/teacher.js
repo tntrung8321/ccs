@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.8.1)
+ * LECTURER CONTROLLER (js/teacher.js — v3.9.0)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -548,6 +548,7 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
 
   // Update Real-Time Schedule & Class Overview Banner
   updateTeacherClassOverviewUI(activeCfg, ses, scheduleMatch);
+  renderTeacherRulesPanel(activeCfg);
 
   if (activeCfg) {
     document.getElementById('btn-reg-gate-toggle').textContent = isEn
@@ -590,20 +591,7 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
 
 function updateTeacherClassOverviewUI(activeCfg, ses, scheduleMatch) {
   const hintBar = document.getElementById('tea-schedule-hint');
-  const selectedNameEl = document.getElementById('tea-selected-class-display');
   const isEn = currentLang === 'en';
-
-  if (selectedNameEl) {
-    if (activeCfg) {
-      selectedNameEl.textContent = `${activeCfg.classId} — ${activeCfg.className || activeCfg.classId}`;
-      selectedNameEl.style.color = 'var(--primary)';
-    } else {
-      selectedNameEl.textContent = isEn
-        ? 'No class selected (Outside automatic schedule)'
-        : 'Chưa chọn lớp (Ngoài khung giờ tự động)';
-      selectedNameEl.style.color = 'var(--warn-text)';
-    }
-  }
 
   if (hintBar) {
     if (scheduleMatch && !scheduleMatch.isOffHours && scheduleMatch.matchedClassId) {
@@ -1055,8 +1043,8 @@ function promptOpenRound2Confirm() {
   }
   const minsInput = document.getElementById('inp-tea-p2-mins');
   const pinChk = document.getElementById('chk-tea-p2-pin10s');
-  const rawMins = minsInput ? parseInt(minsInput.value, 10) : 3;
-  const durationMinutes = Math.min(15, Math.max(1, isNaN(rawMins) ? 3 : rawMins));
+  const rawMins = minsInput ? parseInt(minsInput.value, 10) : 5;
+  const durationMinutes = Math.min(15, Math.max(1, isNaN(rawMins) ? 5 : rawMins));
   if (minsInput) minsInput.value = String(durationMinutes);
   const isPin10s = Boolean(pinChk && pinChk.checked);
   const modeDesc = isPin10s
@@ -1084,9 +1072,9 @@ async function openRound2Session() {
   if (btnR2 && btnR2.disabled) return;
   const minsInput = document.getElementById('inp-tea-p2-mins');
   const pinChk = document.getElementById('chk-tea-p2-pin10s');
-  const rawMins = minsInput ? parseInt(minsInput.value, 10) : 3;
-  const durationMinutes = Math.min(15, Math.max(1, isNaN(rawMins) ? 3 : rawMins));
-  const qrMode = (pinChk && pinChk.checked) ? 'PIN_10S' : 'STATIC';
+  const rawMins = minsInput ? parseInt(minsInput.value, 10) : 5;
+  const durationMinutes = Math.min(15, Math.max(1, isNaN(rawMins) ? 5 : rawMins));
+  const qrMode =(pinChk && pinChk.checked) ? 'PIN_10S' : 'STATIC';
   if (minsInput) minsInput.value = String(durationMinutes);
 
   if (qrMode === 'PIN_10S') {
@@ -1253,8 +1241,8 @@ async function teacherControlSession(subAction, extra = {}) {
         await applyTeacherState(res, false);
         showStatus(
           isEn
-            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.8.1.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
-            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.8.1.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.9.0.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.9.0.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
           'warn',
           'tea-session-inline-status'
         );
@@ -1469,7 +1457,7 @@ function renderTeacherRoster() {
   }
 
   const searchInput = document.getElementById('inp-roster-search');
-  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  const query = searchInput ? foldSearchText(searchInput.value) : '';
 
   const list = (teacherState && teacherState.roster) || [];
   const p2Opened = Boolean(teacherState && teacherState.round2OpenedToday);
@@ -1516,7 +1504,7 @@ function renderTeacherRoster() {
   }
 
   const filtered = list.filter(s => {
-    const matchesSearch = s.studentId.toLowerCase().includes(query) || s.fullName.toLowerCase().includes(query);
+    const matchesSearch = foldSearchText(s.studentId).includes(query) || foldSearchText(s.fullName).includes(query);
     if (!matchesSearch) return false;
     const stCode = getStudentStatusForRoundView(s, viewMode, p2Opened);
     if (activeRosterFilter === 'PRESENT') return stCode === 'P' || stCode === 'L';
@@ -1680,12 +1668,12 @@ async function handleRosterSearchKeydown(event) {
   if (!event || event.key !== 'Enter') return;
   event.preventDefault();
   const searchInput = document.getElementById('inp-roster-search');
-  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  const query = searchInput ? foldSearchText(searchInput.value) : '';
   if (!query) return;
 
   const list = (teacherState && teacherState.roster) || [];
   const matches = list.filter(s =>
-    s.studentId.toLowerCase().includes(query) || s.fullName.toLowerCase().includes(query)
+    foldSearchText(s.studentId).includes(query) || foldSearchText(s.fullName).includes(query)
   );
   if (matches.length === 1) {
     const target = matches[0];
@@ -2134,18 +2122,6 @@ function openAttendanceHistoryManagerModal(initialDayKey) {
   }
 }
 
-function onHistorySelectDateDropdownChange() {
-  if (historyModalSelectedDayKey && historyModalSelectedDayKey !== 'ALL') {
-    const m = String(historyModalSelectedDayKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (m) {
-      historyModalCalendarYear = parseInt(m[1], 10);
-      historyModalCalendarMonth = parseInt(m[2], 10);
-    }
-  }
-  renderHistoryCalendarWidget();
-  renderHistoryModalList();
-}
-
 function changeHistoryCalendarMonth(delta) {
   let m = historyModalCalendarMonth + Number(delta || 0);
   let y = historyModalCalendarYear;
@@ -2325,7 +2301,7 @@ function renderHistoryModalList() {
   const searchEl = document.getElementById('inp-hist-search');
   const summaryBar = document.getElementById('hist-selected-day-summary');
   const selectedDayKey = historyModalSelectedDayKey || 'ALL';
-  const query = searchEl ? searchEl.value.trim().toLowerCase() : '';
+  const query = searchEl ? foldSearchText(searchEl.value) : '';
 
   const list = (teacherState && teacherState.roster) || [];
   const days = collectClassSessionDaysFromRoster();
@@ -2359,7 +2335,7 @@ function renderHistoryModalList() {
   }
 
   const matchedStudents = list.filter(st =>
-    !query || st.fullName.toLowerCase().includes(query) || st.studentId.toLowerCase().includes(query)
+    !query || foldSearchText(st.fullName).includes(query) || foldSearchText(st.studentId).includes(query)
   );
 
   const items = [];
@@ -3169,16 +3145,6 @@ function toggleRosterVisibility() {
   renderTeacherRoster();
 }
 
-function toggleProjectorFullscreen() {
-  const main = document.getElementById('main-container');
-  main.classList.toggle('wide');
-  if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-    document.documentElement.requestFullscreen().catch(() => {});
-  } else if (document.exitFullscreen) {
-    document.exitFullscreen().catch(() => {});
-  }
-}
-
 function startTeacherPolling() {
   stopTeacherPolling();
   teacherPollTimer = setInterval(() => refreshTeacherState(false), 2500);
@@ -3186,4 +3152,276 @@ function startTeacherPolling() {
 
 function stopTeacherPolling() {
   if (teacherPollTimer) clearInterval(teacherPollTimer);
+}
+
+// ---------------------------------------------------------------- Attendance rules panel (per class)
+let teacherRulesPresets = mergeRulePresetList([]);
+let teacherRulesPresetsLoaded = false;
+let rulesPanelKey = '';
+let rulesPanelSaved = null;
+let rulesBasedOn = 'iuh';
+
+const RULE_NUM_FIELDS = [
+  { k: 'baseScore', vi: 'Điểm gốc', en: 'Base score', step: '0.5' },
+  { k: 'deductA', vi: 'Trừ mỗi buổi vắng', en: 'Deduct per absence', step: '0.25' },
+  { k: 'deductL', vi: 'Trừ mỗi buổi trễ', en: 'Deduct per late', step: '0.25' },
+  { k: 'deductE', vi: 'Trừ mỗi buổi có phép', en: 'Deduct per excused', step: '0.25' },
+  { k: 'eToAbsence', vi: 'Một buổi có phép tính bằng … buổi vắng', en: 'One excused counts as … absences', step: '0.25' },
+  { k: 'totalSessions', vi: 'Tổng số buổi của môn', en: 'Total sessions', step: '1' },
+  { k: 'banScoreBelow', vi: 'Cấm thi khi điểm dưới', en: 'Ban when score below', step: '0.5' },
+  { k: 'warnAbsMargin', vi: 'Cảnh báo khi cách ngưỡng vắng (buổi)', en: 'Warn within (absences)', step: '0.25' },
+  { k: 'warnScoreMargin', vi: 'Cảnh báo khi cách ngưỡng điểm (điểm)', en: 'Warn within (points)', step: '0.25' }
+];
+
+function loadTeacherRulePresets_() {
+  teacherRulesPresetsLoaded = true;
+  fetch('presets.json', { cache: 'no-cache' })
+    .then(r => (r && r.ok ? r.json() : null))
+    .then(j => {
+      if (j && Array.isArray(j.presets) && j.presets.length) {
+        teacherRulesPresets = mergeRulePresetList(j.presets);
+        rulesPanelKey = '';
+        const cfg = (teacherState && teacherState.classes || []).find(c => c.classId === selectedTeacherClassId);
+        if (cfg) renderTeacherRulesPanel(cfg);
+      }
+    })
+    .catch(() => {});
+}
+
+function rulePresetLabel_(p) {
+  const lang = currentLang === 'en' ? 'en' : 'vi';
+  return (p.label && (p.label[lang] || p.label.vi)) || p.id;
+}
+
+function rulePresetRules_(p) {
+  return normalizeAttendanceRules(Object.assign({}, DEFAULT_ATTENDANCE_RULES, p.rules || {}, { presetId: p.id }));
+}
+
+function findMatchingRulePreset_(rules) {
+  const strip = r => JSON.stringify(Object.assign({}, normalizeAttendanceRules(r), { presetId: '' }));
+  const target = strip(rules);
+  return teacherRulesPresets.find(p => strip(rulePresetRules_(p)) === target) || null;
+}
+
+function ruleSummaryName_(saved) {
+  const isEn = currentLang === 'en';
+  const match = findMatchingRulePreset_(saved);
+  if (match) return rulePresetLabel_(match);
+  const base = teacherRulesPresets.find(p => p.id === saved.presetId);
+  const baseTxt = base ? (isEn ? ` (based on ${base.id.toUpperCase()})` : ` (dựa trên ${base.id.toUpperCase()})`) : '';
+  return (isEn ? 'Custom' : 'Tùy chỉnh') + baseTxt;
+}
+
+function renderTeacherRulesPanel(activeCfg) {
+  const box = document.getElementById('tea-rules-box');
+  if (!box || typeof normalizeAttendanceRules !== 'function') return;
+  if (!teacherRulesPresetsLoaded) loadTeacherRulePresets_();
+  if (!activeCfg) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  const saved = normalizeAttendanceRules(activeCfg.rules);
+  rulesPanelSaved = saved;
+  const key = activeCfg.classId + '|' + JSON.stringify(saved) + '|' + currentLang + '|' + teacherRulesPresets.length;
+  if (key !== rulesPanelKey) {
+    rulesPanelKey = key;
+    buildRulesForm_(saved);
+  }
+  const sum = document.getElementById('tea-rules-summary');
+  if (sum) sum.textContent = (currentLang === 'en' ? 'Attendance policy: ' : 'Quy chế chuyên cần: ') + ruleSummaryName_(saved);
+}
+
+function buildRulesForm_(saved) {
+  const body = document.getElementById('tea-rules-body');
+  if (!body) return;
+  const isEn = currentLang === 'en';
+  const match = findMatchingRulePreset_(saved);
+  rulesBasedOn = saved.presetId || 'iuh';
+  const presetOpts = teacherRulesPresets.map(p =>
+    `<option value="${escapeHtml(p.id)}">${escapeHtml(rulePresetLabel_(p))}</option>`).join('');
+  const modeOpts = [
+    ['BOTH', isEn ? 'By absences or by score' : 'Theo số buổi vắng hoặc điểm'],
+    ['ABSENCES', isEn ? 'By absences only' : 'Chỉ theo số buổi vắng'],
+    ['SCORE', isEn ? 'By score only' : 'Chỉ theo điểm'],
+    ['OFF', isEn ? 'No exam ban' : 'Không cấm thi']
+  ].map(o => `<option value="${o[0]}">${o[1]}</option>`).join('');
+  const numFields = RULE_NUM_FIELDS.map(f => `
+    <div class="rules-field"><label for="rf-${f.k}">${isEn ? f.en : f.vi}</label>
+    <input type="number" id="rf-${f.k}" step="${f.step}" oninput="onRulesFieldInput()" /></div>`).join('');
+  body.innerHTML = `
+    <div class="rules-field"><label for="sel-rules-preset">${isEn ? 'Policy' : 'Quy chế'}</label>
+      <select id="sel-rules-preset" onchange="onRulesPresetChange()">${presetOpts}<option value="custom">${isEn ? 'Custom' : 'Tùy chỉnh'}</option></select></div>
+    <div id="rules-preset-note" class="rules-note"></div>
+    <details class="rules-sub"><summary>${isEn ? 'Edit details' : 'Chỉnh chi tiết'}</summary>
+      <div class="rules-fields">
+        <div class="rules-field"><label for="rf-banMode">${isEn ? 'Exam ban rule' : 'Cách xét cấm thi'}</label>
+          <select id="rf-banMode" onchange="onRulesFieldInput()">${modeOpts}</select></div>
+        <div class="rules-field"><label for="rf-banAbsences">${isEn ? 'Ban when absences exceed' : 'Cấm thi khi vắng quá'}</label>
+          <div class="rules-inline"><input type="number" id="rf-banAbsences" step="0.5" oninput="onRulesFieldInput()" />
+          <select id="rf-banAbsUnit" onchange="onRulesFieldInput()"><option value="COUNT">${isEn ? 'sessions' : 'buổi'}</option><option value="PERCENT">${isEn ? '% of total' : '% tổng số buổi'}</option></select></div></div>
+        ${numFields}
+      </div>
+    </details>
+    <div id="rules-preview" class="rules-preview hidden"></div>
+    <div class="btn-row">
+      <button type="button" id="btn-rules-save" class="btn btn-primary btn-sm" onclick="saveTeacherRules()">${isEn ? 'Save policy' : 'Lưu quy chế'}</button>
+    </div>
+    <div id="tea-rules-inline-status" class="inline-feedback hidden" role="status" aria-live="polite"></div>
+    <details class="rules-sub"><summary>${isEn ? 'Share my policy' : 'Chia sẻ quy chế của tôi'}</summary>
+      <div class="rules-fields">
+        <button type="button" class="btn btn-outline btn-sm" onclick="exportTeacherRules()">${isEn ? 'Export file' : 'Xuất file quy chế'}</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('inp-rules-import').click()">${isEn ? 'Import file' : 'Nhập file quy chế'}</button>
+        <input type="file" id="inp-rules-import" accept="application/json,.json" class="hidden" onchange="importTeacherRules(this)" />
+      </div>
+    </details>`;
+  fillRulesFields_(saved);
+  const sel = document.getElementById('sel-rules-preset');
+  sel.value = match ? match.id : 'custom';
+  updateRulesCustomLabel_();
+  updateRulesNote_();
+}
+
+function fillRulesFields_(r) {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = String(v); };
+  RULE_NUM_FIELDS.forEach(f => set('rf-' + f.k, r[f.k]));
+  set('rf-banMode', r.banMode);
+  set('rf-banAbsences', r.banAbsences);
+  set('rf-banAbsUnit', r.banAbsUnit);
+}
+
+function readRulesForm_() {
+  const raw = { presetId: rulesBasedOn };
+  RULE_NUM_FIELDS.forEach(f => { const el = document.getElementById('rf-' + f.k); if (el) raw[f.k] = el.value; });
+  ['banMode', 'banAbsences', 'banAbsUnit'].forEach(k => { const el = document.getElementById('rf-' + k); if (el) raw[k] = el.value; });
+  return normalizeAttendanceRules(raw);
+}
+
+function updateRulesCustomLabel_() {
+  const sel = document.getElementById('sel-rules-preset');
+  if (!sel) return;
+  const opt = Array.from(sel.options).find(o => o.value === 'custom');
+  if (!opt) return;
+  const isEn = currentLang === 'en';
+  const base = teacherRulesPresets.find(p => p.id === rulesBasedOn);
+  opt.textContent = (isEn ? 'Custom' : 'Tùy chỉnh') + (base ? (isEn ? ` (based on ${base.id.toUpperCase()})` : ` (dựa trên ${base.id.toUpperCase()})`) : '');
+}
+
+function updateRulesNote_() {
+  const noteEl = document.getElementById('rules-preset-note');
+  const sel = document.getElementById('sel-rules-preset');
+  if (!noteEl || !sel) return;
+  const isEn = currentLang === 'en';
+  const p = teacherRulesPresets.find(x => x.id === sel.value);
+  const form = readRulesForm_();
+  const lang = isEn ? 'en' : 'vi';
+  const extra = p && p.note ? (p.note[lang] || p.note.vi || '') : '';
+  noteEl.textContent = describeAttendanceRules(form, isEn) + (extra ? ' · ' + extra : '');
+}
+
+function onRulesPresetChange() {
+  const sel = document.getElementById('sel-rules-preset');
+  if (!sel || sel.value === 'custom') { updateRulesNote_(); refreshRulesPreview_(); return; }
+  const p = teacherRulesPresets.find(x => x.id === sel.value);
+  if (!p) return;
+  rulesBasedOn = p.id;
+  fillRulesFields_(rulePresetRules_(p));
+  updateRulesCustomLabel_();
+  updateRulesNote_();
+  refreshRulesPreview_();
+}
+
+function onRulesFieldInput() {
+  const sel = document.getElementById('sel-rules-preset');
+  const form = readRulesForm_();
+  const match = findMatchingRulePreset_(form);
+  if (sel) sel.value = match ? match.id : 'custom';
+  if (match) rulesBasedOn = match.id;
+  updateRulesCustomLabel_();
+  updateRulesNote_();
+  refreshRulesPreview_();
+}
+
+function refreshRulesPreview_() {
+  const el = document.getElementById('rules-preview');
+  if (!el || !rulesPanelSaved) return;
+  const isEn = currentLang === 'en';
+  const form = readRulesForm_();
+  const same = JSON.stringify(Object.assign({}, form, { presetId: '' })) === JSON.stringify(Object.assign({}, rulesPanelSaved, { presetId: '' }));
+  if (same) { el.classList.add('hidden'); return; }
+  const changes = previewAttendanceRuleChange((teacherState && teacherState.roster) || [], rulesPanelSaved, form);
+  const lbl = s => (s === 'BAN' ? (isEn ? 'EXAM BAN' : 'CẤM THI') : (s === 'WARN' ? (isEn ? 'WARNING' : 'CẢNH BÁO') : 'OK'));
+  el.classList.remove('hidden');
+  if (!changes.length) {
+    el.textContent = isEn ? 'No student changes status.' : 'Không sinh viên nào đổi trạng thái.';
+    return;
+  }
+  el.innerHTML = `<details><summary>${isEn ? `${changes.length} student(s) will change status` : `${changes.length} sinh viên sẽ đổi trạng thái`}</summary><ul>` +
+    changes.map(c => `<li>${escapeHtml(c.fullName)} (${escapeHtml(c.studentId)}): ${lbl(c.from)} → ${lbl(c.to)}</li>`).join('') + '</ul></details>';
+}
+
+async function saveTeacherRules() {
+  const btn = document.getElementById('btn-rules-save');
+  if (btn && btn.disabled) return;
+  const auth = getTeacherAuth();
+  const classId = document.getElementById('sel-tea-class').value;
+  const isEn = currentLang === 'en';
+  if (!auth || !classId) {
+    showStatus(isEn ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.', 'warn', 'tea-rules-inline-status');
+    return;
+  }
+  if (btn) btn.disabled = true;
+  try {
+    const res = await callBackend(auth.apiUrl, {
+      action: 'TEACHER_SET_RULES',
+      teacherToken: auth.token,
+      classId: classId,
+      rules: readRulesForm_()
+    });
+    if (res && res.ok) {
+      rulesPanelKey = '';
+      await applyTeacherState(res, false);
+      showStatus(isEn ? 'Attendance policy saved.' : 'Đã lưu quy chế chuyên cần.', 'success', 'tea-rules-inline-status');
+    } else {
+      showStatus(formatServerMessage(res && res.code ? res.code : 'ERR_NETWORK'), 'err', 'tea-rules-inline-status');
+    }
+  } catch (e) {
+    showStatus(isEn ? 'Could not save the policy. Try again.' : 'Không lưu được quy chế. Hãy thử lại.', 'err', 'tea-rules-inline-status');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function exportTeacherRules() {
+  const classId = document.getElementById('sel-tea-class').value || 'class';
+  const json = exportAttendanceRulesJson(readRulesForm_(), classId);
+  try {
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ccs-quy-che-' + classId.replace(/[^A-Za-z0-9_-]/g, '') + '.json';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  } catch (e) {
+    showStatus(currentLang === 'en' ? 'Export failed.' : 'Không xuất được file.', 'err', 'tea-rules-inline-status');
+  }
+}
+
+function importTeacherRules(input) {
+  const file = input && input.files && input.files[0];
+  if (!file) return;
+  const isEn = currentLang === 'en';
+  const reader = new FileReader();
+  reader.onload = () => {
+    const parsed = parseAttendanceRulesJson(reader.result);
+    input.value = '';
+    if (!parsed) {
+      showStatus(isEn ? 'This is not a valid CCS policy file.' : 'File này không phải file quy chế của CCS.', 'err', 'tea-rules-inline-status');
+      return;
+    }
+    rulesBasedOn = parsed.rules.presetId || 'iuh';
+    fillRulesFields_(parsed.rules);
+    onRulesFieldInput();
+    showStatus(isEn ? 'Policy loaded. Review the preview, then press Save.' : 'Đã nạp quy chế. Xem trước rồi bấm Lưu.', 'success', 'tea-rules-inline-status');
+  };
+  reader.onerror = () => showStatus(isEn ? 'Could not read the file.' : 'Không đọc được file.', 'err', 'tea-rules-inline-status');
+  reader.readAsText(file);
 }

@@ -2,6 +2,25 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### ✨ Version `v3.9.0` — *Per-Class Attendance Rules (Presets, Detailed Editor, Preview & JSON Import/Export), Accent-Insensitive Search, Student ID Rule & Sync Hardening*
+* **Per-Class Attendance Rules (`CLASS_RULES_V1`)**: each class can have its own scoring and exam-ban rules. Classes without a saved rule keep the IUH formula from `RULES.md` 3.1-3.3, so nothing changes for them.
+  * **Preset dropdown**: `IUH` (default) and `Attendance only, no exam ban` (`banMode: OFF`). Community presets are loaded from `presets.json` in the repo.
+  * **Edit details**: base score, deductions for A / L / E, E-to-absence ratio, ban mode (`BOTH` / `ABSENCES` / `SCORE` / `OFF`), absence threshold by count or percent, total sessions, score threshold and warning margins.
+  * **Preview before saving**: shows how many students would change status (OK / WARN / BAN).
+  * **Export / Import JSON** (`ccsRules: 1`) to share a policy with other lecturers.
+  * A manual exam ban set by the lecturer always applies, even when the mode is `OFF`.
+* **Accent-Insensitive Search**: typing `ba` finds `Bảo` in the roster and in the history search.
+* **Round 2 Default**: a Round 2 spot-check now defaults to `5` minutes.
+* **Private Browsing Message**: clearer instructions to reopen the link in regular Safari or Chrome. The block itself is unchanged.
+* **Backend ID Normalization**: `normalizeId` in `code3.9.0.text` drops the `.0` suffix, the same as `sync.txt`.
+* **Student ID Rule (`STUDENT_ID_RULE_V1`)**: roster sync reads the MSSV rule from this Script Property, default `{"minLen":3,"maxLen":20,"minDigits":2}`. Set `minDigits` to `0` for letter-only IDs.
+* **Sync Safety (M11)**: sync no longer overwrites an `.XLSX` file that the lecturer edited while the sync was converting it.
+* **Student Polling (M15)**: when no session is open, students send `PING` every `10` seconds instead of `5`.
+* **Cleanup**: removed dead code.
+* **Deploy Script**: `deploy-appscript.js` runs the full test suite before staging. Use `--skip-tests` to skip it.
+* **Version Bump (`index.html`, `sync.txt`, `js/attendance-rules.js`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `css/styles.css`, `RULES.md`, `code3.9.0.text`)**:
+  * Version set to `3.9.0` (cache busters `?v=3.9.0`). Backend file renamed from `code3.8.1.text`.
+  * Backend changes need an Apps Script deploy (`New version`).
 ### 🔧 Version `v3.8.1` — *Mobile Bar, Tap Targets, Notice & Grouping Feedback Patch (Frontend)*
 * **Frontend-Only Release**: backend logic is unchanged. Only the `SYSTEM_VERSION` constant and the file name changed (`code3.8.1.text`). **No Apps Script deploy is needed.**
 * **Mobile Blue Bar (`<= 480px`)**: the bar is `47px` tall (was `75px`) and is no longer pinned to the top of the page.
@@ -466,6 +485,25 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### ✨ Version `v3.9.0` — *Quy Chế Chuyên Cần Theo Từng Lớp (Preset, Chỉnh Chi Tiết, Xem Trước & Xuất/Nhập JSON), Tìm Kiếm Không Dấu, Quy Tắc MSSV & Gia Cố Đồng Bộ*
+* **Quy Chế Chuyên Cần Theo Lớp (`CLASS_RULES_V1`)**: mỗi lớp có quy chế điểm và cấm thi riêng. Lớp chưa lưu quy chế vẫn dùng công thức IUH trong `RULES.md` mục 3.1-3.3, nên không đổi gì với các lớp đó.
+  * **Dropdown preset**: `IUH` (mặc định) và `Chỉ điểm danh, không cấm thi` (`banMode: OFF`). Preset cộng đồng đọc từ `presets.json` trong repo.
+  * **Chỉnh chi tiết**: điểm gốc, mức trừ A / L / E, hệ số quy đổi E sang vắng, kiểu cấm thi (`BOTH` / `ABSENCES` / `SCORE` / `OFF`), ngưỡng vắng theo buổi hoặc %, tổng số buổi, ngưỡng điểm và biên cảnh báo.
+  * **Xem trước trước khi lưu**: cho biết bao nhiêu sinh viên đổi trạng thái (OK / CẢNH BÁO / CẤM THI).
+  * **Xuất / nhập JSON** (`ccsRules: 1`) để chia sẻ quy chế với giảng viên khác.
+  * Chấm tay cấm thi của giảng viên luôn có hiệu lực, kể cả khi kiểu là `OFF`.
+* **Tìm Kiếm Không Dấu**: gõ `ba` ra `Bảo` ở danh sách sinh viên và ô tìm kiếm lịch sử.
+* **Phiên 2 Mặc Định**: phiên 2 đột xuất mặc định `5` phút.
+* **Thông Báo Ẩn Danh**: hướng dẫn rõ hơn là mở lại link bằng Safari hoặc Chrome thường. Việc chặn vẫn giữ nguyên.
+* **Chuẩn Hóa MSSV Backend**: `normalizeId` trong `code3.9.0.text` bỏ hậu tố `.0` giống `sync.txt`.
+* **Quy Tắc MSSV (`STUDENT_ID_RULE_V1`)**: đồng bộ roster đọc quy tắc MSSV từ Script Property này, mặc định `{"minLen":3,"maxLen":20,"minDigits":2}`. Đặt `minDigits` = `0` cho MSSV chỉ có chữ.
+* **An Toàn Đồng Bộ (M11)**: đồng bộ không còn ghi đè file `.XLSX` nếu giảng viên vừa sửa file đó trong lúc đang chuyển đổi.
+* **Sinh Viên PING (M15)**: khi chưa có phiên mở, sinh viên gửi `PING` mỗi `10` giây thay vì `5` giây.
+* **Dọn Dẹp**: xóa mã không còn dùng.
+* **Script Deploy**: `deploy-appscript.js` chạy toàn bộ test trước khi stage. Dùng `--skip-tests` để bỏ qua.
+* **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/attendance-rules.js`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `css/styles.css`, `RULES.md`, `code3.9.0.text`)**:
+  * Đặt phiên bản `3.9.0` (cache `?v=3.9.0`). Tên file backend đổi từ `code3.8.1.text`.
+  * Thay đổi backend cần deploy Apps Script (`New version`).
 ### 🔧 Version `v3.8.1` — *Bản Vá Thanh Di Động, Vùng Chạm, Thông Báo & Phản Hồi Chia Nhóm (Frontend)*
 * **Chỉ Frontend**: logic backend không đổi. Chỉ hằng số `SYSTEM_VERSION` và tên file đổi thành `code3.8.1.text`. **Không cần deploy Apps Script.**
 * **Thanh Xanh Di Động (`<= 480px`)**: thanh cao `47px` (trước là `75px`) và không còn ghim ở đầu trang.
@@ -910,11 +948,11 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.8.1`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.9.0`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.8.1` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.9.0` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.8.1`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.9.0`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), 100% Centered Floating Confirmation Popups (`#confirm-modal`), Clean Non-AI Utilitarian Buttons, 5-Second Undo Bar (Immediate on Manual Marks), 6-Second Auto-Dismiss Success Notices, `role="dialog"` Focus-Managed Modals, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `+600ms` Lead, `PIN_GRACE_MS = 2500`, `reqArrivalMs` & Instant `0ms` 1-Tap Switch) + `L -> P` Upgrade** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$ + Indoor Wi-Fi/Cell Fallback) + Discreet Fallback GPS Mode (`STUDENT_AVG_3` without stale-coordinate lockout)** |
@@ -924,4 +962,5 @@
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-RPC Pre-Lock Cache + `LockService` Guards on All Write/Rebuild Handlers (45 Concurrent Students in `< 1.6s`, Zero Double-Click Overwrites)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Global 30-Strike Lecturer Code Lockout + Fail-Closed GPS Validation + Master Key Kept Off Third-Party QR URLs + PING Device-Credential Gate + Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.8.1`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
+| **Attendance Rules / Quy chế chuyên cần** | Fixed IUH formula / Công thức IUH cố định | **Per-class rules (`CLASS_RULES_V1`) with presets, detailed editor, preview before save, JSON import/export (`presets.json`), `OFF` mode without exam ban** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.9.0`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |

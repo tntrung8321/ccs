@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.8.1)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.9.0)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.8.1';
+const SYSTEM_VERSION = '3.9.0';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -39,15 +39,6 @@ function onOpen(e) {
     .addSeparator()
     .addItem('6. Start New Semester (Archive & Reset)', 'startNewSemesterWizard')
     .addToUi();
-
-  // Automatically trigger external Sync menu builder if defined in another .gs file
-  try {
-    if (typeof buildSyncMenu === 'function') buildSyncMenu();
-    else if (typeof createSyncMenu === 'function') createSyncMenu();
-    else if (typeof addSyncMenu === 'function') addSyncMenu();
-    else if (typeof setupSyncMenu === 'function') setupSyncMenu();
-    else if (typeof onOpenSync === 'function') onOpenSync(e);
-  } catch (err) {}
 
   try {
     syncDashboardVersionBadge_(SpreadsheetApp.getActiveSpreadsheet());
@@ -556,6 +547,8 @@ function doPost(e) {
         return requireTeacherAuth(ss, body, () => handleTeacherRotateStaticQr(ss, body));
       case 'TEACHER_TOGGLE_REG':
         return requireTeacherAuth(ss, body, () => handleTeacherToggleReg(ss, body));
+      case 'TEACHER_SET_RULES':
+        return requireTeacherAuth(ss, body, () => handleTeacherSetRules(ss, body));
       case 'TEACHER_REBUILD_REPORT':
         return requireTeacherAuth(ss, body, () => handleTeacherRebuildReport(ss, body));
       case 'TEACHER_PUBLISH_GROUPS':
@@ -754,7 +747,14 @@ function handlePing(ss, body) {
     serverNowMs: nowPingMs,
     serverTime: new Date(nowPingMs).toISOString()
   };
-  if (authed) resp.studentStats = getStudentAttendanceStatsMap(ss, studentId, Object.keys(classes), false);
+  if (authed) {
+    const rulesMap = getClassRulesMap_();
+    const statsOut = getStudentAttendanceStatsMap(ss, studentId, Object.keys(classes), false);
+    Object.keys(statsOut).forEach(cid => {
+      statsOut[cid] = Object.assign({}, statsOut[cid], { rules: normalizeAttendanceRules_(rulesMap[cid]) });
+    });
+    resp.studentStats = statsOut;
+  }
   return jsonResponse(resp);
 }
 
@@ -1663,7 +1663,9 @@ function handleTeacherGetState(ss, body) {
   const classes = getClassesMap(ss, false);
   const scheduleMetaMap = getStoredClassSchedulesMap();
   const allLatestSes = getAllLatestSessionsMap(ss, false);
+  const rulesMapForState = getClassRulesMap_();
   const classList = Object.values(classes).map(c => Object.assign({}, c, {
+    rules: normalizeAttendanceRules_(rulesMapForState[c.classId]),
     sessionOpenNow: Boolean(allLatestSes[c.classId] && allLatestSes[c.classId].isOpen),
     scheduleInfo: scheduleMetaMap[c.classId] || parseClassScheduleInfoBackend(c.className)
   }));
@@ -2087,7 +2089,7 @@ function handleTeacherControlSessionLocked_(ss, body) {
     const roomLat = Number(p1Ses.roomLat || cfg.roomLat || 0);
     const roomLng = Number(p1Ses.roomLng || cfg.roomLng || 0);
     const radiusMeters = Number(p1Ses.radiusMeters || cfg.radiusMeters || 100);
-    const round2Mins = Math.min(30, Math.max(1, Number(body.durationMinutes || body.round2Mins || 3)));
+    const round2Mins = Math.min(30, Math.max(1, Number(body.durationMinutes || body.round2Mins || 5)));
     const reqQrMode = String(body.qrMode || 'STATIC').toUpperCase();
     const p2QrMode = (reqQrMode === 'PIN_10S' || reqQrMode === 'ROTATING') ? reqQrMode : 'STATIC';
     const presentUntilMs = nowMs + round2Mins * 60 * 1000;
@@ -3285,6 +3287,128 @@ function pickStudentIdCell_(raw, disp) {
   return raw;
 }
 
+const DEFAULT_ATTENDANCE_RULES_ = {
+  version: 1,
+  presetId: 'iuh',
+  baseScore: 10,
+  deductA: 1,
+  deductL: 0.5,
+  deductE: 0.5,
+  eToAbsence: 0.5,
+  banMode: 'BOTH',
+  banAbsences: 6,
+  banAbsUnit: 'COUNT',
+  totalSessions: 30,
+  banScoreBelow: 0,
+  warnAbsMargin: 0.5,
+  warnScoreMargin: 1
+};
+const CLASS_RULES_PROP_KEY = 'CLASS_RULES_V1';
+
+function clampRule_(v, min, max, def) {
+  const n = Number(v);
+  if (!isFinite(n)) return def;
+  return Math.min(max, Math.max(min, n));
+}
+
+function normalizeAttendanceRules_(raw) {
+  const d = DEFAULT_ATTENDANCE_RULES_;
+  const r = (raw && typeof raw === 'object') ? raw : {};
+  const modes = ['BOTH', 'ABSENCES', 'SCORE', 'OFF'];
+  const mode = String(r.banMode || '').toUpperCase();
+  const unit = String(r.banAbsUnit || '').toUpperCase();
+  return {
+    version: 1,
+    presetId: String(r.presetId || d.presetId).slice(0, 40),
+    baseScore: clampRule_(r.baseScore, 1, 1000, d.baseScore),
+    deductA: clampRule_(r.deductA, 0, 100, d.deductA),
+    deductL: clampRule_(r.deductL, 0, 100, d.deductL),
+    deductE: clampRule_(r.deductE, 0, 100, d.deductE),
+    eToAbsence: clampRule_(r.eToAbsence, 0, 5, d.eToAbsence),
+    banMode: modes.indexOf(mode) >= 0 ? mode : d.banMode,
+    banAbsences: clampRule_(r.banAbsences, 0, 1000, d.banAbsences),
+    banAbsUnit: (unit === 'PERCENT' || unit === 'COUNT') ? unit : d.banAbsUnit,
+    totalSessions: Math.round(clampRule_(r.totalSessions, 1, 200, d.totalSessions)),
+    banScoreBelow: clampRule_(r.banScoreBelow, -1000, 1000, d.banScoreBelow),
+    warnAbsMargin: clampRule_(r.warnAbsMargin, 0, 100, d.warnAbsMargin),
+    warnScoreMargin: clampRule_(r.warnScoreMargin, 0, 1000, d.warnScoreMargin)
+  };
+}
+
+function effectiveBanAbsences_(rulesIn) {
+  const r = normalizeAttendanceRules_(rulesIn);
+  const v = r.banAbsUnit === 'PERCENT' ? (r.totalSessions * r.banAbsences / 100) : r.banAbsences;
+  return Math.round(v * 100) / 100;
+}
+
+function evaluateAttendanceRules_(countP, countL, countE, countA, manualExamBan, rulesIn) {
+  const r = normalizeAttendanceRules_(rulesIn);
+  const p = Number(countP || 0);
+  const l = Number(countL || 0);
+  const e = Number(countE || 0);
+  const a = Number(countA || 0);
+  const equivAbsences = Math.round((a + e * r.eToAbsence) * 100) / 100;
+  const attendanceScore = Math.round((r.baseScore - a * r.deductA - l * r.deductL - e * r.deductE) * 100) / 100;
+  const banAbs = effectiveBanAbsences_(r);
+  const useAbs = r.banMode === 'BOTH' || r.banMode === 'ABSENCES';
+  const useScore = r.banMode === 'BOTH' || r.banMode === 'SCORE';
+  const isBanned = Boolean(manualExamBan) ||
+    (useAbs && equivAbsences > banAbs) ||
+    (useScore && attendanceScore < r.banScoreBelow);
+  const isWarn = !isBanned && (
+    (useAbs && equivAbsences >= banAbs - r.warnAbsMargin && equivAbsences <= banAbs) ||
+    (useScore && attendanceScore >= r.banScoreBelow && attendanceScore <= r.banScoreBelow + r.warnScoreMargin)
+  );
+  return {
+    P: p, L: l, E: e, A: a,
+    total: p + l + e + a,
+    equivAbsences,
+    attendanceScore,
+    manualExamBan: Boolean(manualExamBan),
+    examStatus: isBanned ? 'BAN' : (isWarn ? 'WARN' : 'OK')
+  };
+}
+
+function getClassRulesMap_() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(CLASS_RULES_PROP_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    return (obj && typeof obj === 'object') ? obj : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function getClassRules_(classId) {
+  return normalizeAttendanceRules_(getClassRulesMap_()[String(classId || '')]);
+}
+
+function applyRulesToStatEntry_(st, rules) {
+  const res = evaluateAttendanceRules_(st.P, st.L, st.E, st.A, st.manualExamBan, rules);
+  st.equivAbsences = res.equivAbsences;
+  st.attendanceScore = res.attendanceScore;
+  st.examStatus = res.examStatus;
+}
+
+function handleTeacherSetRules(ss, body) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(8000)) return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
+  try {
+    const classId = String(body.classId || '').trim();
+    const classes = getClassesMap(ss, true);
+    if (!classes[classId]) return jsonResponse({ ok: false, code: 'ERR_INVALID_CLASS' });
+    const rules = normalizeAttendanceRules_(body.rules);
+    const map = getClassRulesMap_();
+    map[classId] = rules;
+    PropertiesService.getScriptProperties().setProperty(CLASS_RULES_PROP_KEY, JSON.stringify(map));
+    invalidateClassCache(classId);
+    try { logAudit(ss, 'TEACHER_APP', 'SET_CLASS_RULES', classId, rules.presetId + ' ' + rules.banMode); } catch (e) {}
+    return handleTeacherGetState(ss, { classId: classId });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function getClassesMap(ss, bypassCache) {
   const cache = CacheService.getScriptCache();
   const fastKey = 'CLASSES_MAP_V373';
@@ -3653,13 +3777,7 @@ function updateStudentClassAttendanceStatsCacheInPlace_(classId, activeSession, 
       else if (newFinal === 'E') { st.E++; st.total++; }
       else if (newFinal === '-') { st.A++; st.total++; }
 
-      const equivAbsences = Math.round((st.A + (st.E * 0.5)) * 10) / 10;
-      const attendanceScore = Math.round((10.0 - (st.A * 1.0) - (st.L * 0.5) - (st.E * 0.5)) * 10) / 10;
-      const isBanned = Boolean(st.manualExamBan) || (equivAbsences > 6.0) || (attendanceScore < 0.0);
-      const isWarn = !isBanned && ((equivAbsences >= 5.5 && equivAbsences <= 6.0) || (attendanceScore >= 0.0 && attendanceScore <= 1.0));
-      st.equivAbsences = equivAbsences;
-      st.attendanceScore = attendanceScore;
-      st.examStatus = isBanned ? 'BAN' : (isWarn ? 'WARN' : 'OK');
+      applyRulesToStatEntry_(st, getClassRules_(classId));
     }
 
     cache.put(cacheKey, JSON.stringify(statsMap), 1800);
@@ -3814,16 +3932,9 @@ function getClassAttendanceStatsMap_(ss, classId, bypassCache) {
     });
   });
 
+  const classRules = getClassRules_(classId);
   studentIds.forEach(sid => {
-    const st = statsMap[sid];
-    const equivAbsences = Math.round((st.A + (st.E * 0.5)) * 10) / 10;
-    const attendanceScore = Math.round((10.0 - (st.A * 1.0) - (st.L * 0.5) - (st.E * 0.5)) * 10) / 10;
-    const isBanned = Boolean(st.manualExamBan) || (equivAbsences > 6.0) || (attendanceScore < 0.0);
-    const isWarn = !isBanned && ((equivAbsences >= 5.5 && equivAbsences <= 6.0) || (attendanceScore >= 0.0 && attendanceScore <= 1.0));
-
-    st.equivAbsences = equivAbsences;
-    st.attendanceScore = attendanceScore;
-    st.examStatus = isBanned ? 'BAN' : (isWarn ? 'WARN' : 'OK');
+    applyRulesToStatEntry_(statsMap[sid], classRules);
   });
 
   try { cache.put(cacheKey, JSON.stringify(statsMap), 1800); } catch (e) {}
@@ -3901,7 +4012,9 @@ function logAudit(ss, actor, action, target, details) {
 }
 
 function normalizeId(val) {
-  return String(val || '').trim().toUpperCase();
+  let s = String(val || '').trim().toUpperCase();
+  if (s.length > 2 && s.endsWith('.0')) s = s.slice(0, -2);
+  return s;
 }
 
 function formatIsoNow() {

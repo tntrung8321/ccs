@@ -1,7 +1,7 @@
 const { spawnSync } = require('child_process');
 const path = require('path');
 
-const scripts = ['test-deploy-appscript.js', 'test-v371-ux.js', 'test-v376-session.js', 'test-core.js', 'test-sim-class.js'];
+const scripts = ['test-deploy-appscript.js', 'test-v371-ux.js', 'test-v376-session.js', 'test-core.js', 'test-sim-class.js', 'test-attendance-rules.js'];
 
 const results = scripts.map((name) => {
   const r = spawnSync(process.execPath, [path.join(__dirname, name)], { stdio: 'inherit' });

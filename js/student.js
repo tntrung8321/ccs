@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.8.1)
+ * STUDENT CONTROLLER (js/student.js — v3.9.0)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Official Attendance Score (Base 10.0), Same-Day Session Merging, Near-Limit Warning & Exam Ban (CẤM THI)
  *  - Live Classroom Group Assignment Card (#stu-group-card)
@@ -17,7 +17,6 @@ let checkInCooldownTimer = null;
 let stuAttHistoryExpanded = false;
 let studentLivePollTimer = null;
 let lastStudentWakeSyncMs = 0;
-window.cachedGPS = null; // Kept null so check-in always verifies fresh live GPS
 window.lockedRound2GpsPos = null; // Pre-locked live GPS coordinate during Round 2 10-second PIN entry
 window.pinBoxOpenedAtMs = 0;
 window.pinFirstKeyAtMs = 0;
@@ -87,10 +86,16 @@ function startStudentLiveSessionPolling() {
   if (studentLivePollTimer) clearInterval(studentLivePollTimer);
   studentLivePollTimer = setInterval(() => {
     if (!document.hidden && currentMode === 'STUDENT' && !isSubmitting) {
+      // Idle (no open session on the last PING): poll every 10s instead of 5s to spare the server quota.
+      if (!studentAnySessionOpen && Date.now() - studentLastPollMs < 9000) return;
+      studentLastPollMs = Date.now();
       syncStudentLiveScheduleFromServer();
     }
   }, 5000);
 }
+
+let studentAnySessionOpen = true;
+let studentLastPollMs = 0;
 
 /**
  * Fetches live Google Calendar & Period Schedule metadata from Backend in background
@@ -112,6 +117,7 @@ async function syncStudentLiveScheduleFromServer() {
     }
     const pingRes = await callBackend(apiUrl, pingPayload, 1);
     if (pingRes && pingRes.ok) {
+      studentAnySessionOpen = Array.isArray(pingRes.classes) ? pingRes.classes.some(c => c && c.sessionOpenNow) : true;
       ingestServerScheduleData(pingRes);
       let enrolledChanged = false;
       // Merge any updated class metadata (such as scheduleInfo / sessionOpenNow / attendanceStats) into stored enrolledClasses
@@ -443,26 +449,8 @@ function getLocalStudentAttendanceHistory(studentId, classId) {
   return list;
 }
 
-function computeAttendanceScoreAndExamStatus(countP, countL, countE, countA, manualExamBan = false) {
-  const p = Number(countP || 0);
-  const l = Number(countL || 0);
-  const e = Number(countE || 0);
-  const a = Number(countA || 0);
-  const equivAbsences = Math.round((a + (e * 0.5)) * 10) / 10;
-  const attendanceScore = Math.round((10.0 - (a * 1.0) - (l * 0.5) - (e * 0.5)) * 10) / 10;
-  const isBanned = Boolean(manualExamBan) || (equivAbsences > 6.0) || (attendanceScore < 0.0);
-  const isWarn = !isBanned && ((equivAbsences >= 5.5 && equivAbsences <= 6.0) || (attendanceScore >= 0.0 && attendanceScore <= 1.0));
-  return {
-    P: p,
-    L: l,
-    E: e,
-    A: a,
-    total: p + l + e + a,
-    equivAbsences,
-    attendanceScore,
-    manualExamBan: Boolean(manualExamBan),
-    examStatus: isBanned ? 'BAN' : (isWarn ? 'WARN' : 'OK')
-  };
+function computeAttendanceScoreAndExamStatus(countP, countL, countE, countA, manualExamBan = false, rules = null) {
+  return evaluateAttendanceRules(countP, countL, countE, countA, manualExamBan, rules);
 }
 
 function getMergedStudentClassStats(studentId, classId, serverStats) {
@@ -473,7 +461,7 @@ function getMergedStudentClassStats(studentId, classId, serverStats) {
     : { P: 0, L: 0, E: 0, A: 0, total: 0, manualExamBan: false, history: [] };
 
   if (!sid || !cid) {
-    const base = computeAttendanceScoreAndExamStatus(srv.P, srv.L, srv.E, srv.A, srv.manualExamBan);
+    const base = computeAttendanceScoreAndExamStatus(srv.P, srv.L, srv.E, srv.A, srv.manualExamBan, srv.rules);
     base.history = [];
     return base;
   }
@@ -558,7 +546,8 @@ function getMergedStudentClassStats(studentId, classId, serverStats) {
   const finalE = Number(srv.E || 0) + supE;
   const finalA = Number(srv.A || 0) + supA;
 
-  const computed = computeAttendanceScoreAndExamStatus(finalP, finalL, finalE, finalA, srv.manualExamBan);
+  const computed = computeAttendanceScoreAndExamStatus(finalP, finalL, finalE, finalA, srv.manualExamBan, srv.rules);
+  computed.rules = srv.rules || null;
   computed.history = mergedHistory;
   return computed;
 }
@@ -670,10 +659,15 @@ function renderStudentAttendanceSummary(instId, classId) {
   const countL = Number(st.L || 0);
   const countE = Number(st.E || 0);
   const countA = Number(st.A || 0);
-  const scoreVal = typeof st.attendanceScore === 'number' ? st.attendanceScore : 10.0;
+  const rl = normalizeAttendanceRules(st.rules);
+  const baseVal = rl.baseScore;
+  const banAbsVal = effectiveBanAbsences(rl);
+  const showAbsLimit = rl.banMode === 'BOTH' || rl.banMode === 'ABSENCES';
+  const scoreVal = typeof st.attendanceScore === 'number' ? st.attendanceScore : baseVal;
   const equivVal = typeof st.equivAbsences === 'number' ? st.equivAbsences : 0;
   const examStatus = st.examStatus || 'OK';
   const isEn = currentLang === 'en';
+  const absLimitTxt = showAbsLimit ? `/${banAbsVal}` : '';
   const historyList = Array.isArray(st.history) ? st.history : [];
 
   bar.classList.remove('att-warn-light', 'att-ban-solid');
@@ -687,11 +681,11 @@ function renderStudentAttendanceSummary(instId, classId) {
   if (examStatus === 'BAN') {
     const banReason = st.manualExamBan
       ? (isEn
-          ? `Marked ineligible for exam on official class sheet (Score: ${scoreVal}/10 • Equiv. absences: ${equivVal}x)`
+          ? `Marked ineligible for exam on official class sheet (Score: ${scoreVal}/${baseVal} • Equiv. absences: ${equivVal}x)`
           : `Đã xử lý cấm thi trên danh sách lớp (Điểm CC: ${scoreVal}đ • Vắng quy đổi: ${equivVal} buổi)`)
       : (isEn
-          ? `Score: ${scoreVal}/10 • Equivalent absences: ${equivVal}/6.0 sessions (Exceeds permitted limit)`
-          : `Điểm chuyên cần: ${scoreVal}đ • Vắng quy đổi: ${equivVal}/6 buổi (Vượt mức quy định)`);
+          ? `Score: ${scoreVal}/${baseVal} • Equivalent absences: ${equivVal}${absLimitTxt} sessions (Exceeds permitted limit)`
+          : `Điểm chuyên cần: ${scoreVal}đ • Vắng quy đổi: ${equivVal}${absLimitTxt} buổi (Vượt mức quy định)`);
     warningBannerHtml = `
       <div id="stu-att-warning-banner" class="stu-att-warning-banner">
         <span class="exam-ban-badge">${isEn ? 'EXAM BANNED (CẤM THI)' : 'CẤM THI'}</span>
@@ -700,8 +694,8 @@ function renderStudentAttendanceSummary(instId, classId) {
     `;
   } else if (examStatus === 'WARN') {
     const warnText = isEn
-      ? `Score: ${scoreVal}/10 • Equiv. absences: ${equivVal}/6.0 sessions — Near exam ban threshold!`
-      : `Điểm chuyên cần: ${scoreVal}đ • Vắng quy đổi: ${equivVal}/6 buổi — Cảnh báo sát mức cấm thi!`;
+      ? `Score: ${scoreVal}/${baseVal} • Equiv. absences: ${equivVal}${absLimitTxt} sessions — Near exam ban threshold!`
+      : `Điểm chuyên cần: ${scoreVal}đ • Vắng quy đổi: ${equivVal}${absLimitTxt} buổi — Cảnh báo sát mức cấm thi!`;
     warningBannerHtml = `
       <div id="stu-att-warning-banner" class="stu-att-warning-banner">
         <span class="exam-warn-badge">${isEn ? 'WARNING' : 'CẢNH BÁO'}</span>
@@ -717,18 +711,18 @@ function renderStudentAttendanceSummary(instId, classId) {
       return `<span class="att-dot dot-p"></span><span>${isEn ? 'Present' : 'Có mặt'}</span>`;
     }
     if (statusChar === 'L') {
-      return `<span class="att-dot dot-l"></span><span>${isEn ? 'Late (-0.5pt)' : 'Đi trễ (-0.5đ)'}</span>`;
+      return `<span class="att-dot dot-l"></span><span>${isEn ? `Late (-${rl.deductL}pt)` : `Đi trễ (-${rl.deductL}đ)`}</span>`;
     }
     if (statusChar === 'E') {
-      return `<span class="att-dot dot-e"></span><span>${isEn ? 'Excused (-0.5pt, 0.5x)' : 'Có phép (-0.5đ, 0.5x)'}</span>`;
+      return `<span class="att-dot dot-e"></span><span>${isEn ? `Excused (-${rl.deductE}pt, ${rl.eToAbsence}x)` : `Có phép (-${rl.deductE}đ, ${rl.eToAbsence}x)`}</span>`;
     }
-    return `<span class="att-dot dot-a"></span><span>${isEn ? 'Absent (-1.0pt, 1x)' : 'Vắng (-1.0đ, 1x)'}</span>`;
+    return `<span class="att-dot dot-a"></span><span>${isEn ? `Absent (-${rl.deductA}pt, 1x)` : `Vắng (-${rl.deductA}đ, 1x)`}</span>`;
   }
 
   const scoreMetaRowHtml = `
     <div class="att-history-row" style="font-weight:700;">
       <span class="att-history-time">${isEn ? 'Attendance Score' : 'Điểm chuyên cần'}: ${scoreVal} / 10</span>
-      <span class="att-history-status">${isEn ? 'Equiv. Absences' : 'Vắng quy đổi'}: ${equivVal} / 6.0</span>
+      <span class="att-history-status">${isEn ? 'Equiv. Absences' : 'Vắng quy đổi'}: ${equivVal}${showAbsLimit ? ' / ' + banAbsVal : ''}</span>
     </div>
   `;
 
@@ -763,17 +757,6 @@ function renderStudentAttendanceSummary(instId, classId) {
     </div>
   `;
   bar.classList.remove('hidden');
-}
-
-function toggleAddCourseBox() {
-  const profiles = getStudentProfiles();
-  if (Object.keys(profiles).length > 0) {
-    // Once MSSV is bound, do not allow opening the MSSV input box again
-    document.getElementById('box-add-course').classList.add('hidden');
-    return;
-  }
-  document.getElementById('box-add-course').classList.toggle('hidden');
-  syncStudentViewportScrollLock();
 }
 
 /**
@@ -828,8 +811,6 @@ async function handleStudentPreCheckGps() {
   try {
     const pos = await getAccuratePosition();
     const spoofCheck = inspectGpsForSpoofing(pos);
-    // Explicitly clear any cached coordinate so check-in always fetches fresh live GPS
-    window.cachedGPS = null;
 
     if (spoofCheck.hardBlock) {
       if (dot) dot.className = 'status-dot dot-err';
@@ -882,7 +863,6 @@ async function handleStudentPreCheckGps() {
       }
     }
   } catch (err) {
-    window.cachedGPS = null;
     if (dot) dot.className = 'status-dot dot-err';
     if (err && err.code === 1) {
       if (readout) {
@@ -1370,8 +1350,7 @@ async function executeStudentCheckIn(qrString, preLockedGpsPos = null, pinTiming
 
   try {
     // Always acquire fresh live GPS on check-in (or use the just-locked Round 2 GPS fix during 10s PIN entry)
-    window.cachedGPS = null;
-    let pos = (preLockedGpsPos && isValidGpsPos(preLockedGpsPos) && (Date.now() - Number(preLockedGpsPos.timestamp)) <= 60000) ? preLockedGpsPos : null;
+    let pos =(preLockedGpsPos && isValidGpsPos(preLockedGpsPos) && (Date.now() - Number(preLockedGpsPos.timestamp)) <= 60000) ? preLockedGpsPos : null;
     try {
       if (!pos) {
         pos = await getAccuratePosition();

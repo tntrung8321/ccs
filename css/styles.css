@@ -2553,3 +2553,21 @@ select.unselected-warning {
 .roster-actions .btn-mark-idle {
   opacity: 0.45;
 }
+
+/* Attendance rules panel (v3.9.0) */
+.rules-box { margin-top: 12px; border: 1px solid var(--border, #d6dbe4); border-radius: 10px; background: var(--surface, #fff); }
+.rules-box > summary { cursor: pointer; padding: 10px 12px; font-size: .86rem; font-weight: 600; min-height: 40px; display: flex; align-items: center; list-style: none; }
+.rules-box > summary::-webkit-details-marker { display: none; }
+.rules-box > summary::after { content: '\203A'; margin-left: auto; transition: transform .15s; }
+.rules-box[open] > summary::after { transform: rotate(90deg); }
+.rules-body { padding: 0 12px 12px; display: grid; gap: 10px; }
+.rules-body select, .rules-body input[type=number] { width: 100%; margin: 0; padding: 8px 10px; }
+.rules-note { font-size: .76rem; color: var(--muted); line-height: 1.4; }
+.rules-sub { border: 1px dashed var(--border, #d6dbe4); border-radius: 8px; }
+.rules-sub > summary { cursor: pointer; padding: 8px 10px; font-size: .8rem; font-weight: 600; min-height: 36px; display: flex; align-items: center; }
+.rules-fields { display: grid; grid-template-columns: 1fr; gap: 8px; padding: 0 10px 10px; }
+@media (min-width: 640px) { .rules-fields { grid-template-columns: 1fr 1fr; } }
+.rules-field label { display: block; font-size: .74rem; color: var(--muted); margin-bottom: 2px; }
+.rules-inline { display: flex; gap: 6px; }
+.rules-preview { font-size: .8rem; padding: 8px 10px; border-radius: 8px; background: var(--warn-bg, #fff7e0); color: var(--warn-text, #7a5200); border: 1px solid var(--warn-border, #f0d78a); }
+.rules-preview ul { margin: 6px 0 0; padding-left: 18px; }

@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.8.1)
+ * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.9.0)
  * ============================================================================
  * Architecture : Two-Way Google Sheets & Excel (.XLSX) Drive Synchronization
- * Companion    : Code.gs (code3.8.1.text) & Frontend UI (index.html, js/*.js)
+ * Companion    : Code.gs (code3.9.0.text) & Frontend UI (index.html, js/*.js)
  * Release Notes: See changelog.md and RULES.md for version history & rules.
  * ============================================================================
  */
@@ -2122,18 +2122,34 @@ function parseDateString_(s) {
  *   so footer words ("Tổng cộng", "Giáo viên", "Ghi chú") and 1-digit row numbers are ignored.
  * - If `optionalNameVal` is passed, also ensures the name cell is non-empty and not a footer label.
  */
+// Roster-import ID rule. Defaults keep the old behaviour; a lecturer can override it with the
+// Script Property STUDENT_ID_RULE_V1 = {"minLen":3,"maxLen":20,"minDigits":2} (e.g. minDigits 0 for letter-only IDs).
+function getStudentIdRule_() {
+  const def = { minLen: 3, maxLen: 20, minDigits: 2 };
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty('STUDENT_ID_RULE_V1');
+    const o = raw ? JSON.parse(raw) : {};
+    const num = (v, lo, hi, d) => { const n = Number(v); return (isFinite(n) && n >= lo && n <= hi) ? Math.round(n) : d; };
+    const minLen = num(o.minLen, 1, 40, def.minLen);
+    return { minLen: minLen, maxLen: Math.max(minLen, num(o.maxLen, 1, 40, def.maxLen)), minDigits: num(o.minDigits, 0, 10, def.minDigits) };
+  } catch (e) {
+    return def;
+  }
+}
+
 function normalizeStudentId_(val, optionalNameVal) {
   if (val === null || val === undefined || val === '') return '';
   let s = String(val).trim();
   if (s.endsWith('.0')) s = s.slice(0, -2);
-  if (s.length < 3 || s.length > 20) return '';
+  const idRule = getStudentIdRule_();
+  if (s.length < idRule.minLen || s.length > idRule.maxLen) return '';
 
-  // Must start and end with alphanumeric and contain only alphanumeric, '-', '_', '.'
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{1,18}[A-Za-z0-9]$/.test(s)) return '';
+  // Must start and end with alphanumeric and contain only alphanumeric, '-', '_', '.' (single-character IDs allowed only when minLen is 1)
+  if (!/^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(s)) return '';
 
-  // Must contain at least 2 digits to prevent matching normal words or single digits
+  // Must contain at least minDigits digits (default 2) to prevent matching normal words or single digits
   const digitMatches = s.match(/\d/g);
-  if (!digitMatches || digitMatches.length < 2) return '';
+  if ((digitMatches ? digitMatches.length : 0) < idRule.minDigits) return '';
 
   // Reject date-like strings (e.g. "28-10-2026" or "28/10")
   if (parseDateString_(s) !== null) return '';
@@ -2357,6 +2373,15 @@ function withTargetSpreadsheet_(targetInfo, classId, className, isWrite, callbac
 
   // .XLSX workflow via Drive API v3 temporary conversion
   const token = ScriptApp.getOAuthToken();
+  const getModifiedTime_ = () => {
+    const r = UrlFetchApp.fetch(buildApiUrl_(['www', 'googleapis', 'com'], '/drive/v3/files/' + targetInfo.fileId + '?fields=modifiedTime&supportsAllDrives=true'), {
+      headers: { Authorization: 'Bearer ' + token },
+      muteHttpExceptions: true
+    });
+    if (r.getResponseCode() >= 300) return '';
+    try { return String(JSON.parse(r.getContentText()).modifiedTime || ''); } catch (e) { return ''; }
+  };
+  const modifiedBefore = isWrite ? getModifiedTime_() : '';
   const copyUrl = buildApiUrl_(['www', 'googleapis', 'com'], '/drive/v3/files/' + targetInfo.fileId + '/copy?supportsAllDrives=true');
   const copyRes = UrlFetchApp.fetch(copyUrl, {
     method: 'post',
@@ -2390,6 +2415,12 @@ function withTargetSpreadsheet_(targetInfo, classId, className, isWrite, callbac
 
       if (exportRes.getResponseCode() >= 300) {
         throw new Error('Failed to export .XLSX: ' + exportRes.getContentText());
+      }
+
+      // M11: never overwrite an .XLSX that the lecturer edited while this sync was converting it.
+      const modifiedNow = getModifiedTime_();
+      if (modifiedBefore && modifiedNow && modifiedBefore !== modifiedNow) {
+        throw new Error('XLSX_MODIFIED_DURING_SYNC: the target .XLSX changed while syncing; nothing was overwritten, try again.');
       }
 
       const updateUrl = buildApiUrl_(['www', 'googleapis', 'com'], '/upload/drive/v3/files/' + targetInfo.fileId + '?uploadType=media&supportsAllDrives=true');

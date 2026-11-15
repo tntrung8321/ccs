@@ -22,6 +22,7 @@ This skill automates pushing local backend files (`code<X.Y.Z>.text` and `sync.t
 | **Deploy Command** | `node ".agent/skills/appscript-deploy/scripts/deploy-appscript.js"` |
 | **Stage-Only / Dry Run** | `node ".agent/skills/appscript-deploy/scripts/deploy-appscript.js" --stage-only` |
 | **Unit Test Suite** | `node ".agent/skills/appscript-deploy/scripts/test-deploy-appscript.js"` |
+| **Deploy gate** | Deploy thật chạy `run-all-tests.js` trước; test fail thì dừng, không push. Bỏ qua có chủ đích: thêm `--skip-tests` (có cảnh báo). |
 
 ## Workflow
 

@@ -291,6 +291,7 @@ const syncCtx = vm.createContext({});
 vm.runInContext(extractFns(syncSrc, ['normalizeAttendanceStatusCodeSync_', 'mergeAttendanceSync_']), syncCtx);
 const beCtx = buildEnv().ctx;
 const stCtx = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/attendance-rules.js'), 'utf8'), stCtx);
 vm.runInContext(extractFns(stSrc, ['computeAttendanceScoreAndExamStatus']), stCtx);
 
 function oracleMerge(p1, p2, opened) {
@@ -341,10 +342,9 @@ check('score formula (student.js) matches RULES section 3', () => {
     assert.strictEqual(r.examStatus, banned ? 'BAN' : (warn ? 'WARN' : 'OK'), 'status ' + tag);
   }
 });
-check('score formula: backend source still carries the same rules', () => {
-  const warnExpr = '(equivAbsences >= 5.5 && equivAbsences <= 6.0) || (attendanceScore >= 0.0 && attendanceScore <= 1.0)';
-  assert.ok(backendSrc.split(warnExpr).length - 1 >= 2, 'warn expression should appear in both backend score paths');
-  assert.ok(backendSrc.split('(equivAbsences > 6.0) || (attendanceScore < 0.0)').length - 1 >= 2, 'ban expression');
+check('score formula: backend uses the shared rules evaluator in both stats paths', () => {
+  assert.ok(backendSrc.split('applyRulesToStatEntry_(').length - 1 >= 3, 'both stats paths call applyRulesToStatEntry_');
+  assert.ok(!/equivAbsences > 6\.0/.test(backendSrc), 'no hardcoded 6.0 threshold left in backend');
 });
 
 // ---------------------------------------------------------------- C3: no key in Sheet, private pairing dialog, QR encoder
@@ -1629,6 +1629,7 @@ check('global lockout response has params.mins', () => {
 
 console.log('--- P4-5: H7 getMergedStudentClassStats ---');
 const h7Ctx = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/attendance-rules.js'), 'utf8'), h7Ctx);
 vm.runInContext(extractFns(stSrc, ['computeAttendanceScoreAndExamStatus', 'getMergedStudentClassStats']), h7Ctx);
 vm.runInContext(`
   var __local = [], __course = [], __localCalls = 0;
