@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.8.0)
+ * LECTURER CONTROLLER (js/teacher.js — v3.8.1)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -1253,8 +1253,8 @@ async function teacherControlSession(subAction, extra = {}) {
         await applyTeacherState(res, false);
         showStatus(
           isEn
-            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.8.0.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
-            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.8.0.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.8.1.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.8.1.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
           'warn',
           'tea-session-inline-status'
         );
@@ -1597,6 +1597,7 @@ function renderTeacherRoster() {
   }
 
   const isFinalReadOnly = Boolean(p2Opened && viewMode === 'FINAL');
+  const noOpenSession = Boolean(teacherState && !teacherState.activeSession);
   const readOnlyTitle = isEn
     ? 'Final Result tab is read-only. Switch to Round 1 or Round 2 tab to mark manually.'
     : 'Tab Kết quả cuối chỉ để xem. Chuyển sang tab Phiên 1 hoặc Phiên 2 để chấm tay.';
@@ -1652,7 +1653,7 @@ function renderTeacherRoster() {
     const targetRoundArg = escapeJsArg(!p2Opened ? 'P1' : viewMode);
     const jsSid = escapeJsArg(st.studentId);
     const disabledAttr = isFinalReadOnly ? 'disabled' : '';
-    const readOnlyClass = isFinalReadOnly ? 'btn-mark-readonly' : '';
+    const readOnlyClass = isFinalReadOnly ? 'btn-mark-readonly' : (noOpenSession ? 'btn-mark-idle' : '');
 
     return `
       <div class="roster-item ${suspectNote ? 'suspect-row' : ''}">
@@ -2605,7 +2606,7 @@ function renderGroupMakerModalContent(groupSize, reshuffle = false) {
 
   return `
     <div class="group-maker-toolbar">
-      <div style="font-size:0.78rem; font-weight:600; color:var(--text-secondary);">${escapeHtml(poolNote)}</div>
+      <div style="${usingFullRoster ? 'font-size:0.8rem; font-weight:700; color:var(--warn-text); background:var(--warn-bg); border:1px solid var(--warn-border); border-radius:6px; padding:6px 8px;' : 'font-size:0.78rem; font-weight:600; color:var(--text-secondary);'}">${escapeHtml(poolNote)}</div>
       <div style="display:flex; gap:4px; flex-wrap:wrap;">${sizeOptionsHtml}${clearGroupsBtnHtml}</div>
     </div>
     <div class="group-maker-grid">${groupsGridHtml}</div>
@@ -2723,6 +2724,14 @@ async function publishClassroomGroupsToStudents(clearGroups = false) {
             ? `Published ${currentDraftGroups.length} groups to students' phones.`
             : `Đã gửi danh sách ${currentDraftGroups.length} nhóm về màn hình điện thoại của sinh viên.`),
       'success',
+      'tea-session-inline-status'
+    );
+  } else {
+    showStatus(
+      res && res.code
+        ? formatServerMessage(res.code, res.params || {}, res.message || '')
+        : (isEn ? 'Could not send groups. Check your connection and try again.' : 'Không gửi được nhóm. Kiểm tra kết nối mạng rồi thử lại.'),
+      'err',
       'tea-session-inline-status'
     );
   }

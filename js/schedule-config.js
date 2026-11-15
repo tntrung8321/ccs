@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.8.0)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.8.1)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -2287,7 +2287,17 @@ function showInlineStatus(targetId, msg, type = 'warn') {
   el.className = 'inline-feedback alert-' + variant;
   el.textContent = stripRemainingEmojis(msg);
   el.classList.remove('hidden');
+  if (inlineStatusTimers_[targetId]) { clearTimeout(inlineStatusTimers_[targetId]); delete inlineStatusTimers_[targetId]; }
+  if (variant === 'success') {
+    const shownText = el.textContent;
+    inlineStatusTimers_[targetId] = setTimeout(() => {
+      delete inlineStatusTimers_[targetId];
+      if (el.textContent === shownText && el.classList.contains('alert-success')) el.classList.add('hidden');
+    }, 6000);
+  }
 }
+
+const inlineStatusTimers_ = {};
 
 function showStatus(msg, type = 'warn', preferredTargetId = '') {
   if (preferredTargetId && document.getElementById(preferredTargetId)) {

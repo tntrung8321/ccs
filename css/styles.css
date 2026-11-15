@@ -2520,3 +2520,36 @@ select.unselected-warning {
     flex: 1 1 40px;
   }
 }
+@media (max-width: 480px) {
+  .topbar {
+    position: static;
+    padding: 6px 10px;
+  }
+
+  .topbar .pill-btn {
+    min-height: 34px;
+    padding: 6px 10px;
+    font-size: 0.76rem;
+  }
+}
+/* v3.8.1 compact: PC (mouse) keeps compact controls; idle roster buttons; phone filter row */
+@media (hover: hover) and (pointer: fine) {
+  .roster-actions .btn-sm {
+    min-width: 30px;
+    min-height: 30px;
+  }
+
+  .pill-btn {
+    min-height: 32px;
+    padding: 6px 11px;
+  }
+
+  .round-segmented .seg-btn {
+    min-height: 0;
+    padding: 4px 10px;
+  }
+}
+
+.roster-actions .btn-mark-idle {
+  opacity: 0.45;
+}
