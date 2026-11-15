@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.9.0)
+ * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.9.1)
  * ============================================================================
  * Architecture : Two-Way Google Sheets & Excel (.XLSX) Drive Synchronization
- * Companion    : Code.gs (code3.9.0.text) & Frontend UI (index.html, js/*.js)
+ * Companion    : Code.gs (code3.9.1.text) & Frontend UI (index.html, js/*.js)
  * Release Notes: See changelog.md and RULES.md for version history & rules.
  * ============================================================================
  */
@@ -2542,6 +2542,35 @@ function extractRowStudentIdAndName_(row, layout) {
   return { sid: sid, fullName: fullName };
 }
 
+function normalizeHexKey_(v) {
+  let h = String(v === undefined || v === null ? '' : v).trim().toLowerCase();
+  if (h.charAt(0) === '#') h = h.slice(1);
+  if (h.length === 8) h = h.slice(2);
+  if (h.length === 3) h = h.charAt(0) + h.charAt(0) + h.charAt(1) + h.charAt(1) + h.charAt(2) + h.charAt(2);
+  return /^[0-9a-f]{6}$/.test(h) && h !== 'ffffff' ? h : '';
+}
+
+// Reads a date-column cell back using the lecturer's own Attendance Mark Settings (text and background
+// they chose), so CUSTOM symbols/colors round-trip. Returns 'E' | 'L' | 'A_MANUAL' | 'P', or '' when
+// the cell does not match any configured mark (the caller then falls back to the built-in recognizers).
+function classifyMarkFromStyle_(cellUpper, bgRaw, style) {
+  const st = style || {};
+  const t = String(cellUpper || '').trim().toUpperCase();
+  const eq = v => { const s = String(v === undefined || v === null ? '' : v).trim().toUpperCase(); return s !== '' && s === t; };
+  if (eq(st.excusedText)) return 'E';
+  if (eq(st.lateText)) return 'L';
+  if (eq(st.absentText)) return 'A_MANUAL';
+  if (eq(st.presentText)) return 'P';
+  const bg = normalizeHexKey_(bgRaw);
+  if (bg) {
+    const same = v => { const k = normalizeHexKey_(v); return k !== '' && k === bg; };
+    if (same(st.excusedBg)) return 'E';
+    if (same(st.lateBg)) return 'L';
+    if (same(st.absentBg)) return 'A_MANUAL';
+  }
+  return '';
+}
+
 function isStudentRowHighlightedRed_(infoBgs, infoFontColors, rowIdx, maxCols) {
   if (!infoBgs && !infoFontColors) return false;
   for (let c = 0; c < maxCols; c++) {
@@ -2641,6 +2670,7 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
         ('0' + (now.getMonth() + 1)).slice(-2) + '-' +
         ('0' + now.getDate()).slice(-2);
       const pastHistoryDays = [];
+      const readMarkStyle = getAttendanceStyle_();
 
       for (let d = 0; d < detectedDateCols.length; d++) {
         const dc = detectedDateCols[d];
@@ -2657,7 +2687,12 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
           const cellUpper = cellVal.toUpperCase();
           const bgType = infoBgs && infoBgs[r] ? classifySheetCellColor_(infoBgs[r][dc.colIdx0]) : 'EMPTY';
 
-          if (bgType === 'ORANGE' || cellUpper === 'E' || cellUpper === 'P_EXCUSED') {
+          const styleMark = classifyMarkFromStyle_(cellUpper, infoBgs && infoBgs[r] ? infoBgs[r][dc.colIdx0] : '', readMarkStyle);
+
+          if (styleMark) {
+            colHasActivity = true;
+            rawMarksByStudent[sidUpper] = styleMark;
+          } else if (bgType === 'ORANGE' || cellUpper === 'E' || cellUpper === 'P_EXCUSED') {
             colHasActivity = true;
             rawMarksByStudent[sidUpper] = 'E';
           } else if (bgType === 'YELLOW' || cellUpper === 'L' || cellUpper === 'M') {

@@ -2,6 +2,14 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🔧 Version `v3.9.1` — *Sync Reads Custom Attendance Marks, Attendance Rules Panel Polish*
+* **Sync Reads Back Custom Marks**: `Sync.gs` reads attendance cells by the symbols and colors set in `Attendance Mark Settings` (`CUSTOM` mode) first. Before, a custom absent symbol such as `KP` was read as present, and colors other than default yellow/orange were not recognized. The old detection (yellow/orange and default `X/A/P/L/E`) stays as fallback.
+* **New Test**: `test-sync-marks.js` (18 cases, including free-text day and period detection), added to `run-all-tests.js`.
+* **Attendance Rules Panel**: classes without a saved rule open with `Custom` selected and default numbers prefilled; repeated labels removed; compact form; the notice after saving says how many students changed status; students no longer switch to the default rule right after check-in.
+* **Version Bump (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `css/styles.css`, `RULES.md`, `code3.9.1.text`)**:
+  * Version set to `3.9.1` (cache busters `?v=3.9.1`). Backend file renamed from `code3.9.0.text`.
+  * Backend and Sync changes need an Apps Script deploy (`New version`) to take effect.
+
 ### ✨ Version `v3.9.0` — *Per-Class Attendance Rules (Presets, Detailed Editor, Preview & JSON Import/Export), Accent-Insensitive Search, Student ID Rule & Sync Hardening*
 * **Per-Class Attendance Rules (`CLASS_RULES_V1`)**: each class can have its own scoring and exam-ban rules. Classes without a saved rule keep the IUH formula from `RULES.md` 3.1-3.3, so nothing changes for them.
   * **Preset dropdown**: `IUH` (default) and `Attendance only, no exam ban` (`banMode: OFF`). Community presets are loaded from `presets.json` in the repo.
@@ -485,6 +493,14 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.9.1` — *Sync Đọc Lại Ký Hiệu Điểm Danh Tùy Chỉnh, Tinh Chỉnh Bảng Quy Chế*
+* **Sync Đọc Lại Ký Hiệu Tùy Chỉnh**: `Sync.gs` đọc ô điểm danh theo ký hiệu và màu đã đặt trong `Attendance Mark Settings` (chế độ `CUSTOM`) trước tiên. Trước đây ký hiệu tự đặt như `KP` cho vắng bị hiểu thành có mặt, và màu khác vàng/cam không được nhận ra. Cách nhận diện cũ (vàng/cam và `X/A/P/L/E` mặc định) vẫn giữ làm dự phòng.
+* **Test Mới**: `test-sync-marks.js` (18 ca, gồm nhận diện Thứ/Tiết từ chữ tự do), thêm vào `run-all-tests.js`.
+* **Bảng Quy Chế Chuyên Cần**: lớp chưa cấu hình mở ra với `Tùy chỉnh` và số mặc định điền sẵn; bỏ chữ lặp; form gọn; thông báo sau khi lưu nói bao nhiêu sinh viên đổi trạng thái; sinh viên không còn chuyển sang luật mặc định ngay sau khi điểm danh.
+* **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `css/styles.css`, `RULES.md`, `code3.9.1.text`)**:
+  * Đặt phiên bản `3.9.1` (cache `?v=3.9.1`). Tên file backend đổi từ `code3.9.0.text`.
+  * Thay đổi backend và Sync cần deploy Apps Script (`New version`) để có hiệu lực.
+
 ### ✨ Version `v3.9.0` — *Quy Chế Chuyên Cần Theo Từng Lớp (Preset, Chỉnh Chi Tiết, Xem Trước & Xuất/Nhập JSON), Tìm Kiếm Không Dấu, Quy Tắc MSSV & Gia Cố Đồng Bộ*
 * **Quy Chế Chuyên Cần Theo Lớp (`CLASS_RULES_V1`)**: mỗi lớp có quy chế điểm và cấm thi riêng. Lớp chưa lưu quy chế vẫn dùng công thức IUH trong `RULES.md` mục 3.1-3.3, nên không đổi gì với các lớp đó.
   * **Dropdown preset**: `IUH` (mặc định) và `Chỉ điểm danh, không cấm thi` (`banMode: OFF`). Preset cộng đồng đọc từ `presets.json` trong repo.
@@ -948,11 +964,11 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.9.0`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.9.1`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.9.0` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.9.1` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.9.0`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.9.1`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), 100% Centered Floating Confirmation Popups (`#confirm-modal`), Clean Non-AI Utilitarian Buttons, 5-Second Undo Bar (Immediate on Manual Marks), 6-Second Auto-Dismiss Success Notices, `role="dialog"` Focus-Managed Modals, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `+600ms` Lead, `PIN_GRACE_MS = 2500`, `reqArrivalMs` & Instant `0ms` 1-Tap Switch) + `L -> P` Upgrade** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$ + Indoor Wi-Fi/Cell Fallback) + Discreet Fallback GPS Mode (`STUDENT_AVG_3` without stale-coordinate lockout)** |
@@ -962,5 +978,5 @@
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-RPC Pre-Lock Cache + `LockService` Guards on All Write/Rebuild Handlers (45 Concurrent Students in `< 1.6s`, Zero Double-Click Overwrites)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Global 30-Strike Lecturer Code Lockout + Fail-Closed GPS Validation + Master Key Kept Off Third-Party QR URLs + PING Device-Credential Gate + Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |
-| **Attendance Rules / Quy chế chuyên cần** | Fixed IUH formula / Công thức IUH cố định | **Per-class rules (`CLASS_RULES_V1`) with presets, detailed editor, preview before save, JSON import/export (`presets.json`), `OFF` mode without exam ban** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.9.0`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
+| **Attendance Rules / Quy chế chuyên cần** | Fixed IUH formula / Công thức IUH cố định | **Per-class rules (`CLASS_RULES_V1`) with presets, detailed editor, preview before save, JSON import/export (`presets.json`), `OFF` mode without exam ban; Sync reads marks by configured custom symbols/colors (v3.9.1)** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.9.1`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
