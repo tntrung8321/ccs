@@ -41,6 +41,29 @@ function arClamp_(v, min, max, def) {
   return Math.min(max, Math.max(min, n));
 }
 
+const ATTENDANCE_RULE_RANGES = {
+  baseScore: [1, 1000], deductA: [0, 100], deductL: [0, 100], deductE: [0, 100], eToAbsence: [0, 5],
+  banAbsences: [0, 1000], totalSessions: [1, 200], banScoreBelow: [-1000, 1000],
+  warnAbsMargin: [0, 100], warnScoreMargin: [0, 1000]
+};
+
+// Strict check used before saving: returns the first invalid field name, or '' when every value is acceptable.
+// normalizeAttendanceRules clamps silently (fine for reading stored data) but must never turn a typo into a policy.
+function validateAttendanceRules(raw) {
+  if (!raw || typeof raw !== 'object') return 'rules';
+  const keys = Object.keys(ATTENDANCE_RULE_RANGES);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const v = raw[k];
+    if (v === undefined || v === null || String(v).trim() === '') return k;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < ATTENDANCE_RULE_RANGES[k][0] || n > ATTENDANCE_RULE_RANGES[k][1]) return k;
+  }
+  if (['BOTH', 'ABSENCES', 'SCORE', 'OFF'].indexOf(String(raw.banMode).toUpperCase()) < 0) return 'banMode';
+  if (['COUNT', 'PERCENT'].indexOf(String(raw.banAbsUnit).toUpperCase()) < 0) return 'banAbsUnit';
+  return '';
+}
+
 function normalizeAttendanceRules(raw) {
   const d = DEFAULT_ATTENDANCE_RULES;
   const r = (raw && typeof raw === 'object') ? raw : {};

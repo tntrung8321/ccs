@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.9.1)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.9.2)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.9.1';
+const SYSTEM_VERSION = '3.9.2';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -3311,6 +3311,27 @@ function clampRule_(v, min, max, def) {
   return Math.min(max, Math.max(min, n));
 }
 
+const ATTENDANCE_RULE_RANGES_ = {
+  baseScore: [1, 1000], deductA: [0, 100], deductL: [0, 100], deductE: [0, 100], eToAbsence: [0, 5],
+  banAbsences: [0, 1000], totalSessions: [1, 200], banScoreBelow: [-1000, 1000],
+  warnAbsMargin: [0, 100], warnScoreMargin: [0, 1000]
+};
+
+function validateAttendanceRules_(raw) {
+  if (!raw || typeof raw !== 'object') return 'rules';
+  const keys = Object.keys(ATTENDANCE_RULE_RANGES_);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const v = raw[k];
+    if (v === undefined || v === null || String(v).trim() === '') return k;
+    const n = Number(v);
+    if (!isFinite(n) || n < ATTENDANCE_RULE_RANGES_[k][0] || n > ATTENDANCE_RULE_RANGES_[k][1]) return k;
+  }
+  if (['BOTH', 'ABSENCES', 'SCORE', 'OFF'].indexOf(String(raw.banMode).toUpperCase()) < 0) return 'banMode';
+  if (['COUNT', 'PERCENT'].indexOf(String(raw.banAbsUnit).toUpperCase()) < 0) return 'banAbsUnit';
+  return '';
+}
+
 function normalizeAttendanceRules_(raw) {
   const d = DEFAULT_ATTENDANCE_RULES_;
   const r = (raw && typeof raw === 'object') ? raw : {};
@@ -3397,6 +3418,8 @@ function handleTeacherSetRules(ss, body) {
     const classId = String(body.classId || '').trim();
     const classes = getClassesMap(ss, true);
     if (!classes[classId]) return jsonResponse({ ok: false, code: 'ERR_INVALID_CLASS' });
+    const badField = validateAttendanceRules_(body.rules);
+    if (badField) return jsonResponse({ ok: false, code: 'ERR_INVALID_RULES', field: badField });
     const rules = normalizeAttendanceRules_(body.rules);
     const map = getClassRulesMap_();
     map[classId] = rules;

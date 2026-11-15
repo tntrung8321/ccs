@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.9.1)
+ * LECTURER CONTROLLER (js/teacher.js — v3.9.2)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -1241,8 +1241,8 @@ async function teacherControlSession(subAction, extra = {}) {
         await applyTeacherState(res, false);
         showStatus(
           isEn
-            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.9.1.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
-            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.9.1.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.9.2.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.9.2.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
           'warn',
           'tea-session-inline-status'
         );
@@ -3212,7 +3212,7 @@ function rulePresetShort_(p) {
 function rulesFieldHtml_(keys, isEn) {
   return keys.map(k => {
     const f = RULE_NUM_FIELDS.find(x => x.k === k);
-    return `<div class="rules-field"><label for="rf-${f.k}">${isEn ? f.en : f.vi}</label><input type="number" id="rf-${f.k}" step="${f.step}" oninput="onRulesFieldInput()" /></div>`;
+    return `<div class="rules-field"><label for="rf-${f.k}">${isEn ? f.en : f.vi}</label><input type="number" id="rf-${f.k}" step="${f.step}" min="${ATTENDANCE_RULE_RANGES[f.k][0]}" max="${ATTENDANCE_RULE_RANGES[f.k][1]}" required oninput="onRulesFieldInput()" /></div>`;
   }).join('');
 }
 
@@ -3262,7 +3262,7 @@ function buildRulesForm_(saved) {
         <div class="rules-field"><label for="rf-banMode">${isEn ? 'Exam ban rule' : 'Cách xét cấm thi'}</label>
           <select id="rf-banMode" onchange="onRulesFieldInput()">${modeOpts}</select></div>
         <div class="rules-field"><label for="rf-banAbsences">${isEn ? 'Ban when absences exceed' : 'Cấm thi khi vắng quá'}</label>
-          <div class="rules-inline"><input type="number" id="rf-banAbsences" step="0.5" oninput="onRulesFieldInput()" />
+          <div class="rules-inline"><input type="number" id="rf-banAbsences" step="0.5" min="0" max="1000" required oninput="onRulesFieldInput()" />
           <select id="rf-banAbsUnit" onchange="onRulesFieldInput()"><option value="COUNT">${isEn ? 'sessions' : 'buổi'}</option><option value="PERCENT">${isEn ? '% of total' : '% tổng số buổi'}</option></select></div></div>
         ${rulesFieldHtml_(['banScoreBelow', 'baseScore'], isEn)}
         <div class="rules-trio">${rulesFieldHtml_(['deductA', 'deductL', 'deductE'], isEn)}</div>
@@ -3298,11 +3298,23 @@ function fillRulesFields_(r) {
   set('rf-banAbsUnit', r.banAbsUnit);
 }
 
-function readRulesForm_() {
+function readRulesFormRaw_() {
   const raw = { presetId: rulesBasedOn };
   RULE_NUM_FIELDS.forEach(f => { const el = document.getElementById('rf-' + f.k); if (el) raw[f.k] = el.value; });
   ['banMode', 'banAbsences', 'banAbsUnit'].forEach(k => { const el = document.getElementById('rf-' + k); if (el) raw[k] = el.value; });
-  return normalizeAttendanceRules(raw);
+  return raw;
+}
+
+function readRulesForm_() {
+  return normalizeAttendanceRules(readRulesFormRaw_());
+}
+
+function rulesFieldLabel_(key) {
+  const isEn = currentLang === 'en';
+  const f = RULE_NUM_FIELDS.find(x => x.k === key);
+  if (f) return isEn ? f.en : f.vi;
+  if (key === 'banAbsences') return isEn ? 'Ban when absences exceed' : 'Cấm thi khi vắng quá';
+  return key;
 }
 
 function updateRulesCustomLabel_() {
@@ -3374,6 +3386,15 @@ async function saveTeacherRules() {
   const isEn = currentLang === 'en';
   if (!auth || !classId) {
     showStatus(isEn ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.', 'warn', 'tea-rules-inline-status');
+    return;
+  }
+  const badField = validateAttendanceRules(readRulesFormRaw_());
+  if (badField) {
+    const rg = ATTENDANCE_RULE_RANGES[badField];
+    const hint = rg ? (isEn ? ` (allowed ${rg[0]} to ${rg[1]})` : ` (cho phép từ ${rg[0]} đến ${rg[1]})`) : '';
+    showStatus((isEn ? 'Invalid value: ' : 'Giá trị chưa hợp lệ: ') + rulesFieldLabel_(badField) + hint + (isEn ? '. Nothing was saved.' : '. Chưa lưu gì.'), 'err', 'tea-rules-inline-status');
+    const badEl = document.getElementById('rf-' + badField);
+    if (badEl) badEl.focus();
     return;
   }
   if (btn) btn.disabled = true;

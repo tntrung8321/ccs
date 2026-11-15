@@ -86,6 +86,20 @@ ok(fe.mergeRulePresetList([{ id: 'iuh', label: { vi: 'x' } }, { id: 'abc', label
   ok(c.f('chie') && c.f('Chiến').includes(c.f('chie')), '"chie" finds Chiến');
 }
 
+// 9c. Strict validation before saving (typos must never become a punitive policy).
+{
+  const src = fs.readFileSync(path.join(root, 'js', 'attendance-rules.js'), 'utf8');
+  const c = vm.createContext({ Object, String, Number, Array });
+  vm.runInContext(src + ';this.v = validateAttendanceRules;', c);
+  const good = Object.assign({}, fe.DEFAULT_ATTENDANCE_RULES);
+  ok(c.v(good) === '', 'default rules are valid');
+  ok(c.v(Object.assign({}, good, { banAbsences: -1 })) === 'banAbsences', 'negative threshold rejected (was clamped to 0 = ban on 1 absence)');
+  ok(c.v(Object.assign({}, good, { totalSessions: '' })) === 'totalSessions', 'blank totalSessions rejected (was coerced to 1)');
+  ok(c.v(Object.assign({}, good, { baseScore: 'abc' })) === 'baseScore' && c.v(Object.assign({}, good, { deductA: Infinity })) === 'deductA', 'non-numeric / infinite rejected');
+  ok(c.v(Object.assign({}, good, { banMode: 'X' })) === 'banMode' && c.v(Object.assign({}, good, { banAbsUnit: '' })) === 'banAbsUnit', 'bad enums rejected');
+  ok(c.v(null) === 'rules' && c.v(Object.assign({}, good, { warnScoreMargin: undefined })) === 'warnScoreMargin', 'missing fields rejected');
+}
+
 // 10. Backend parity (only once the backend copy exists).
 const codeFile = fs.readdirSync(root).filter(f => /^code\d+\.\d+\.\d+\.text$/.test(f)).sort().pop();
 const codeSrc = fs.readFileSync(path.join(root, codeFile), 'utf8');
@@ -113,6 +127,17 @@ if (/function evaluateAttendanceRules_\(/.test(codeSrc)) {
     }
   });
   ok(diff === 0, 'backend and frontend rules agree (diffs: ' + diff + ')');
+
+  const rm = codeSrc.match(/const ATTENDANCE_RULE_RANGES_ = \{[\s\S]*?\};/);
+  const bv = vm.createContext({ Object, String, Number, Array, isFinite });
+  vm.runInContext((rm ? rm[0] : '') + '\n' + grab('validateAttendanceRules_') + ';this.v = validateAttendanceRules_;', bv);
+  const fv = vm.createContext({ Object, String, Number, Array });
+  vm.runInContext(fs.readFileSync(path.join(root, 'js', 'attendance-rules.js'), 'utf8') + ';this.v = validateAttendanceRules;', fv);
+  const base = Object.assign({}, fe.DEFAULT_ATTENDANCE_RULES);
+  const bad = [null, {}, Object.assign({}, base, { banAbsences: -1 }), Object.assign({}, base, { totalSessions: '' }), Object.assign({}, base, { baseScore: 'x' }),
+    Object.assign({}, base, { banMode: 'Z' }), Object.assign({}, base, { deductL: 101 }), Object.assign({}, base, { banScoreBelow: -1001 }), base];
+  ok(bad.every(b => bv.v(b) === fv.v(b)), 'backend and frontend validation agree');
+  ok(codeSrc.indexOf('ERR_INVALID_RULES') > 0, 'backend rejects invalid rules instead of saving a clamped policy');
 }
 
 console.log(`test-attendance-rules: ${pass} passed, ${fail} failed`);

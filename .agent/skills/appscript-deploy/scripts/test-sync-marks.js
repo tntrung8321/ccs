@@ -35,7 +35,9 @@ ok(mark('', '#3366ff', CUSTOM) === 'L', 'CUSTOM: blue background = late (not in 
 ok(mark('', '#9933CC', CUSTOM) === 'E' && mark('', '#999999', CUSTOM) === 'A_MANUAL', 'CUSTOM: purple = excused, grey = absent');
 ok(mark('', 'FF3366FF', CUSTOM) === 'L' && mark('', '#36f', { lateBg: '#3366ff' }) === 'L', 'hex written as ARGB or short form still matches');
 ok(mark('', '#ffffff', { absentBg: '#ffffff' }) === '', 'white background is never a mark');
-ok(mark('', '#00ff00', CUSTOM) === '', 'a Present background alone does not create a mark');
+ok(mark('', '#00ff00', CUSTOM) === 'P', 'CUSTOM: configured Present background reads as P (a fully-present column still counts as a class day)');
+ok(mark('', '#00ff00', { presentBg: '' }) === '' && mark('', '#ffffff', { presentBg: '#ffffff' }) === '', 'no Present background configured / white: not a mark');
+ok(/XLSX_VERSION_UNKNOWN/.test(syncSrc) && /if \(!modifiedBefore \|\| !modifiedNow\)/.test(syncSrc), 'XLSX overwrite guard fails closed when modifiedTime cannot be read');
 
 // Legacy recognizers still work when nothing matches the configured style.
 const legacy = ctx.classifySheetCellColor_;

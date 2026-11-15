@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.9.1)
+ * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.9.2)
  * ============================================================================
  * Architecture : Two-Way Google Sheets & Excel (.XLSX) Drive Synchronization
- * Companion    : Code.gs (code3.9.1.text) & Frontend UI (index.html, js/*.js)
+ * Companion    : Code.gs (code3.9.2.text) & Frontend UI (index.html, js/*.js)
  * Release Notes: See changelog.md and RULES.md for version history & rules.
  * ============================================================================
  */
@@ -2419,7 +2419,10 @@ function withTargetSpreadsheet_(targetInfo, classId, className, isWrite, callbac
 
       // M11: never overwrite an .XLSX that the lecturer edited while this sync was converting it.
       const modifiedNow = getModifiedTime_();
-      if (modifiedBefore && modifiedNow && modifiedBefore !== modifiedNow) {
+      if (!modifiedBefore || !modifiedNow) {
+        throw new Error('XLSX_VERSION_UNKNOWN: could not read the target .XLSX modified time, so nothing was overwritten; try again.');
+      }
+      if (modifiedBefore !== modifiedNow) {
         throw new Error('XLSX_MODIFIED_DURING_SYNC: the target .XLSX changed while syncing; nothing was overwritten, try again.');
       }
 
@@ -2567,6 +2570,7 @@ function classifyMarkFromStyle_(cellUpper, bgRaw, style) {
     if (same(st.excusedBg)) return 'E';
     if (same(st.lateBg)) return 'L';
     if (same(st.absentBg)) return 'A_MANUAL';
+    if (same(st.presentBg)) return 'P';
   }
   return '';
 }
