@@ -21,6 +21,23 @@ Chỉ sửa luật ở `.agent/rules/` để hai công cụ luôn khớp nhau. P
 - **Không commit tự động.** Chỉ commit khi tôi bảo.
 - **Skill deploy:** đọc `.agent/skills/appscript-deploy/SKILL.md` trước khi deploy backend. Không bao giờ chạy `clasp deploy` trần hay `clasp push` ở thư mục gốc.
 
+## Workflow nhiều model
+Opus lập kế hoạch và duyệt kết quả. Sonnet, Haiku và Codex thực thi theo plan.
+
+1. Opus viết plan vào `docs/plans/<tên>.md`. Mỗi bước ghi: file liên quan, hành vi mong muốn, tiêu chí xong, và người làm (Sonnet / Haiku / Codex).
+2. Chọn người làm:
+   - Sonnet: bước cần hiểu ngữ cảnh, sửa nhiều file liên quan, logic nghiệp vụ.
+   - Haiku: bước cơ học, phạm vi nhỏ (chuỗi UI, đổi tên, format, changelog).
+   - Codex (free, hạn mức thấp): sửa lỗi đã khoanh vùng, review diff, viết test. Gọi bằng `/codex:rescue`.
+3. Các bước độc lập thì chạy song song. Bước phụ thuộc nhau thì chạy tuần tự.
+4. Opus đọc lại diff và chạy test trước khi nhận kết quả. Không ai tự commit.
+
+### Quy tắc giao Codex
+- Chạy test cục bộ trước. Chỉ giao review phần file đã đổi, không audit cả repo.
+- Gộp các sửa nhỏ liên quan vào một lần giao. Không review lại code chưa đổi.
+- Codex không được `clasp push/deploy`, `git push` hay commit.
+- Codex báo hết hạn mức thì giao bước đó cho Sonnet hoặc Haiku, không thử lại liên tục.
+
 ## Tài liệu tham chiếu (đọc khi cần, không nạp sẵn)
 - `RULES.md`: luật nghiệp vụ (trạng thái P/L/E/-, tính điểm, GPS, chống gian lận, lịch học). Lưu ý: header còn ghi v3.6.6, cần cập nhật lên v3.7.x trước khi tin hoàn toàn.
 - `HANDOFF-CCS.md`: bàn giao từ Antigravity (bản đồ nơi lưu, việc dở). Chứa ID và email, không commit.
