@@ -2930,6 +2930,16 @@ async function teacherManualMark(studentId, status, explicitTargetRound = '', si
     renderStudentAttendanceSummary('', classId);
   }
 
+  if (!silent && typeof showUndoToast === 'function') {
+    const isEnToast = currentLang === 'en';
+    const stLabel = status === '-' ? (isEnToast ? 'Absent / revoked' : 'Vắng / hủy') : status;
+    showUndoToast(
+      isEnToast ? `Marked ${undoLabelName}: ${stLabel}` : `Đã chấm ${undoLabelName}: ${stLabel}`,
+      isEnToast ? 'Undo' : 'Hoàn tác',
+      () => teacherManualMark(studentId, undoPrevStatus, targetRound, true)
+    );
+  }
+
   // 2. Background Server Sync
   const res = await callBackend(auth.apiUrl, {
     action: 'TEACHER_MANUAL_MARK',
@@ -2946,16 +2956,8 @@ async function teacherManualMark(studentId, status, explicitTargetRound = '', si
 
   if (res && res.ok) {
     await applyTeacherState(res, false);
-    if (!silent && typeof showUndoToast === 'function') {
-      const isEnToast = currentLang === 'en';
-      const stLabel = status === '-' ? (isEnToast ? 'Absent / revoked' : 'Vắng / hủy') : status;
-      showUndoToast(
-        isEnToast ? `Marked ${undoLabelName}: ${stLabel}` : `Đã chấm ${undoLabelName}: ${stLabel}`,
-        isEnToast ? 'Undo' : 'Hoàn tác',
-        () => teacherManualMark(studentId, undoPrevStatus, targetRound, true)
-      );
-    }
   } else {
+    if (!silent && typeof hideUndoToast === 'function') hideUndoToast();
     if (prevSnapshot && teacherState && Array.isArray(teacherState.roster)) {
       const targetRow = teacherState.roster.find(r => r && r.studentId === studentId);
       if (targetRow) Object.assign(targetRow, prevSnapshot);
