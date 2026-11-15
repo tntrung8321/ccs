@@ -200,7 +200,7 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
    - Sử dụng Typography rõ ràng (`Be Vietnam Pro` + `JetBrains Mono` cho số liệu/MSSV/đồng hồ) và chấm tròn màu `7px` cho trạng thái `P / L / E / A`.
    - Chấm tay `P / L / E / -` hiện thanh "Hoàn tác" 5 giây (không hộp xác nhận); modal có `role="dialog"` và đưa focus vào; có thanh báo khi mất mạng (offline).
 2. **Quy tắc Đánh số Phiên bản & Đồng bộ (`changelog-and-versioning.md`)**:
-   - Mỗi lần cập nhật tính năng hoặc sửa lỗi: tăng `SYSTEM_VERSION` (`X.Y.Z`), đổi tên file [`code<X.Y.Z>.text`](code3.6.6.text) ở cả thư mục máy và trên Google Drive (`14mEoxJJ1_USzlYorIvnZBHJwzzK1KDOj`) khi có thay đổi backend, cập nhật [`sync.txt`](sync.txt) (`1TA3scTqHwz8btQYJbzDSPiP6K3QCsxyA`), [`changelog.md`](changelog.md) (`18y2_402KSn4KfRZ0LExDlnCmB6UsqGPz`) song ngữ Anh–Việt, và query string `?v=<X.Y.Z>` ở các file frontend.
+   - Mỗi lần cập nhật tính năng hoặc sửa lỗi: tăng `SYSTEM_VERSION` (`X.Y.Z`), đổi tên file [`code<X.Y.Z>.text`](code3.9.2.text) ở cả thư mục máy và trên Google Drive (`14mEoxJJ1_USzlYorIvnZBHJwzzK1KDOj`) khi có thay đổi backend, cập nhật [`sync.txt`](sync.txt) (`1TA3scTqHwz8btQYJbzDSPiP6K3QCsxyA`), [`changelog.md`](changelog.md) (`18y2_402KSn4KfRZ0LExDlnCmB6UsqGPz`) song ngữ Anh–Việt, và query string `?v=<X.Y.Z>` ở các file frontend.
 3. **Quy tắc Sửa Code Tối Thiểu & Kiểm Thử Thực Tế (`ui-demo-preview.md`)**:
    - **Chỉ sửa đúng chỗ cần sửa**: Can thiệp đúng dòng/hàm cần thay đổi, hạn chế viết lại toàn bộ hàm/file; tuyệt đối không tự ý thêm các dòng comment giới thiệu đầu file/hàm hoặc chèn thêm chữ lên giao diện ngoài yêu cầu.
    - **Phân tách Preview Giao diện & Test Chức năng**:
