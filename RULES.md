@@ -166,7 +166,7 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
 2. **Thứ tự ưu tiên tự động chọn lớp**:
    - **Ưu tiên 1**: Lớp đang có phiên điểm danh mở (`OPEN`).
    - **Ưu tiên 2**: Sự kiện trùng giờ hiện tại trên **Google Calendar** của Giảng viên (khớp `Class_ID` trên tiêu đề lịch).
-   - **Ưu tiên 3**: Khung Thứ + Tiết học được đồng bộ tự động từ dòng thông tin lớp (dòng 5–6 của Sổ Điểm danh Excel) hoặc hậu tố trên `Class_Name`.
+   - **Ưu tiên 3**: Khung Thứ + Tiết học được đồng bộ tự động từ dòng thông tin lớp (các ô phía trên dòng ngày của Sổ Điểm danh, trong 12 dòng đầu, dạng "Thứ 3" / "T3"; không cố định số dòng) hoặc hậu tố trên `Class_Name`.
 
 ---
 
