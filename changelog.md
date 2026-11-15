@@ -2,6 +2,31 @@
 
 ## 🇬🇧 ENGLISH VERSION
 
+### 🔧 Version `v3.7.9` — *Backend Stability Patch: Sync Writes Under Script Lock, Check-Ins No Longer Blocked by Heavy Work, Cache Fixes & Leading-Zero Student IDs*
+* **Master Sheet Writes Under Script Lock (`code3.7.9.text`, `sync.txt`)**:
+  * Class delete/restore, roster import, the 15-minute auto sync and the manual sync now take the script lock, so a check-in written at the same moment can no longer be lost.
+  * If the lock is busy, the 15-minute sync skips that class and retries on the next run (audit row `AUTO_SYNC_LOCK_BUSY`).
+  * Caches are invalidated after deleting or restoring a class.
+  * "Rebuild report" no longer reads Google Drive while holding the global script lock: the Drive roster import runs first without the lock, and only the Master sheet rebuild runs inside it (if the Master is busy during import, the import for that class is skipped silently and retried on the next rebuild).
+  * The record of already-synced sessions (used by Undo and by the 15-minute auto sync) is now updated atomically inside the lock, so the manual sync button, the automatic trigger and Undo can no longer overwrite each other's entries; if the lock is busy at the final write the target file is already written but the record is not updated, and the next run simply syncs the same data again (harmless).
+* **Check-Ins Not Blocked by Heavy Work (`code3.7.9.text`)**:
+  * Grid rebuild and lecturer state refresh now run after the lock is released (start, close, cancel, Round 2, manual mark).
+  * Student onboarding looks up Drive for unknown IDs before taking the lock, at most once per class every 5 minutes.
+* **Cache Fixes (`code3.7.9.text`)**:
+  * Removed row-count-keyed roster/class caches that were never invalidated.
+  * New-semester reset clears device and session caches.
+  * A failed session-row check now counts as closed.
+  * Cancelling a mistaken session clears stale attendance-row caches.
+  * Manual mark re-verifies the cached row before writing (it could overwrite another student's row within 2 minutes).
+* **Student IDs and Attendance File (`code3.7.9.text`, `sync.txt`)**:
+  * Student IDs with leading zeros are kept (text format and display values).
+  * The 250-row cap when writing the class attendance file is raised to 2000.
+  * Student ID normalisation in `sync.txt` now matches the backend (upper-case).
+  * Undo of a deleted class restores the text format for the ID column.
+* **Fixed (`code3.7.9.text`)**: onboarding `finally` referenced an undefined variable (ReferenceError was swallowed).
+* **Tests (`.agent/skills/appscript-deploy/scripts/test-core.js`)**:
+  * `test-core.js` grows to 136 checks.
+* **Not in This Release (noted for the lecturer)**: cancelling a mistaken Round-2 session still deletes all sessions of that day. Decision pending.
 ### 🔧 Version `v3.7.8` — *Security Patch: Lecturer Pairing QR No Longer Sent to a Third Party, PING Data Gated by Device Credential & Frontend Secret Removal*
 * **Lecturer Pairing QR Kept Off Third-Party Services (`code3.7.8.text`, `index.html`, `js/teacher.js`)**:
   * The Master Key is no longer placed in any `quickchart.io` URL. Cell `B9` now holds a short instruction. Menu **View Teacher Pairing** opens a dialog that draws the QR inside the browser (built-in QR encoder, no external service) and shows the temporary 6-digit PC code and the Master Key behind a **Show** button. Master Key unchanged.
@@ -384,6 +409,31 @@
 
 ## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
 
+### 🔧 Version `v3.7.9` — *Bản Vá Ổn Định Backend: Ghi Sổ Master Sheet Dưới Khóa Script, Điểm Danh Không Còn Bị Chặn Bởi Việc Nặng, Sửa Cache & Giữ Số 0 Đầu Mã Sinh Viên*
+* **Ghi Master Sheet Dưới Khóa Script (`code3.7.9.text`, `sync.txt`)**:
+  * Xóa/khôi phục lớp, nhập danh sách lớp, đồng bộ tự động 15 phút và đồng bộ thủ công nay đều giữ khóa script, nên lượt điểm danh ghi đúng lúc đó không còn bị mất.
+  * Nếu khóa đang bận, đồng bộ 15 phút bỏ qua lớp đó và thử lại ở lần chạy sau (dòng audit `AUTO_SYNC_LOCK_BUSY`).
+  * Cache được xóa sau khi xóa hoặc khôi phục lớp.
+  * "Dựng lại báo cáo" không còn đọc Google Drive khi đang giữ khóa script toàn cục: phần nhập danh sách lớp từ Drive chạy trước, không có khóa; chỉ phần dựng lại Master sheet chạy trong khóa (nếu Master đang bận khi nhập, lớp đó bỏ qua im lặng và được thử lại ở lần dựng lại sau).
+  * Bản ghi các phiên đã đồng bộ (dùng cho Hoàn tác và đồng bộ tự động 15 phút) nay được cập nhật nguyên tử trong khóa, nên nút đồng bộ thủ công, trigger tự động và Hoàn tác không còn ghi đè lên nhau; nếu khóa bận ở bước ghi cuối, file đích đã được ghi nhưng bản ghi chưa cập nhật, lần chạy sau chỉ đồng bộ lại cùng dữ liệu (vô hại).
+* **Điểm Danh Không Bị Chặn Bởi Việc Nặng (`code3.7.9.text`)**:
+  * Dựng lại lưới và làm mới trạng thái giảng viên nay chạy sau khi đã nhả khóa (mở, đóng, hủy, Lần 2, chấm tay).
+  * Onboarding sinh viên tra cứu Drive cho ID chưa biết trước khi lấy khóa, tối đa một lần mỗi lớp mỗi 5 phút.
+* **Sửa Cache (`code3.7.9.text`)**:
+  * Gỡ cache danh sách/lớp theo số dòng không bao giờ được xóa.
+  * Reset đầu học kỳ mới xóa cache thiết bị và phiên.
+  * Lỗi kiểm tra dòng phiên nay được tính là đã đóng.
+  * Hủy phiên nhầm xóa cache dòng điểm danh cũ.
+  * Chấm tay kiểm tra lại dòng đã cache trước khi ghi (có thể ghi đè dòng của sinh viên khác trong vòng 2 phút).
+* **Mã Sinh Viên & File Điểm Danh (`code3.7.9.text`, `sync.txt`)**:
+  * Mã sinh viên có số 0 đứng đầu được giữ nguyên (định dạng text và giá trị hiển thị).
+  * Giới hạn 250 dòng khi ghi file điểm danh lớp được nâng lên 2000.
+  * Chuẩn hóa mã sinh viên trong `sync.txt` nay khớp backend (chữ hoa).
+  * Hoàn tác xóa lớp khôi phục định dạng text cho cột ID.
+* **Đã Sửa (`code3.7.9.text`)**: khối `finally` của onboarding tham chiếu một biến chưa định nghĩa (ReferenceError bị nuốt).
+* **Kiểm Thử (`.agent/skills/appscript-deploy/scripts/test-core.js`)**:
+  * `test-core.js` tăng lên 136 kiểm tra.
+* **Chưa Có Trong Bản Này (ghi nhận cho giảng viên)**: hủy phiên Lần 2 nhầm vẫn xóa toàn bộ phiên của ngày đó. Đang chờ quyết định.
 ### 🔧 Version `v3.7.8` — *Bản Vá Bảo Mật: Mã QR Ghép Nối Giảng Viên Không Còn Gửi Ra Bên Thứ Ba, Dữ Liệu PING Chỉ Trả Khi Có Thông Tin Xác Thực Thiết Bị & Gỡ Bí Mật Khỏi Frontend*
 * **Mã QR Ghép Nối Giảng Viên Không Gửi Ra Dịch Vụ Ngoài (`code3.7.8.text`, `index.html`, `js/teacher.js`)**:
   * Master Key không còn nằm trong bất kỳ URL `quickchart.io` nào. Ô `B9` nay chỉ chứa hướng dẫn ngắn. Menu **View Teacher Pairing** mở hộp thoại vẽ QR ngay trong trình duyệt (bộ mã hóa QR tích hợp, không dùng dịch vụ ngoài), hiển thị mã PC 6 số tạm thời và Master Key sau nút **Hiện**. Master Key không đổi.
@@ -746,11 +796,11 @@
 ### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.8`)
+## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.7.9`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.8` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.7.9` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.8`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.7.9`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), 100% Centered Floating Confirmation Popups (`#confirm-modal`), Clean Non-AI Utilitarian Buttons, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `+600ms` Lead, `PIN_GRACE_MS = 2500`, `reqArrivalMs` & Instant `0ms` 1-Tap Switch) + `L -> P` Upgrade** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$ + Indoor Wi-Fi/Cell Fallback) + Discreet Fallback GPS Mode (`STUDENT_AVG_3` without stale-coordinate lockout)** |
@@ -760,4 +810,4 @@
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-RPC Pre-Lock Cache + `LockService` Guards on All Write/Rebuild Handlers (45 Concurrent Students in `< 1.6s`, Zero Double-Click Overwrites)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Global 30-Strike Lecturer Code Lockout + Fail-Closed GPS Validation + Master Key Kept Off Third-Party QR URLs + PING Device-Credential Gate + Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.8`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.7.9`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.8)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.7.9)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.7.8';
+const SYSTEM_VERSION = '3.7.9';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -447,12 +447,37 @@ function startNewSemesterWizard() {
   const backupName = ss.getName() + ' [ARCHIVE ' + dateStamp + ']';
   const backupFile = DriveApp.getFileById(ss.getId()).makeCopy(backupName);
 
+  const devIds = [];
+  const sesIds = [];
+  const devSheetBefore = ss.getSheetByName(TAB_DEVICES);
+  if (devSheetBefore && devSheetBefore.getLastRow() > 1) {
+    devSheetBefore.getRange(2, 1, devSheetBefore.getLastRow() - 1, 1).getValues().forEach(r => {
+      const id = normalizeId(r[0]);
+      if (id) devIds.push(id);
+    });
+  }
+  const sesSheetBefore = ss.getSheetByName(TAB_SESSIONS);
+  if (sesSheetBefore && sesSheetBefore.getLastRow() > 1) {
+    sesSheetBefore.getRange(2, 1, sesSheetBefore.getLastRow() - 1, 1).getValues().forEach(r => {
+      const id = String(r[0] || '').trim();
+      if (id) sesIds.push(id);
+    });
+  }
+
   [TAB_DEVICES, TAB_SESSIONS, TAB_ATTEND].forEach(tabName => {
     const sh = ss.getSheetByName(tabName);
     if (sh && sh.getLastRow() > 1) {
       sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).clearContent();
     }
   });
+
+  const resetCache = CacheService.getScriptCache();
+  const devCacheKeys = devIds.map(id => 'DEV_HASH_' + id);
+  for (let i = 0; i < devCacheKeys.length; i += 100) {
+    try { resetCache.removeAll(devCacheKeys.slice(i, i + 100)); } catch (e) {}
+  }
+  invalidateSessionAttendanceMaps_(sesIds);
+  Object.keys(getClassesMap(ss, true)).forEach(cid => invalidateClassCache(cid));
 
   invalidateSystemCache();
   logAudit(ss, 'LECTURER_MENU', 'NEW_SEMESTER_ARCHIVE', backupName, 'Backup File ID: ' + backupFile.getId());
@@ -797,50 +822,51 @@ function handleStudentOnboard(ss, body) {
   }
   cache.put(rateKey, String(recentAttempts + 1), 20);
 
+  // Always bypass cache during onboarding so changes made by external Sync.gs are reflected immediately
+  const classes = getClassesMap(ss, true);
+  const scheduleMetaMap = getStoredClassSchedulesMap();
+  let match = collectStudentEnrolledClasses_(ss, classes, scheduleMetaMap, studentId);
+
+  if (match.enrolledClasses.length === 0 && typeof syncSingleClassRosterFromDrive_ === 'function') {
+    // Zero-lag fallback (lock-free): check only modified Drive files; per-class flag stops concurrent requests hammering Drive.
+    let anyDriveUpdated = false;
+    Object.keys(classes).forEach(cid => {
+      try {
+        if (cache.get('ONB_RESCUE_' + cid)) return;
+        cache.put('ONB_RESCUE_' + cid, '1', 300);
+        const syncRes = syncSingleClassRosterFromDrive_(ss, cid, classes[cid].className, {
+          onlyIfModified: true,
+          actor: 'STUDENT_LOOKUP_RESCUE'
+        });
+        if (syncRes && syncRes.newStudentsAdded > 0) {
+          anyDriveUpdated = true;
+        }
+      } catch (e) {}
+    });
+
+    if (anyDriveUpdated) {
+      match = collectStudentEnrolledClasses_(ss, classes, scheduleMetaMap, studentId);
+    }
+  }
+
+  const enrolledClasses = match.enrolledClasses;
+  const canonicalName = match.canonicalName;
+  const anyRegOpen = match.anyRegOpen;
+
+  if (enrolledClasses.length === 0) {
+    return jsonResponse({
+      ok: false,
+      code: 'ERR_NOT_ON_ROSTER',
+      params: { id: studentId }
+    });
+  }
+
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) {
     return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY', message: 'Server is busy. Please tap retry in 2 seconds.' });
   }
 
   try {
-    // Always bypass cache during onboarding so changes made by external Sync.gs are reflected immediately
-    const classes = getClassesMap(ss, true);
-    const scheduleMetaMap = getStoredClassSchedulesMap();
-    let match = collectStudentEnrolledClasses_(ss, classes, scheduleMetaMap, studentId);
-
-    if (match.enrolledClasses.length === 0 && typeof syncSingleClassRosterFromDrive_ === 'function') {
-      // Zero-lag fallback: if a newly added student types their MSSV right after the lecturer
-      // updated the .XLSX/Sheet file on Drive, check only modified Drive files to auto-import them.
-      let anyDriveUpdated = false;
-      Object.keys(classes).forEach(cid => {
-        try {
-          const syncRes = syncSingleClassRosterFromDrive_(ss, cid, classes[cid].className, {
-            onlyIfModified: true,
-            actor: 'STUDENT_LOOKUP_RESCUE'
-          });
-          if (syncRes && syncRes.newStudentsAdded > 0) {
-            anyDriveUpdated = true;
-          }
-        } catch (e) {}
-      });
-
-      if (anyDriveUpdated) {
-        match = collectStudentEnrolledClasses_(ss, classes, scheduleMetaMap, studentId);
-      }
-    }
-
-    const enrolledClasses = match.enrolledClasses;
-    const canonicalName = match.canonicalName;
-    const anyRegOpen = match.anyRegOpen;
-
-    if (enrolledClasses.length === 0) {
-      return jsonResponse({
-        ok: false,
-        code: 'ERR_NOT_ON_ROSTER',
-        params: { id: studentId }
-      });
-    }
-
     const devSheet = ss.getSheetByName(TAB_DEVICES);
     const devData = devSheet.getLastRow() > 1
       ? devSheet.getRange(2, 1, devSheet.getLastRow() - 1, 7).getValues()
@@ -922,7 +948,6 @@ function handleStudentOnboard(ss, body) {
       enrolledClasses: enrolledClasses
     });
   } finally {
-    try { cache.remove(spamKey); } catch (e) {}
     lock.releaseLock();
   }
 }
@@ -1741,6 +1766,10 @@ function handleTeacherGetState(ss, body) {
 }
 
 function handleTeacherStartSession(ss, body) {
+  return runDeferredTeacherState_(ss, handleTeacherStartSessionLocked_(ss, body));
+}
+
+function handleTeacherStartSessionLocked_(ss, body) {
   const classId       = String(body.classId || '').trim();
   const qrMode        = String(body.qrMode || 'STATIC').toUpperCase();
   const usePhoneGps   = Boolean(body.usePhoneGps);
@@ -1771,7 +1800,7 @@ function handleTeacherStartSession(ss, body) {
         }
         invalidateClassCache(classId);
       }
-      return handleTeacherGetState(ss, { classId: classId });
+      return { __defer: true, rebuild: false, classId: classId, stateBody: { classId: classId } };
     }
 
     if (existingOpen) {
@@ -1798,7 +1827,7 @@ function handleTeacherStartSession(ss, body) {
           }), 7200);
         } catch (e) {}
       }
-      return handleTeacherGetState(ss, { classId: classId });
+      return { __defer: true, rebuild: false, classId: classId, stateBody: { classId: classId } };
     }
 
     let roomLat = cfg.roomLat;
@@ -1875,7 +1904,7 @@ function handleTeacherStartSession(ss, body) {
 
     SpreadsheetApp.flush();
     invalidateClassCache(classId);
-    return handleTeacherGetState(ss, { classId: classId });
+    return { __defer: true, rebuild: false, classId: classId, stateBody: { classId: classId } };
   } finally {
     lock.releaseLock();
   }
@@ -1900,8 +1929,13 @@ function removeMakeUpDateFromScheduleMeta_(classId, dayKey) {
 }
 
 function handleTeacherControlSession(ss, body) {
+  return runDeferredTeacherState_(ss, handleTeacherControlSessionLocked_(ss, body));
+}
+
+function handleTeacherControlSessionLocked_(ss, body) {
   const classId   = String(body.classId || '').trim();
   const subAction = String(body.subAction || '').toUpperCase();
+  let deferRebuild = false;
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) {
     return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
@@ -1985,14 +2019,14 @@ function handleTeacherControlSession(ss, body) {
       });
       if (cacheKeysToClear.length > 0) cache.removeAll(cacheKeysToClear);
     } catch (e) {}
+    invalidateSessionAttendanceMaps_(data.map(r => r[0]));
 
     if (sesDayKey) {
       removeMakeUpDateFromScheduleMeta_(classId, sesDayKey);
     }
     SpreadsheetApp.flush();
     invalidateClassCache(classId);
-    rebuildSingleClassGrid(ss, classId);
-    SpreadsheetApp.flush();
+    deferRebuild = true;
     logAudit(ss, 'TEACHER', 'CANCEL_MISTAKEN_SESSION', classId, 'Deleted mistaken session(s): ' + Object.keys(deletedSesIds).join(', '));
   } else if (subAction === 'CLOSE_NOW') {
     const curPresent = parseSheetTimeMs(rowVals[4]);
@@ -2009,7 +2043,7 @@ function handleTeacherControlSession(ss, body) {
     }
     SpreadsheetApp.flush();
     invalidateClassCache(classId);
-    rebuildSingleClassGrid(ss, classId);
+    deferRebuild = true;
   } else if (subAction === 'OPEN_ROUND_2') {
     const todayBundle = getTodayClassSessionsBundle_(ss, classId, todayDayKey);
     if (!todayBundle.p1Session) {
@@ -2086,7 +2120,7 @@ function handleTeacherControlSession(ss, body) {
 
     SpreadsheetApp.flush();
     invalidateClassCache(classId);
-    rebuildSingleClassGrid(ss, classId);
+    deferRebuild = true;
     logAudit(ss, 'TEACHER_APP', 'OPEN_ROUND_2', classId, p2SessionId + ' (' + round2Mins + 'm, ' + p2QrMode + ')');
   } else if (subAction === 'EXTEND_2M') {
     const curPresent = parseSheetTimeMs(rowVals[4]);
@@ -2133,14 +2167,31 @@ function handleTeacherControlSession(ss, body) {
     invalidateClassCache(classId);
   }
 
-  return handleTeacherGetState(ss, { classId: classId });
+  return { __defer: true, rebuild: deferRebuild, classId: classId, stateBody: { classId: classId } };
   } finally {
     lock.releaseLock();
   }
 }
 
+function runDeferredTeacherState_(ss, res) {
+  if (!res || !res.__defer) return res;
+  if (res.rebuild) {
+    if (res.rebuildSafe) {
+      try { rebuildSingleClassGrid(ss, res.classId); } catch (e) {}
+    } else {
+      rebuildSingleClassGrid(ss, res.classId);
+      SpreadsheetApp.flush();
+    }
+  }
+  return handleTeacherGetState(ss, res.stateBody);
+}
+
 function handleTeacherManualMark(ss, body) {
-  const classId         = String(body.classId || '').trim();
+  return runDeferredTeacherState_(ss, handleTeacherManualMarkLocked_(ss, body));
+}
+
+function handleTeacherManualMarkLocked_(ss, body) {
+  const classId        = String(body.classId || '').trim();
   const studentId       = normalizeId(body.studentId);
   const status          = String(body.status || 'P').toUpperCase(); // P | L | E | -
   const targetSessionId = String(body.targetSessionId || '').trim();
@@ -2256,6 +2307,12 @@ function handleTeacherManualMark(ss, body) {
       const existing = sesMap ? sesMap[studentId] : null;
       if (existing && existing.rowIndex && existing.rowIndex >= 2) {
         foundRow = Number(existing.rowIndex);
+        if (foundRow > attSheet.getLastRow()) {
+          foundRow = -1;
+        } else {
+          const chkRow = attSheet.getRange(foundRow, 1, 1, 5).getValues()[0];
+          if (String(chkRow[2] || '').trim() !== primarySessionId || normalizeId(chkRow[4]) !== studentId) foundRow = -1;
+        }
       }
     }
 
@@ -2315,10 +2372,9 @@ function handleTeacherManualMark(ss, body) {
     });
 
     invalidateClassAttendanceStatsCache_(classId);
-    try { rebuildSingleClassGrid(ss, classId); } catch (e) {}
 
     logAudit(ss, 'TEACHER_APP', 'MANUAL_MARK', studentId, classId + ' [' + (targetDayKey || primarySessionId) + '] -> ' + status);
-    return handleTeacherGetState(ss, { classId: classId });
+    return { __defer: true, rebuild: true, rebuildSafe: true, classId: classId, stateBody: { classId: classId } };
   } finally {
     lock.releaseLock();
   }
@@ -2419,12 +2475,13 @@ function handleTeacherToggleReg(ss, body) {
   }
 }
 
-function syncAndRebuildClassReport_(ss, classId, className) {
+function syncClassRosterForReport_(ss, classId, className) {
   let added = 0;
   let names = [];
   if (typeof syncSingleClassRosterFromDrive_ === 'function') {
     try {
       const syncRes = syncSingleClassRosterFromDrive_(ss, classId, className, {
+        lockHeld: false,
         onlyIfModified: true,
         actor: 'TEACHER_APP'
       });
@@ -2434,27 +2491,30 @@ function syncAndRebuildClassReport_(ss, classId, className) {
       }
     } catch (e) {}
   }
-  rebuildSingleClassGrid(ss, classId);
-  invalidateClassAttendanceStatsCache_(classId);
   return { newStudentsAdded: added, newStudentNames: names };
 }
 
 function handleTeacherRebuildReport(ss, body) {
+  const classId = String(body.classId || '').trim();
+  invalidateSystemCache();
+  const classes = getClassesMap(ss, true);
+  let newStudentsAdded = 0;
+  let newStudentNames = [];
+
+  const targetIds = classId ? [classId] : Object.keys(classes);
+  targetIds.forEach(cid => {
+    const cName = classes[cid] ? classes[cid].className : cid;
+    const res = syncClassRosterForReport_(ss, cid, cName);
+    newStudentsAdded += res.newStudentsAdded;
+    newStudentNames = newStudentNames.concat(res.newStudentNames);
+  });
+
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(12000)) return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
   try {
-    const classId = String(body.classId || '').trim();
-    invalidateSystemCache();
-    const classes = getClassesMap(ss, true);
-    let newStudentsAdded = 0;
-    let newStudentNames = [];
-
-    const targetIds = classId ? [classId] : Object.keys(classes);
     targetIds.forEach(cid => {
-      const cName = classes[cid] ? classes[cid].className : cid;
-      const res = syncAndRebuildClassReport_(ss, cid, cName);
-      newStudentsAdded += res.newStudentsAdded;
-      newStudentNames = newStudentNames.concat(res.newStudentNames);
+      rebuildSingleClassGrid(ss, cid);
+      invalidateClassAttendanceStatsCache_(cid);
     });
 
     return jsonResponse({
@@ -2489,6 +2549,17 @@ function invalidateClassCache(classId) {
   try {
     const extra = classId ? ['CLASS_ATT_STATS_V36_' + classId, 'ROSTER_MAP_V373_' + classId] : [];
     CacheService.getScriptCache().removeAll(buildBaseCacheKeysToClear_(extra));
+  } catch (e) {}
+}
+
+function invalidateSessionAttendanceMaps_(sessionIds) {
+  try {
+    const ids = Array.from(new Set((Array.isArray(sessionIds) ? sessionIds : []).map(s => String(s || '').trim()).filter(s => s)));
+    const keys = ids.map(sid => 'SES_ATT_MAP_V36_' + sid);
+    const cache = CacheService.getScriptCache();
+    for (let i = 0; i < keys.length; i += 100) {
+      try { cache.removeAll(keys.slice(i, i + 100)); } catch (e) {}
+    }
   } catch (e) {}
 }
 
@@ -3135,6 +3206,7 @@ function rebuildSingleClassGrid(ss, classId) {
   const validDays = buildGroupedClassDayRecords_(ss, classId);
   const numStudents = rosterSheet.getLastRow() - 1;
   const studentRows = rosterSheet.getRange(2, 1, numStudents, 3).getValues();
+  const studentIdDisp = rosterSheet.getRange(2, 2, numStudents, 1).getDisplayValues();
 
   const sessionHeaders = [];
   validDays.forEach((d, idx) => {
@@ -3145,8 +3217,8 @@ function rebuildSingleClassGrid(ss, classId) {
   });
   const headers = ['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late'].concat(sessionHeaders);
 
-  const outRows = studentRows.map(sRow => {
-    const stId = normalizeId(sRow[1]);
+  const outRows = studentRows.map((sRow, rowIdx) => {
+    const stId = normalizeId(pickStudentIdCell_(sRow[1], studentIdDisp[rowIdx][0]));
     let pCount = 0;
     let lCount = 0;
     const sessionCells = [];
@@ -3169,10 +3241,16 @@ function rebuildSingleClassGrid(ss, classId) {
 
   rosterSheet.getRange(1, 1, 1, headers.length).setValues([headers])
     .setBackground('#0f766e').setFontColor('#ffffff').setFontWeight('bold');
+  rosterSheet.getRange(2, 2, outRows.length, 1).setNumberFormat('@');
   rosterSheet.getRange(2, 1, outRows.length, headers.length).setValues(outRows);
   try {
     CacheService.getScriptCache().remove('ROSTER_MAP_V373_' + classId);
   } catch (e) {}
+}
+
+function pickStudentIdCell_(raw, disp) {
+  if (typeof disp === 'string' && /^0\d+$/.test(disp) && String(raw) === disp.replace(/^0+/, '')) return disp;
+  return raw;
 }
 
 function getClassesMap(ss, bypassCache) {
@@ -3190,15 +3268,6 @@ function getClassesMap(ss, bypassCache) {
   if (!sheet || sheet.getLastRow() < 2) return map;
 
   const lastRow = sheet.getLastRow();
-  const cacheKey = 'CLASSES_MAP_V32_' + lastRow;
-
-  if (!bypassCache) {
-    const cached = cache.get(cacheKey);
-    if (cached) {
-      try { return JSON.parse(cached); } catch (e) {}
-    }
-  }
-
   const data = sheet.getRange(2, 1, lastRow - 1, 9).getValues();
   data.forEach((r, idx) => {
     const cid = String(r[0]).trim();
@@ -3221,7 +3290,6 @@ function getClassesMap(ss, bypassCache) {
   try {
     const serialized = JSON.stringify(map);
     cache.put(fastKey, serialized, 120);
-    cache.put(cacheKey, serialized, 120);
   } catch (e) {}
   return map;
 }
@@ -3241,18 +3309,10 @@ function getClassRosterMap(ss, classId, bypassCache) {
   if (!sheet || sheet.getLastRow() < 2) return map;
 
   const lastRow = sheet.getLastRow();
-  const cacheKey = 'ROSTER_MAP_' + classId + '_' + lastRow;
-
-  if (!bypassCache) {
-    const cached = cache.get(cacheKey);
-    if (cached) {
-      try { return JSON.parse(cached); } catch (e) {}
-    }
-  }
-
   const data = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  const idDisp = sheet.getRange(2, 2, lastRow - 1, 1).getDisplayValues();
   data.forEach((r, idx) => {
-    const sid = normalizeId(r[1]);
+    const sid = normalizeId(pickStudentIdCell_(r[1], idDisp[idx][0]));
     if (sid) {
       map[sid] = {
         row: idx + 2,
@@ -3265,7 +3325,6 @@ function getClassRosterMap(ss, classId, bypassCache) {
   try {
     const serialized = JSON.stringify(map);
     cache.put(fastKey, serialized, 120);
-    cache.put(cacheKey, serialized, 120);
   } catch (e) {}
   return map;
 }
@@ -3365,8 +3424,10 @@ function getAllLatestSessionsMap(ss, bypassCache) {
 
 function isSessionRowStillOpen_(ss, activeSession, arrivalMs) {
   try {
+    if (!activeSession) return false;
+    if (!activeSession.rowIndex) return true;
     const sh = ss.getSheetByName(TAB_SESSIONS);
-    if (!sh || !activeSession || !activeSession.rowIndex) return true;
+    if (!sh) return false;
     const row = sh.getRange(activeSession.rowIndex, 1, 1, 7).getValues()[0];
     if (String(row[0] || '').trim() !== String(activeSession.sessionId || '').trim()) return false;
     const refMs = arrivalMs > 0 ? arrivalMs : Date.now();
@@ -3375,7 +3436,7 @@ function isSessionRowStillOpen_(ss, activeSession, arrivalMs) {
     const closesMs = parseSheetTimeMs(row[5]);
     return closesMs > 0 ? refMs <= closesMs : true;
   } catch (e) {
-    return true;
+    return false;
   }
 }
 

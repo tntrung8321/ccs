@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.7.8)
+ * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.7.9)
  * ============================================================================
  * Architecture : Two-Way Google Sheets & Excel (.XLSX) Drive Synchronization
- * Companion    : Code.gs (code3.7.8.text) & Frontend UI (index.html, js/*.js)
+ * Companion    : Code.gs (code3.7.9.text) & Frontend UI (index.html, js/*.js)
  * Release Notes: See changelog.md and RULES.md for version history & rules.
  * ============================================================================
  */
@@ -438,6 +438,7 @@ function syncSingleClassRosterFromDrive_(masterSs, classId, className, options) 
   let classSheet = masterSs.getSheetByName(classId);
   if (!classSheet) {
     classSheet = masterSs.insertSheet(classId);
+    classSheet.getRange('B:B').setNumberFormat('@');
     classSheet.getRange(1, 1, 1, 5).setValues([['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']]);
   }
 
@@ -507,37 +508,50 @@ function syncSingleClassRosterFromDrive_(masterSs, classId, className, options) 
   const newStudentNames = [];
   let summaryLine = '';
 
-  if (existingStudentCount === 0) {
-    classSheet.getRange(1, 1, 1, 5).setValues([['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']]);
-    classSheet.getRange(2, 1, rosterRows.length, 5).setValues(rosterRows);
-    SpreadsheetApp.flush();
-    newStudentsAdded = rosterRows.length;
-    summaryLine = '✅ ' + classId + ': Imported full roster (' + rosterRows.length + ' students) from ' + sourceDesc + '.';
-    appendAuditLog_(masterSs, opts.actor || 'SYNC_MENU', 'ROSTER_IMPORT', classId, 'Imported ' + rosterRows.length + ' students from ' + sourceDesc);
-  } else {
-    const newRows = [];
-    for (let r = 0; r < rosterRows.length; r++) {
-      const sid = String(rosterRows[r][1]).trim();
-      const sidKey = sid.toUpperCase();
-      if (!existingIds[sidKey]) {
-        const nextNo = existingStudentCount + newRows.length + 1;
-        const fullName = String(rosterRows[r][2] || '').trim();
-        newRows.push([nextNo, sid, fullName, 0, 0]);
-        newStudentNames.push(sid + ' - ' + fullName);
-        existingIds[sidKey] = true;
+  const rosterLockRes = withMasterWriteLock_(opts, 15000, function() {
+    if (existingStudentCount === 0) {
+      classSheet.getRange(1, 1, 1, 5).setValues([['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']]);
+      classSheet.getRange(2, 1, rosterRows.length, 5).setValues(rosterRows);
+      SpreadsheetApp.flush();
+      newStudentsAdded = rosterRows.length;
+      summaryLine = '✅ ' + classId + ': Imported full roster (' + rosterRows.length + ' students) from ' + sourceDesc + '.';
+      appendAuditLog_(masterSs, opts.actor || 'SYNC_MENU', 'ROSTER_IMPORT', classId, 'Imported ' + rosterRows.length + ' students from ' + sourceDesc);
+    } else {
+      const newRows = [];
+      for (let r = 0; r < rosterRows.length; r++) {
+        const sid = String(rosterRows[r][1]).trim();
+        const sidKey = sid.toUpperCase();
+        if (!existingIds[sidKey]) {
+          const nextNo = existingStudentCount + newRows.length + 1;
+          const fullName = String(rosterRows[r][2] || '').trim();
+          newRows.push([nextNo, sid, fullName, 0, 0]);
+          newStudentNames.push(sid + ' - ' + fullName);
+          existingIds[sidKey] = true;
+        }
+      }
+
+      if (newRows.length > 0) {
+        const startRow = classSheet.getLastRow() + 1;
+        classSheet.getRange(startRow, 1, newRows.length, 5).setValues(newRows);
+        SpreadsheetApp.flush();
+        newStudentsAdded = newRows.length;
+        summaryLine = '✅ ' + classId + ': Appended ' + newRows.length + ' new student(s) (' + newStudentNames.join(', ') + ' • Total: ' + (existingStudentCount + newRows.length) + ') from ' + sourceDesc + '.';
+        appendAuditLog_(masterSs, opts.actor || 'SYNC_MENU', 'ROSTER_APPEND', classId, 'Appended ' + newRows.length + ' new students (' + newStudentNames.join(', ') + ') from ' + sourceDesc);
+      } else {
+        summaryLine = 'ℹ️ ' + classId + ': Roster is already up to date (' + existingStudentCount + ' students).';
       }
     }
+    return { busy: false };
+  });
 
-    if (newRows.length > 0) {
-      const startRow = classSheet.getLastRow() + 1;
-      classSheet.getRange(startRow, 1, newRows.length, 5).setValues(newRows);
-      SpreadsheetApp.flush();
-      newStudentsAdded = newRows.length;
-      summaryLine = '✅ ' + classId + ': Appended ' + newRows.length + ' new student(s) (' + newStudentNames.join(', ') + ' • Total: ' + (existingStudentCount + newRows.length) + ') from ' + sourceDesc + '.';
-      appendAuditLog_(masterSs, opts.actor || 'SYNC_MENU', 'ROSTER_APPEND', classId, 'Appended ' + newRows.length + ' new students (' + newStudentNames.join(', ') + ') from ' + sourceDesc);
-    } else {
-      summaryLine = 'ℹ️ ' + classId + ': Roster is already up to date (' + existingStudentCount + ' students).';
-    }
+  if (rosterLockRes && rosterLockRes.busy) {
+    return {
+      ok: false,
+      busy: true,
+      summary: '⏳ ' + classId + ': Master sheet is busy, please retry in a minute.',
+      newStudentsAdded: 0,
+      newStudentNames: []
+    };
   }
 
   // Save updated sync metadata so unchanged files are skipped in 0ms next time
@@ -558,6 +572,7 @@ function syncSingleClassRosterFromDrive_(masterSs, classId, className, options) 
       'CLASS_ATT_STATS_V36_' + classId,
       ROSTER_PREVIEW_CACHE_PREFIX + classId
     ]);
+    if (typeof invalidateClassCache === 'function') invalidateClassCache(classId);
     if (typeof rebuildSingleClassGrid === 'function') {
       rebuildSingleClassGrid(masterSs, classId);
     }
@@ -682,6 +697,7 @@ function syncTodayAttendance() {
   }
 
   const undoBatch = [];
+  const pendingSynced = {};
   const summaryLines = [];
 
   for (let i = 0; i < sessionsToSync.length; i++) {
@@ -697,12 +713,20 @@ function syncTodayAttendance() {
 
     try {
       const statusMap = getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup);
-      updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap);
+      const manualLockRes = withMasterWriteLock_({}, 10000, function() {
+        updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap);
+        return { busy: false };
+      });
+      if (manualLockRes && manualLockRes.busy) {
+        summaryLines.push('⏳ ' + classId + ' (Date ' + sessionGroup.day + '/' + sessionGroup.month + '): Master sheet busy, please retry in a minute.');
+        continue;
+      }
       const result = updateTargetAttendanceFile_(targetInfo, classId, className, sessionGroup.day, sessionGroup.month, statusMap, null);
 
       undoBatch.push(buildAttendanceUndoEntry_(classId, className, targetInfo, result, sessionGroup, syncedMap[sessionGroup.groupKey]));
 
       syncedMap[sessionGroup.groupKey] = JSON.stringify(statusMap);
+      pendingSynced[sessionGroup.groupKey] = syncedMap[sessionGroup.groupKey];
 
       const multiNote = sessionGroup.sessionIds.length > 1
         ? ' [Merged ' + sessionGroup.sessionIds.length + ' sessions]'
@@ -734,9 +758,13 @@ function syncTodayAttendance() {
   }
 
   if (undoBatch.length > 0) {
-    props.setProperty(AUTO_SYNCED_SESSIONS_KEY, JSON.stringify(syncedMap));
-    props.setProperty(LAST_SYNC_PROP_KEY, JSON.stringify(undoBatch));
-    props.setProperty(LAST_ACTION_TYPE_KEY, 'ATTENDANCE_SYNC');
+    const persistRes = updateSyncedSessionsMap_(pendingSynced, [], 10000, function(p) {
+      p.setProperty(LAST_SYNC_PROP_KEY, JSON.stringify(undoBatch));
+      p.setProperty(LAST_ACTION_TYPE_KEY, 'ATTENDANCE_SYNC');
+    });
+    if (persistRes && persistRes.busy) {
+      summaryLines.push('⏳ Master sheet busy: sync log not saved (Undo unavailable); files were written and the next sync will refresh them.');
+    }
   }
 
   showAlert_('🎉 ATTENDANCE SYNC RESULTS\n\n' + summaryLines.join('\n'));
@@ -854,7 +882,11 @@ function undoLastAction() {
 
 function executeClassDeleteUndo_(masterSs, props, deletedSnapshot, hasOtherUndo) {
   const classListStr = deletedSnapshot.classIds.join(', ');
-  restoreDeletedClassBackup_(masterSs, deletedSnapshot);
+  const restoreRes = restoreDeletedClassBackup_(masterSs, deletedSnapshot);
+  if (restoreRes && restoreRes.busy) {
+    showAlert_('⏳ Master sheet is busy with student check-ins. Nothing was restored, please retry in a minute.');
+    return;
+  }
   clearDeletedClassBackup_(masterSs);
   props.setProperty(LAST_ACTION_TYPE_KEY, hasOtherUndo ? 'ATTENDANCE_SYNC' : '');
   appendAuditLog_(masterSs, 'SYNC_MENU', 'UNDO_CLASS_DELETE', classListStr, 'Restored deleted class tabs and logs');
@@ -862,7 +894,8 @@ function executeClassDeleteUndo_(masterSs, props, deletedSnapshot, hasOtherUndo)
 }
 
 function executeAttendanceSyncUndo_(masterSs, props, undoBatch, hasOtherUndo) {
-  const syncedMap = JSON.parse(props.getProperty(AUTO_SYNCED_SESSIONS_KEY) || '{}');
+  const restoredSets = {};
+  const restoredDeletes = [];
   const restoredLines = [];
 
   for (let i = 0; i < undoBatch.length; i++) {
@@ -882,18 +915,23 @@ function executeAttendanceSyncUndo_(masterSs, props, undoBatch, hasOtherUndo) {
     );
     if (item.groupKey) {
       if (item.previousSyncedSig) {
-        syncedMap[item.groupKey] = item.previousSyncedSig;
+        restoredSets[item.groupKey] = item.previousSyncedSig;
       } else {
-        delete syncedMap[item.groupKey];
+        restoredDeletes.push(item.groupKey);
       }
     }
     restoredLines.push('↩️ ' + item.classId + ': Restored date column ' + item.day + '/' + item.month + ' to its previous state.');
     appendAuditLog_(masterSs, 'SYNC_MENU', 'UNDO_ATTENDANCE_SYNC', item.classId + ' (' + item.day + '/' + item.month + ')', 'Restored previous column values');
   }
 
-  props.setProperty(AUTO_SYNCED_SESSIONS_KEY, JSON.stringify(syncedMap));
-  props.deleteProperty(LAST_SYNC_PROP_KEY);
-  props.setProperty(LAST_ACTION_TYPE_KEY, hasOtherUndo ? 'CLASS_DELETE' : '');
+  const undoPersist = updateSyncedSessionsMap_(restoredSets, restoredDeletes, 10000, function(p) {
+    p.deleteProperty(LAST_SYNC_PROP_KEY);
+    p.setProperty(LAST_ACTION_TYPE_KEY, hasOtherUndo ? 'CLASS_DELETE' : '');
+  });
+  if (undoPersist && undoPersist.busy) {
+    showAlert_('⏳ Files were restored but the Master sheet is busy, so the sync log was not updated. Please run Undo again in a minute.');
+    return;
+  }
   showAlert_('✅ UNDO COMPLETED\n\n' + restoredLines.join('\n'));
 }
 
@@ -1041,53 +1079,63 @@ function deleteSelectedClasses(selectedClassIds) {
     deviceRows: []
   };
 
-  const deletedClassStudents = {};
-  const remainingClassStudents = {};
+  const deleteLockRes = withMasterWriteLock_({}, 20000, function() {
+    const deletedClassStudents = {};
+    const remainingClassStudents = {};
 
-  const cfgSheet = masterSs.getSheetByName('Classes_Config');
-  if (cfgSheet) {
-    const cfgData = cfgSheet.getDataRange().getValues();
-    for (let i = 1; i < cfgData.length; i++) {
-      const cid = String(cfgData[i][0] || '').trim();
-      if (!cid) continue;
+    const cfgSheet = masterSs.getSheetByName('Classes_Config');
+    if (cfgSheet) {
+      const cfgData = cfgSheet.getDataRange().getValues();
+      for (let i = 1; i < cfgData.length; i++) {
+        const cid = String(cfgData[i][0] || '').trim();
+        if (!cid) continue;
+        const cSheet = masterSs.getSheetByName(cid);
+        const rawMap = collectMasterClassStudentIds_(cSheet).rawMap;
+        const targetBucket = targetMap[cid] ? deletedClassStudents : remainingClassStudents;
+        for (const sid in rawMap) {
+          if (Object.prototype.hasOwnProperty.call(rawMap, sid)) targetBucket[sid] = true;
+        }
+      }
+    }
+
+    for (let i = 0; i < selectedClassIds.length; i++) {
+      const cid = String(selectedClassIds[i]).trim();
       const cSheet = masterSs.getSheetByName(cid);
-      const rawMap = collectMasterClassStudentIds_(cSheet).rawMap;
-      const targetBucket = targetMap[cid] ? deletedClassStudents : remainingClassStudents;
-      for (const sid in rawMap) {
-        if (Object.prototype.hasOwnProperty.call(rawMap, sid)) targetBucket[sid] = true;
+      if (cSheet) {
+        snapshot.classTabs[cid] = cSheet.getDataRange().getValues();
+        masterSs.deleteSheet(cSheet);
       }
     }
-  }
 
-  for (let i = 0; i < selectedClassIds.length; i++) {
-    const cid = String(selectedClassIds[i]).trim();
-    const cSheet = masterSs.getSheetByName(cid);
-    if (cSheet) {
-      snapshot.classTabs[cid] = cSheet.getDataRange().getValues();
-      masterSs.deleteSheet(cSheet);
-    }
-  }
+    partitionAndRewriteSheetByClassCol_(cfgSheet, 0, targetMap, snapshot.configRows);
+    partitionAndRewriteSheetByClassCol_(masterSs.getSheetByName('Sessions_Log'), 1, targetMap, snapshot.sessionRows);
+    partitionAndRewriteSheetByClassCol_(masterSs.getSheetByName('Attendance_Log'), 3, targetMap, snapshot.attendanceRows);
 
-  partitionAndRewriteSheetByClassCol_(cfgSheet, 0, targetMap, snapshot.configRows);
-  partitionAndRewriteSheetByClassCol_(masterSs.getSheetByName('Sessions_Log'), 1, targetMap, snapshot.sessionRows);
-  partitionAndRewriteSheetByClassCol_(masterSs.getSheetByName('Attendance_Log'), 3, targetMap, snapshot.attendanceRows);
-
-  const devSheet = masterSs.getSheetByName('Device_Registry');
-  if (devSheet) {
-    const devData = devSheet.getDataRange().getValues();
-    const keepDev = [devData[0]];
-    for (let i = 1; i < devData.length; i++) {
-      const sid = normalizeStudentId_(devData[i][0]);
-      if (sid && deletedClassStudents[sid] && !remainingClassStudents[sid]) {
-        snapshot.deviceRows.push(devData[i]);
-      } else {
-        keepDev.push(devData[i]);
+    const devSheet = masterSs.getSheetByName('Device_Registry');
+    if (devSheet) {
+      const devData = devSheet.getDataRange().getValues();
+      const keepDev = [devData[0]];
+      for (let i = 1; i < devData.length; i++) {
+        const sid = normalizeStudentId_(devData[i][0]);
+        if (sid && deletedClassStudents[sid] && !remainingClassStudents[sid]) {
+          snapshot.deviceRows.push(devData[i]);
+        } else {
+          keepDev.push(devData[i]);
+        }
       }
+      rewriteSheetRows_(devSheet, keepDev);
     }
-    rewriteSheetRows_(devSheet, keepDev);
-  }
 
-  saveDeletedClassBackup_(masterSs, snapshot);
+    saveDeletedClassBackup_(masterSs, snapshot);
+    return { busy: false };
+  });
+
+  if (deleteLockRes && deleteLockRes.busy) {
+    showAlert_('⏳ Master sheet is busy with student check-ins. Nothing was deleted, please retry in a minute.');
+    return { cancelled: true };
+  }
+  invalidateCachesAfterClassMutation_(snapshot);
+
   PropertiesService.getScriptProperties().setProperty(LAST_ACTION_TYPE_KEY, 'CLASS_DELETE');
   appendAuditLog_(
     masterSs,
@@ -1196,26 +1244,72 @@ function clearDeletedClassBackup_(masterSs) {
 }
 
 function restoreDeletedClassBackup_(masterSs, snapshot) {
-  const tabNames = Object.keys(snapshot.classTabs || {});
-  for (let i = 0; i < tabNames.length; i++) {
-    const cid = tabNames[i];
-    const rows = snapshot.classTabs[cid];
-    let cSheet = masterSs.getSheetByName(cid);
-    if (!cSheet) {
-      cSheet = masterSs.insertSheet(cid);
-    } else {
-      cSheet.clearContents();
+  const lockRes = withMasterWriteLock_({}, 20000, function() {
+    const tabNames = Object.keys(snapshot.classTabs || {});
+    for (let i = 0; i < tabNames.length; i++) {
+      const cid = tabNames[i];
+      const rows = snapshot.classTabs[cid];
+      let cSheet = masterSs.getSheetByName(cid);
+      if (!cSheet) {
+        cSheet = masterSs.insertSheet(cid);
+      } else {
+        cSheet.clearContents();
+      }
+      if (rows && rows.length > 0) {
+        if (rows[0].length >= 2) cSheet.getRange(1, 2, rows.length, 1).setNumberFormat('@');
+        cSheet.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
+      }
     }
-    if (rows && rows.length > 0) {
-      cSheet.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
-    }
-  }
 
-  appendRowsToSheet_(masterSs.getSheetByName('Classes_Config'), snapshot.configRows);
-  appendRowsToSheet_(masterSs.getSheetByName('Sessions_Log'), snapshot.sessionRows);
-  appendRowsToSheet_(masterSs.getSheetByName('Attendance_Log'), snapshot.attendanceRows);
-  appendRowsToSheet_(masterSs.getSheetByName('Device_Registry'), snapshot.deviceRows);
-  SpreadsheetApp.flush();
+    appendRowsToSheet_(masterSs.getSheetByName('Classes_Config'), snapshot.configRows);
+    appendRowsToSheet_(masterSs.getSheetByName('Sessions_Log'), snapshot.sessionRows);
+    appendRowsToSheet_(masterSs.getSheetByName('Attendance_Log'), snapshot.attendanceRows);
+    appendRowsToSheet_(masterSs.getSheetByName('Device_Registry'), snapshot.deviceRows);
+    SpreadsheetApp.flush();
+    return { busy: false };
+  });
+  if (lockRes && lockRes.busy) return { busy: true };
+  invalidateCachesAfterClassMutation_(snapshot);
+  return { busy: false };
+}
+
+function withMasterWriteLock_(opts, waitMs, fn) {
+  if (opts && opts.lockHeld) return fn();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(waitMs)) return { busy: true };
+  try {
+    return fn();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateSyncedSessionsMap_(sets, deletes, waitMs, extra) {
+  return withMasterWriteLock_({}, waitMs, function() {
+    const p = PropertiesService.getScriptProperties();
+    const cur = JSON.parse(p.getProperty(AUTO_SYNCED_SESSIONS_KEY) || '{}');
+    Object.keys(sets || {}).forEach(function(k) { cur[k] = sets[k]; });
+    (deletes || []).forEach(function(k) { delete cur[k]; });
+    p.setProperty(AUTO_SYNCED_SESSIONS_KEY, JSON.stringify(cur));
+    if (typeof extra === 'function') extra(p);
+    return { busy: false };
+  });
+}
+
+function invalidateCachesAfterClassMutation_(snapshot) {
+  try {
+    const sessionIds = (snapshot.sessionRows || []).map(function(r) { return String(r[0] || '').trim(); }).filter(Boolean);
+    if (typeof invalidateSessionAttendanceMaps_ === 'function') invalidateSessionAttendanceMaps_(sessionIds);
+    if (typeof invalidateSystemCache === 'function') invalidateSystemCache();
+    if (typeof invalidateClassCache === 'function') {
+      (snapshot.classIds || []).forEach(function(cid) { invalidateClassCache(String(cid).trim()); });
+    }
+    const devKeys = (snapshot.deviceRows || [])
+      .map(function(r) { return String(r[0] || '').trim().toUpperCase(); })
+      .filter(Boolean)
+      .map(function(sid) { return 'DEV_HASH_' + sid; });
+    if (devKeys.length > 0) CacheService.getScriptCache().removeAll(devKeys);
+  } catch (e) {}
 }
 
 function appendRowsToSheet_(sheet, rows) {
@@ -1406,7 +1500,9 @@ function autoSyncTodayAttendanceAfterClass() {
   if (allGroups.length === 0) return;
 
   let anySynced = false;
+  let lockBusyLogged = false;
   const undoBatch = [];
+  const pendingSynced = {};
 
   for (let i = 0; i < allGroups.length; i++) {
     const sessionGroup = allGroups[i];
@@ -1444,6 +1540,7 @@ function autoSyncTodayAttendanceAfterClass() {
     });
     if (!hasAnyRealMark) {
       syncedMap[sessionGroup.groupKey] = 'SKIPPED_ZERO_CHECKINS';
+      pendingSynced[sessionGroup.groupKey] = 'SKIPPED_ZERO_CHECKINS';
       anySynced = true;
       continue;
     }
@@ -1455,12 +1552,23 @@ function autoSyncTodayAttendanceAfterClass() {
     if (!targetInfo) continue;
 
     try {
-      updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap);
+      const autoLockRes = withMasterWriteLock_({}, 3000, function() {
+        updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap);
+        return { busy: false };
+      });
+      if (autoLockRes && autoLockRes.busy) {
+        if (!lockBusyLogged) {
+          lockBusyLogged = true;
+          appendAuditLog_(masterSs, 'AUTO_SYNC', 'AUTO_SYNC_LOCK_BUSY', classId + ' (' + sessionGroup.day + '/' + sessionGroup.month + ')', 'Master sheet busy, will retry on next run');
+        }
+        continue;
+      }
       const result = updateTargetAttendanceFile_(targetInfo, classId, className, sessionGroup.day, sessionGroup.month, statusMap, null);
 
       undoBatch.push(buildAttendanceUndoEntry_(classId, className, targetInfo, result, sessionGroup, syncedMap[sessionGroup.groupKey]));
 
       syncedMap[sessionGroup.groupKey] = statusSignature;
+      pendingSynced[sessionGroup.groupKey] = statusSignature;
       anySynced = true;
 
       appendAuditLog_(
@@ -1477,6 +1585,7 @@ function autoSyncTodayAttendanceAfterClass() {
       if (errMsg.indexOf('Date column ') !== -1 && errMsg.indexOf('not found') !== -1) {
         // Lock unscheduled test dates so AUTO_SYNC never retries them every 15 minutes
         syncedMap[sessionGroup.groupKey] = 'SKIPPED_NO_DATE_COL';
+        pendingSynced[sessionGroup.groupKey] = 'SKIPPED_NO_DATE_COL';
         anySynced = true;
       } else {
         appendAuditLog_(
@@ -1491,12 +1600,16 @@ function autoSyncTodayAttendanceAfterClass() {
   }
 
   if (anySynced) {
-    props.setProperty(AUTO_SYNCED_SESSIONS_KEY, JSON.stringify(syncedMap));
-    if (undoBatch.length > 0) {
-      props.setProperty(LAST_SYNC_PROP_KEY, JSON.stringify(undoBatch));
-      if (props.getProperty(LAST_ACTION_TYPE_KEY) !== 'CLASS_DELETE') {
-        props.setProperty(LAST_ACTION_TYPE_KEY, 'ATTENDANCE_SYNC');
+    const persistRes = updateSyncedSessionsMap_(pendingSynced, [], 5000, function(p) {
+      if (undoBatch.length > 0) {
+        p.setProperty(LAST_SYNC_PROP_KEY, JSON.stringify(undoBatch));
+        if (p.getProperty(LAST_ACTION_TYPE_KEY) !== 'CLASS_DELETE') {
+          p.setProperty(LAST_ACTION_TYPE_KEY, 'ATTENDANCE_SYNC');
+        }
       }
+    });
+    if (persistRes && persistRes.busy && !lockBusyLogged) {
+      appendAuditLog_(masterSs, 'AUTO_SYNC', 'AUTO_SYNC_LOCK_BUSY', 'SYNCED_MAP', 'Master sheet busy, will retry on next run');
     }
   }
 }
@@ -2040,7 +2153,7 @@ function normalizeStudentId_(val, optionalNameVal) {
     }
   }
 
-  return s;
+  return typeof normalizeId === 'function' ? normalizeId(s) : String(s).trim().toUpperCase();
 }
 
 /**
@@ -2416,7 +2529,7 @@ function isStudentRowHighlightedRed_(infoBgs, infoFontColors, rowIdx, maxCols) {
 function extractRosterFromTargetFile_(targetInfo, classId, className) {
   return withTargetSpreadsheet_(targetInfo, classId, className, false, function(ss, sheet) {
     const layout = detectSheetLayout_(sheet);
-    const lastRow = Math.min(sheet.getLastRow(), 250);
+    const lastRow = Math.min(sheet.getLastRow(), 2000);
     if (lastRow < layout.dataStartRow) {
       return { roster: [], sheetName: sheet.getName() };
     }
@@ -2451,6 +2564,10 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
     const maxColNeeded = Math.max(identityCols, totalCols);
     const infoRange = sheet.getRange(layout.dataStartRow, 1, numRows, maxColNeeded);
     const rows = infoRange.getValues();
+    const idDispCol = sheet.getRange(layout.dataStartRow, layout.idCol, numRows, 1).getDisplayValues();
+    for (let i = 0; i < rows.length; i++) {
+      rows[i][layout.idCol - 1] = typeof pickStudentIdCell_ === 'function' ? pickStudentIdCell_(rows[i][layout.idCol - 1], idDispCol[i][0]) : rows[i][layout.idCol - 1];
+    }
     let infoBgs = null;
     let infoFontColors = null;
     try {
@@ -2787,7 +2904,7 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
       return stats;
     }
 
-    const lastRow = Math.min(sheet.getLastRow(), 250);
+    const lastRow = Math.min(sheet.getLastRow(), 2000);
     if (lastRow < layout.dataStartRow) {
       return stats;
     }
@@ -2797,6 +2914,10 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
     const maxColNeeded = Math.max(layout.idCol, layout.nameCol + (layout.isTwoColName ? 1 : 0));
     const infoRange = sheet.getRange(layout.dataStartRow, 1, numRows, maxColNeeded);
     const idAndNameRows = infoRange.getValues();
+    const idDispCol = sheet.getRange(layout.dataStartRow, layout.idCol, numRows, 1).getDisplayValues();
+    for (let i = 0; i < idAndNameRows.length; i++) {
+      idAndNameRows[i][layout.idCol - 1] = typeof pickStudentIdCell_ === 'function' ? pickStudentIdCell_(idAndNameRows[i][layout.idCol - 1], idDispCol[i][0]) : idAndNameRows[i][layout.idCol - 1];
+    }
     let infoBgs = null;
     let infoFontColors = null;
     try {
