@@ -860,7 +860,17 @@ check('manual mark regression: a VALID cached rowIndex still updates that row in
   assert.ok(!env.sheets.Attendance_Log.reads.some(r => r[3] === 10), 'valid cached row should avoid the full scan');
   assert.strictEqual(env.sheets.Attendance_Log.writes.filter(w => w.c === 6).length, 1);
 });
-check('CANCEL_MISTAKEN_SESSION clears SES_ATT_MAP_V36_ of sessions of OTHER classes too, keeps unknown keys, deletes only the class rows', () => {
+check('manual mark past day with P1+P2 and no rows: writes a row for EVERY session (P must not merge into L)', () => {
+  const env = p3Env({ sheets: { Attendance_Log: rsheet([]), Sessions_Log: rsheet([sesRowP3('SES_C1_1', 'C1'), sesRowP3('SES_C1_1_R2', 'C1')]) } });
+  hookState(env);
+  const dayKey = vm.runInContext(`Utilities.formatDate(new Date(Date.now() - 60e3), TIMEZONE, 'yyyy-MM-dd')`, env.ctx);
+  env.ctx.handleTeacherManualMark(env.ss, { classId: 'C1', studentId: '12345678', status: 'P', targetDayKey: dayKey });
+  const rows = env.sheets.Attendance_Log.rows;
+  assert.strictEqual(rows.length, 2);
+  assert.deepStrictEqual(rows.map(r => r[2]).sort(), ['SES_C1_1', 'SES_C1_1_R2']);
+  assert.ok(rows.every(r => r[5] === 'P' && r[9] === 'TEACHER_MANUAL'));
+});
+check('CANCEL_MISTAKEN_SESSION clears SES_ATT_MAP_V36_ of sessions of OTHER classes too,keeps unknown keys, deletes only the class rows', () => {
   const ses = rsheet([sesRowP3('SES_C1_1', 'C1'), sesRowP3('SES_C2_1', 'C2')]);
   const att = rsheet([attRowP3('SES_C1_1', '12345678', 'P'), attRowP3('SES_C2_1', '12345678', 'P')]);
   const env = p3Env({ sheets: { Sessions_Log: ses, Attendance_Log: att, Classes_Config: rsheet([classRow('C1'), classRow('C2')]) } });
@@ -1187,6 +1197,73 @@ check('L6 onboard: no undefined spamKey in handleStudentOnboard (static) and fin
   assert.strictEqual(ok.lock.releaseCalls, 1);
 });
 
+check('writeManualMarksForDay_ batch: 3 students x P1+P2 -> every row written, few sheet writes, ONE audit row', () => {
+  const att = rsheet([attRowP3('SES_C1_1', '11111111', '-'), attRowP3('SES_C1_1_R2', '22222222', '-'), attRowP3('SES_C1_1', '99999999', 'P')]);
+  const env = p3Env({ sheets: { Attendance_Log: att, Sessions_Log: rsheet([sesRowP3('SES_C1_1', 'C1'), sesRowP3('SES_C1_1_R2', 'C1')]) } });
+  const dayKey = vm.runInContext(`Utilities.formatDate(new Date(Date.now() - 60e3), TIMEZONE, 'yyyy-MM-dd')`, env.ctx);
+  const r = env.ctx.writeManualMarksForDay_(env.ss, 'C1', dayKey, { '11111111': 'P', '22222222': 'L', '33333333': 'E' }, { lockHeld: true, actor: 'T', requestTag: 'tag1' });
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  const got = {};
+  att.rows.forEach(x => { if (x[9] === 'TEACHER_MANUAL') got[x[4] + '|' + x[2]] = x[5]; });
+  assert.deepStrictEqual(got, { '11111111|SES_C1_1': 'P', '11111111|SES_C1_1_R2': 'P', '22222222|SES_C1_1': 'L', '22222222|SES_C1_1_R2': 'L', '33333333|SES_C1_1': 'E', '33333333|SES_C1_1_R2': 'E' });
+  assert.strictEqual(att.rows.find(x => x[4] === '99999999')[5], 'P', 'unrelated student touched');
+  assert.strictEqual(att.rows.length, 7);
+  assert.strictEqual(att.writes.length, 2, 'expected 1 in-place block + 1 append block, got ' + att.writes.length);
+  assert.strictEqual(env.lock.tryCalls, 0, 'lockHeld must skip the lock');
+  assert.strictEqual(env.audit.length, 1);
+  assert.strictEqual(env.audit[0][1], 'T');
+  assert.ok(env.audit[0][4].includes('tag1'));
+  assert.ok('SES_ATT_SES_C1_1_R2_33333333' in env.cacheStore);
+});
+check('writeManualMarksForDay_: no session for the day creates the HIST session; empty marks is a no-op', () => {
+  const ses = rsheet([]);
+  const env = p3Env({ sheets: { Attendance_Log: rsheet([]), Sessions_Log: ses, Classes_Config: rsheet([classRow('C1')]) } });
+  assert.strictEqual(env.ctx.writeManualMarksForDay_(env.ss, 'C1', '2026-01-05', {}, {}).written, 0);
+  const r = env.ctx.writeManualMarksForDay_(env.ss, 'C1', '2026-01-05', { '11111111': 'P', '22222222': '-' }, {});
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(ses.rows.length, 1);
+  assert.strictEqual(env.sheets.Attendance_Log.rows.length, 2);
+  assert.strictEqual(env.lock.tryCalls, 1); assert.strictEqual(env.lock.releaseCalls, 1);
+  assert.strictEqual(env.ctx.writeManualMarksForDay_(env.ss, 'C1', 'bad', { '1': 'P' }, { lockHeld: true }).code, 'ERR_NO_SESSION');
+});
+const onbAud = env => env.audit.filter(a => a[2] === 'ONBOARD_REJECTED');
+check('onboard audit: rejections log ONBOARD_REJECTED with code + MSSV, never the credential/hash, and are rate limited per code+MSSV', () => {
+  const env = onboardEnv({ devRows: [['12345678', 'Test Student', sha256('someone_elses_credential_x'), '', 'ACTIVE', 0, '']] });
+  onb(env, '55555555'); onb(env, '55555555'); onb(env, '12345678');
+  const a = onbAud(env);
+  assert.deepStrictEqual(a.map(x => x[4]), ['ERR_NOT_ON_ROSTER', 'ERR_CREDENTIAL_MISMATCH']);
+  assert.strictEqual(a[0][3], '55555555', JSON.stringify(a));
+  assert.ok(!JSON.stringify(env.audit).includes(GOOD_CRED2) && !JSON.stringify(env.audit).includes(sha256(GOOD_CRED2)), 'credential leaked into audit');
+  assert.strictEqual(env.ttl['AUD_ONB_ERR_NOT_ON_ROSTER_55555555'], 600, JSON.stringify(env.ttl));
+  const e2 = onboardEnv({ devRows: [['99999999', 'Other', sha256(GOOD_CRED2), '', 'ACTIVE', 0, '']] });
+  onb(e2, '12345678');
+  assert.deepStrictEqual(onbAud(e2).map(x => x[4]), ['ERR_DEVICE_BOUND_OTHER']);
+  const e3 = onboardEnv({ devRows: [] }); e3.lock.busy = true;
+  onb(e3, '12345678');
+  assert.deepStrictEqual(onbAud(e3).map(x => x[4]), ['ERR_SERVER_BUSY']);
+});
+check('onboard audit: rate-limit ERR_SERVER_BUSY audited at most once per minute system-wide; REG_LOCKED audited; audit failure never breaks the reply', () => {
+  const env = onboardEnv();
+  for (let i = 0; i < 10; i++) onb(env, '12345678');
+  onb(env, '12345678'); onb(env, '12345678');
+  assert.strictEqual(onbAud(env).filter(x => x[4] === 'ERR_SERVER_BUSY').length, 1);
+  assert.strictEqual(env.ttl['AUD_ONB_BUSY_RL'], 60);
+  const lk = onboardEnv(); lk.sheets.Classes_Config.rows[0][8] = 'NO';
+  assert.strictEqual(onb(lk, '12345678').code, 'ERR_REG_LOCKED');
+  assert.deepStrictEqual(onbAud(lk).map(x => x[4]), ['ERR_REG_LOCKED']);
+  const bad = onboardEnv();
+  vm.runInContext(`logAudit = () => { throw new Error('audit boom'); };`, bad.ctx);
+  assert.strictEqual(onb(bad, '55555555').code, 'ERR_NOT_ON_ROSTER');
+});
+check('onboard audit: formula-looking MSSV is neutralised (leading apostrophe) and truncated to 20 chars', () => {
+  const env = onboardEnv();
+  onb(env, '=HYPERLINK("http://x.example","a")');
+  const a = onbAud(env)[0];
+  assert.strictEqual(a[3][0], "'");
+  assert.ok(a[3].length <= 21);
+  assert.strictEqual(a[3], "'" + '=HYPERLINK("http://x.example","a")'.toUpperCase().slice(0, 20));
+});
+
 // ---------------------------------------------------------------- H6: master write lock in sync.txt
 console.log('--- H6: withMasterWriteLock_ and its callers ---');
 check('withMasterWriteLock_: busy lock -> fn not called, returns {busy:true}, nothing to release', () => {
@@ -1230,42 +1307,8 @@ check('deleteSelectedClasses (run): declined confirmation never touches the lock
   assert.strictEqual(env.lock.tryCalls, 1);
   assert.ok(env.audit.some(a => a[0] === 'alert'), 'user not told that nothing was deleted');
 });
-function autoSyncEnv(busy) {
-  const env = p3Env();
-  env.lock.busy = busy;
-  env.calls = { updTarget: 0, updMaster: 0, driveSync: 0 };
-  const grp = k => ({ classId: 'C1', dateKey: '2000-1-' + k, groupKey: 'C1_g' + k, day: k, month: 1, allClosed: true, maxClosesAtMs: 0, openedAtMs: 0 });
-  env.ctx.__groups = [grp(1), grp(2), grp(3)];
-  vm.runInContext(`
-    getClassNamesMap_ = () => ({ C1: 'Class One' });
-    getGroupedSessionsByClassDate_ = () => __groups;
-    getMergedAttendanceStatusMap_ = () => ({ '12345678': 'P' });
-    resolveClassTargetFile_ = () => ({ isGoogleSheet: true, fileId: 'F' });
-    syncSingleClassRosterFromDrive_ = () => { __env.calls.driveSync++; return { ok: true, newStudentsAdded: 0 }; };
-    updateMasterClassSheet_ = () => { __env.calls.updMaster++; };
-    updateTargetAttendanceFile_ = () => { __env.calls.updTarget++; return { presentCount: 1, lateCount: 0, excusedCount: 0, absentCount: 0 }; };
-    buildAttendanceUndoEntry_ = () => ({});
-  `, env.ctx);
-  return env;
-}
-check('autoSyncTodayAttendanceAfterClass: lock busy -> syncedMap not updated, target file untouched, AUTO_SYNC_LOCK_BUSY logged once per run', () => {
-  const env = autoSyncEnv(true);
-  env.ctx.autoSyncTodayAttendanceAfterClass();
-  assert.strictEqual(env.calls.updTarget, 0); assert.strictEqual(env.calls.updMaster, 0);
-  const key = vm.runInContext('AUTO_SYNCED_SESSIONS_KEY', env.ctx);
-  assert.ok(!(key in env.propStore), 'syncedMap was persisted although nothing was synced: ' + env.propStore[key]);
-  assert.strictEqual(env.audit.filter(a => a[2] === 'AUTO_SYNC_LOCK_BUSY').length, 1, 'busy log count');
-  assert.strictEqual(env.lock.tryCalls, 3, 'every group still tries the lock');
-});
-check('autoSyncTodayAttendanceAfterClass: free lock -> all groups synced, signatures persisted, no busy log', () => {
-  const env = autoSyncEnv(false);
-  env.ctx.autoSyncTodayAttendanceAfterClass();
-  assert.strictEqual(env.calls.updTarget, 3); assert.strictEqual(env.calls.updMaster, 3);
-  const map = JSON.parse(env.propStore[vm.runInContext('AUTO_SYNCED_SESSIONS_KEY', env.ctx)]);
-  assert.deepStrictEqual(Object.keys(map).sort(), ['C1_g1', 'C1_g2', 'C1_g3']);
-  assert.strictEqual(env.audit.filter(a => a[2] === 'AUTO_SYNC_LOCK_BUSY').length, 0);
-  assert.strictEqual(env.lock.releaseCalls, 4, '3 group locks + 1 synced-map persist lock');
-});
+// v3.10.0: autoSyncTodayAttendanceAfterClass / syncTodayAttendance / executeAttendanceSyncUndo_ now run the two-way merge;
+// their lock, base and undo behaviour is covered in test-two-way-sync.js (the old synced-map tests were retired).
 check('syncClassRosterForReport_ runs the Drive roster sync with lockHeld:false and returns the added students', () => {
   const env = p3Env();
   let seen = null;
@@ -1419,55 +1462,6 @@ check('handleTeacherRebuildReport: rebuild error propagates and the lock is stil
   assert.strictEqual(r.ok, true); assert.strictEqual(r.newStudentsAdded, 0);
 });
 
-function syncedMapEnv(busy) {
-  const env = autoSyncEnv(busy);
-  vm.runInContext(`showAlert_ = (m) => __env.audit.push(['alert', m]); ensureBackgroundTriggers_ = () => {};`, env.ctx);
-  return env;
-}
-const mapKey = env => vm.runInContext('AUTO_SYNCED_SESSIONS_KEY', env.ctx);
-check('synced map: interleaved auto runs keep BOTH entries (other run commits X while this run writes Y)', () => {
-  const env = syncedMapEnv(false);
-  env.ctx.__groups = [env.ctx.__groups[0]];
-  env.ctx.__writeOther = () => { env.propStore[mapKey(env)] = JSON.stringify({ X_other: 'sigX' }); };
-  vm.runInContext(`updateTargetAttendanceFile_ = () => { __writeOther(); return { presentCount: 1, lateCount: 0, excusedCount: 0, absentCount: 0 }; };`, env.ctx);
-  env.ctx.autoSyncTodayAttendanceAfterClass();
-  const map = JSON.parse(env.propStore[mapKey(env)]);
-  assert.strictEqual(map.X_other, 'sigX', 'entry from the concurrent run was overwritten');
-  assert.ok(map.C1_g1, 'this run entry missing');
-});
-check('synced map: manual sync goes through the lock, interleaved entries preserved', () => {
-  const env = syncedMapEnv(false);
-  const n = new Date(), dk = n.getFullYear() + '-' + (n.getMonth() + 1) + '-' + n.getDate();
-  env.ctx.__groups = [{ classId: 'C1', dateKey: dk, groupKey: 'C1_today', day: n.getDate(), month: n.getMonth() + 1, sessionIds: ['S1'], allClosed: true }];
-  env.ctx.__writeOther = () => { env.propStore[mapKey(env)] = JSON.stringify({ X_other: 'sigX' }); };
-  vm.runInContext(`updateTargetAttendanceFile_ = () => { __writeOther(); return { presentCount: 1, lateCount: 0, excusedCount: 0, absentCount: 0 }; };`, env.ctx);
-  env.ctx.syncTodayAttendance();
-  const map = JSON.parse(env.propStore[mapKey(env)]);
-  assert.strictEqual(map.X_other, 'sigX'); assert.ok(map.C1_today);
-  assert.strictEqual(env.lock.tryCalls, 2, 'master write + map persist');
-  assert.ok(env.propStore[vm.runInContext('LAST_SYNC_PROP_KEY', env.ctx)], 'undo batch not saved');
-});
-check('synced map: persist lock busy at the end -> map and undo props unchanged (retry next run)', () => {
-  const env = syncedMapEnv(false);
-  env.ctx.__groups = [env.ctx.__groups[0]];
-  env.propStore[mapKey(env)] = JSON.stringify({ old: 'sig' });
-  let n = 0;
-  const orig = env.ctx.LockService.getScriptLock;
-  env.ctx.LockService.getScriptLock = () => { const l = orig(); const t = l.tryLock; l.tryLock = () => { n++; if (n === 2) { env.lock.tryCalls++; return false; } return t(); }; return l; };
-  env.ctx.autoSyncTodayAttendanceAfterClass();
-  assert.deepStrictEqual(JSON.parse(env.propStore[mapKey(env)]), { old: 'sig' });
-  assert.ok(!(vm.runInContext('LAST_SYNC_PROP_KEY', env.ctx) in env.propStore));
-  assert.strictEqual(env.lock.held, false);
-});
-check('synced map: undo merges under the lock (restore prev sig / delete key) without clobbering other entries', () => {
-  const env = syncedMapEnv(false);
-  vm.runInContext(`updateTargetAttendanceFile_ = () => { __env.propStore[AUTO_SYNCED_SESSIONS_KEY] = JSON.stringify({ a: 's', b: 's', other: 'o' }); };`, env.ctx);
-  env.propStore[mapKey(env)] = JSON.stringify({ a: 's', b: 's' });
-  const props = vm.runInContext('PropertiesService.getScriptProperties()', env.ctx);
-  env.ctx.executeAttendanceSyncUndo_(env.ss, props, [{ classId: 'C1', day: 1, month: 1, groupKey: 'a', previousSyncedSig: 'prev' }, { classId: 'C1', day: 2, month: 1, groupKey: 'b' }], false);
-  assert.deepStrictEqual(JSON.parse(env.propStore[mapKey(env)]), { a: 'prev', other: 'o' });
-  assert.strictEqual(env.lock.tryCalls, 1);
-});
 check('sync.txt: no raw setProperty(AUTO_SYNCED_SESSIONS_KEY) left outside updateSyncedSessionsMap_', () => {
   const total = syncSrc.split('setProperty(AUTO_SYNCED_SESSIONS_KEY').length - 1;
   assert.strictEqual(total, 1);

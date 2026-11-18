@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.9.2)
+ * CCS (CLASSCHECK SYSTEM) — UNIVERSAL ROSTER & SHEET SYNC (v3.10.1)
  * ============================================================================
  * Architecture : Two-Way Google Sheets & Excel (.XLSX) Drive Synchronization
- * Companion    : Code.gs (code3.9.2.text) & Frontend UI (index.html, js/*.js)
+ * Companion    : Code.gs (code3.10.1.text) & Frontend UI (index.html, js/*.js)
  * Release Notes: See changelog.md and RULES.md for version history & rules.
  * ============================================================================
  */
@@ -42,6 +42,27 @@ const ROSTER_SYNC_META_PROP_KEY = 'QR_CENTER_ROSTER_SYNC_META_V1';
 const ATTENDANCE_STYLE_PROP_KEY = 'QR_UNIVERSAL_ATTENDANCE_STYLE';
 const ROSTER_PREVIEW_CACHE_PREFIX = 'QR_ROSTER_PREVIEW_V2_';
 const UNDO_BACKUP_SHEET_NAME = '_Undo_Backup_Cache';
+const SYNC_BASE_SHEET_NAME = '_Sync_Base';
+const SYNC_BASE_HEADER = ['classId', 'dayKey', 'fileId', 'baseJson', 'sheetModifiedMs', 'styleHash', 'updatedAt', 'paused'];
+const SYNC_PAUSE_UNDO = 1;   // set by Undo Last Attendance Sync, cleared by the manual Sync button
+const SYNC_PAUSE_STYLE = 2;  // set when the Attendance Mark Settings changed, cleared by the manual Sync button
+const SYNC_SKIP_DAY = 3;     // past day that must not be retried (no check-ins / no date column)
+const SYNC_BASE_MIGRATED_KEY = 'QR_SYNC_BASE_MIGRATED';
+const SYNC2W_RUNNING_KEY = 'SYNC2W_RUNNING';
+const SYNC2W_CURSOR_KEY = 'QR_SYNC2W_CURSOR';
+const SYNC2W_RUNNING_TTL_SEC = 330;
+const SYNC2W_DEADLINE_MS = 270000;
+const SYNC2W_LOCK_WAIT_MS = 3000;
+const SYNC2W_LOG_MIN_MS = 2000;
+const SYNC2W_LAST_FULL_KEY = 'QR_SYNC2W_LAST_FULL_MS';
+const SYNC2W_IDLE_INTERVAL_MS = 30 * 60000;
+const SYNC2W_GATE_BEFORE_MIN = 45;
+const SYNC2W_GATE_AFTER_MIN = 180;
+const SYNC2W_GATE_SESSION_ROWS = 40;
+const SYNC2W_GATE_FAILOPEN_FROM_H = 6;
+const SYNC2W_GATE_FAILOPEN_TO_H = 23;
+const TRIGGER_REV_KEY = 'QR_TRIGGER_REV';
+const TRIGGER_REV = '3.10';
 
 const MIME_GOOGLE_SHEET = 'application/vnd.google-apps.spreadsheet';
 const MIME_EXCEL_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -86,26 +107,32 @@ function buildCenterSyncMenuOnly_() {
 }
 
 /**
- * Installs background triggers (onOpen + 15-minute auto-sync) once authorized.
+ * Installs background triggers (onOpen + 5-minute two-way auto-sync) once authorized.
  */
 function ensureBackgroundTriggers_() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const props = PropertiesService.getScriptProperties();
     const triggers = ScriptApp.getProjectTriggers();
+    const revOk = props.getProperty(TRIGGER_REV_KEY) === TRIGGER_REV;
     let hasOpenTrigger = false;
     let hasAutoSyncTrigger = false;
 
     for (let i = 0; i < triggers.length; i++) {
       const fn = triggers[i].getHandlerFunction();
       if (fn === 'setupCenterSyncMenu' || fn === 'taoMenuDongBo') hasOpenTrigger = true;
-      if (fn === 'autoSyncTodayAttendanceAfterClass' || fn === 'tuDongDongBoSauGioHoc') hasAutoSyncTrigger = true;
+      if (fn === 'autoSyncTodayAttendanceAfterClass' || fn === 'tuDongDongBoSauGioHoc') {
+        if (revOk) hasAutoSyncTrigger = true;
+        else ScriptApp.deleteTrigger(triggers[i]);
+      }
     }
 
     if (!hasOpenTrigger && ss) {
       ScriptApp.newTrigger('setupCenterSyncMenu').forSpreadsheet(ss).onOpen().create();
     }
     if (!hasAutoSyncTrigger) {
-      ScriptApp.newTrigger('autoSyncTodayAttendanceAfterClass').timeBased().everyMinutes(15).create();
+      ScriptApp.newTrigger('autoSyncTodayAttendanceAfterClass').timeBased().everyMinutes(5).create();
+      props.setProperty(TRIGGER_REV_KEY, TRIGGER_REV);
     }
   } catch (e) {}
 }
@@ -454,7 +481,6 @@ function syncSingleClassRosterFromDrive_(masterSs, classId, className, options) 
   if (
     opts.onlyIfModified &&
     existingStudentCount > 0 &&
-    props.getProperty('QR_SHEET_PAST_HISTORY_' + classId) &&
     meta &&
     meta.fileId === targetInfo.fileId &&
     meta.syncedCount === existingStudentCount &&
@@ -470,8 +496,8 @@ function syncSingleClassRosterFromDrive_(masterSs, classId, className, options) 
     };
   }
 
-  let extractResult = null;
-  if (opts.scriptCache && !opts.bypassPreviewCache) {
+  let extractResult = opts.extractResult || null;
+  if (!extractResult && opts.scriptCache && !opts.bypassPreviewCache) {
     try {
       const cachedRaw = opts.scriptCache.get(ROSTER_PREVIEW_CACHE_PREFIX + classId);
       if (cachedRaw) {
@@ -508,7 +534,7 @@ function syncSingleClassRosterFromDrive_(masterSs, classId, className, options) 
   const newStudentNames = [];
   let summaryLine = '';
 
-  const rosterLockRes = withMasterWriteLock_(opts, 15000, function() {
+  const rosterLockRes = withMasterWriteLock_(opts, opts.lockWaitMs || 15000, function() {
     if (existingStudentCount === 0) {
       classSheet.getRange(1, 1, 1, 5).setValues([['No.', 'Student_ID', 'Full_Name', 'Total_Present', 'Total_Late']]);
       classSheet.getRange(2, 1, rosterRows.length, 5).setValues(rosterRows);
@@ -564,6 +590,12 @@ function syncSingleClassRosterFromDrive_(masterSs, classId, className, options) 
   try {
     props.setProperty(ROSTER_SYNC_META_PROP_KEY, JSON.stringify(syncMetaMap));
   } catch (e) {}
+
+  try {
+    if (Array.isArray(extractResult.dateColumns) && extractResult.dateColumns.length > 0) {
+      importPastDaysFromSheet_(masterSs, classId, targetInfo, extractResult.dateColumns, opts);
+    }
+  } catch (importErr) {}
 
   // Invalidate Master Sheet roster/history cache & rebuild attendance columns whenever Drive file is synced
   try {
@@ -641,7 +673,7 @@ function executeSelectedRostersSync(selectedClassIds) {
 
 // ============================================================================
 // 4. BUTTON 2: SYNC TODAY'S ATTENDANCE (TO GOOGLE SHEET OR .XLSX)
-//    Merges multiple same-day sessions (P > L > -) & rescues unsynced past dates.
+//    Same two-way merge as the 5-minute trigger, forced (no time gates), resumes paused days.
 // ============================================================================
 function syncTodayAttendance() {
   ensureBackgroundTriggers_();
@@ -651,7 +683,13 @@ function syncTodayAttendance() {
   const now = new Date();
   const currentDayStr = now.getFullYear() + '-' + (now.getMonth() + 1) + '-' + now.getDate();
   const props = PropertiesService.getScriptProperties();
-  const syncedMap = JSON.parse(props.getProperty(AUTO_SYNCED_SESSIONS_KEY) || '{}');
+
+  const mig = ensureSyncBaseMigrated_(masterSs, props);
+  if (mig && mig.busy) {
+    showAlert_('⏳ Master sheet is busy with student check-ins. Nothing was synced, please retry in a minute.');
+    return;
+  }
+  const env = makeSyncEnv_(masterSs, now);
 
   const classNamesMap = getClassNamesMap_(masterSs);
   const groupedByClassDate = getGroupedSessionsByClassDate_(masterSs);
@@ -660,11 +698,15 @@ function syncTodayAttendance() {
 
   for (let i = 0; i < groupedByClassDate.length; i++) {
     const grp = groupedByClassDate[i];
+    const be = env.baseMap[syncBaseKey_(grp.classId, grp.dayKey)] || null;
     if (grp.dateKey === currentDayStr) {
       sessionsToSync.push(grp);
-    } else if (!syncedMap[grp.groupKey]) {
+    } else if (!be) {
       // Past date that was NEVER synced even once (e.g. crossed midnight before syncing)
       unsyncedPastGroups.push(grp);
+    } else if (be.paused === SYNC_PAUSE_UNDO || be.paused === SYNC_PAUSE_STYLE) {
+      // Paused by Undo / mark-style change: pressing Sync resumes it
+      sessionsToSync.push(grp);
     }
   }
 
@@ -677,7 +719,7 @@ function syncTodayAttendance() {
       'Unsynced Past Session(s) Detected',
       'Found session(s) from a previous date that have NEVER been synced to the target Google Sheet / .XLSX file:\n' +
       '• ' + pastDesc + '\n\n' +
-      'Do you want to sync them now? (Already-synced past dates will never be touched.)',
+      'Do you want to sync them now? (Already-synced past dates are only updated for cells that changed.)',
       ui.ButtonSet.YES_NO
     );
     if (rescueConfirm === ui.Button.YES) {
@@ -691,77 +733,48 @@ function syncTodayAttendance() {
     showAlert_(
       'ℹ️ No QR attendance sessions found for TODAY (' +
       now.getDate() + '/' + (now.getMonth() + 1) + '/' + now.getFullYear() + ').\n\n' +
-      'Note: Already-synced past dates are locked to protect your manual edits on the target Google Sheet / .XLSX file.'
+      'Note: Already-synced past dates are kept in sync automatically (only changed cells are written).'
     );
     return;
   }
 
+  const byClass = {};
+  const classOrder = [];
+  sessionsToSync.forEach(function(g) {
+    if (!byClass[g.classId]) { byClass[g.classId] = []; classOrder.push(g.classId); }
+    byClass[g.classId].push(g);
+  });
+
   const undoBatch = [];
-  const pendingSynced = {};
   const summaryLines = [];
 
-  for (let i = 0; i < sessionsToSync.length; i++) {
-    const sessionGroup = sessionsToSync[i];
-    const classId = sessionGroup.classId;
+  for (let c = 0; c < classOrder.length; c++) {
+    const classId = classOrder[c];
     const className = classNamesMap[classId] || '';
-    const targetInfo = resolveClassTargetFile_(masterSs, classId, className);
-
-    if (!targetInfo) {
-      summaryLines.push('⚠️ ' + classId + ': Skipped (Target Google Sheet / .XLSX file not found on Google Drive).');
+    let res = null;
+    try {
+      res = syncClassDays_(masterSs, env, classId, className, byClass[classId], { manual: true, lockWaitMs: 10000 });
+    } catch (err) {
+      summaryLines.push('❌ ' + classId + ': ' + err.message);
+      appendAuditLog_(masterSs, 'MANUAL_SYNC', 'ATTENDANCE_SYNC_ERROR', classId, err.message);
       continue;
     }
-
-    try {
-      const statusMap = getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup);
-      const manualLockRes = withMasterWriteLock_({}, 10000, function() {
-        updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap);
-        return { busy: false };
-      });
-      if (manualLockRes && manualLockRes.busy) {
-        summaryLines.push('⏳ ' + classId + ' (Date ' + sessionGroup.day + '/' + sessionGroup.month + '): Master sheet busy, please retry in a minute.');
-        continue;
-      }
-      const result = updateTargetAttendanceFile_(targetInfo, classId, className, sessionGroup.day, sessionGroup.month, statusMap, null);
-
-      undoBatch.push(buildAttendanceUndoEntry_(classId, className, targetInfo, result, sessionGroup, syncedMap[sessionGroup.groupKey]));
-
-      syncedMap[sessionGroup.groupKey] = JSON.stringify(statusMap);
-      pendingSynced[sessionGroup.groupKey] = syncedMap[sessionGroup.groupKey];
-
-      const multiNote = sessionGroup.sessionIds.length > 1
-        ? ' [Merged ' + sessionGroup.sessionIds.length + ' sessions]'
-        : '';
-      const formatTag = targetInfo.isGoogleSheet ? '[Google Sheet]' : '[.XLSX]';
-      const detailStr = 'Present: ' + result.presentCount + ' | Late: ' + result.lateCount +
-        (result.excusedCount ? ' | Excused: ' + result.excusedCount : '') + ' | Absent: ' + result.absentCount;
-
-      summaryLines.push(
-        '✅ ' + classId + ' ' + formatTag + ' (Date ' + sessionGroup.day + '/' + sessionGroup.month + ')' + multiNote + ' — ' + detailStr
-      );
-      appendAuditLog_(
-        masterSs,
-        'MANUAL_SYNC',
-        'ATTENDANCE_SYNC_SUCCESS',
-        classId + ' (' + sessionGroup.day + '/' + sessionGroup.month + ')',
-        formatTag + ' ' + detailStr + multiNote
-      );
-    } catch (err) {
-      summaryLines.push('❌ ' + classId + ' (Date ' + sessionGroup.day + '/' + sessionGroup.month + '): ' + err.message);
-      appendAuditLog_(
-        masterSs,
-        'MANUAL_SYNC',
-        'ATTENDANCE_SYNC_ERROR',
-        classId + ' (' + sessionGroup.day + '/' + sessionGroup.month + ')',
-        err.message
-      );
+    res.lines.forEach(function(l) { summaryLines.push(l); });
+    if (res.busy) {
+      summaryLines.push('⏳ ' + classId + ': Master sheet busy, please retry in a minute.');
     }
+    res.undoEntries.forEach(function(e) { undoBatch.push(e); });
+    res.days.forEach(function(dr) {
+      const multiNote = dr.g.sessionIds.length > 1 ? ' [Merged ' + dr.g.sessionIds.length + ' sessions]' : '';
+      const detailStr = 'Present: ' + dr.counts.P + ' | Late: ' + dr.counts.L +
+        (dr.counts.E ? ' | Excused: ' + dr.counts.E : '') + ' | Absent: ' + dr.counts.A +
+        ' | Pushed: ' + dr.pushed + ' | Pulled from Sheet: ' + dr.pulled;
+      summaryLines.push('✅ ' + classId + ' (Date ' + dr.g.day + '/' + dr.g.month + ')' + multiNote + ' — ' + detailStr);
+    });
   }
 
   if (undoBatch.length > 0) {
-    const persistRes = updateSyncedSessionsMap_(pendingSynced, [], 10000, function(p) {
-      p.setProperty(LAST_SYNC_PROP_KEY, JSON.stringify(undoBatch));
-      p.setProperty(LAST_ACTION_TYPE_KEY, 'ATTENDANCE_SYNC');
-    });
+    const persistRes = persistUndoBatch_(undoBatch, 10000, true);
     if (persistRes && persistRes.busy) {
       summaryLines.push('⏳ Master sheet busy: sync log not saved (Undo unavailable); files were written and the next sync will refresh them.');
     }
@@ -894,9 +907,9 @@ function executeClassDeleteUndo_(masterSs, props, deletedSnapshot, hasOtherUndo)
 }
 
 function executeAttendanceSyncUndo_(masterSs, props, undoBatch, hasOtherUndo) {
-  const restoredSets = {};
-  const restoredDeletes = [];
   const restoredLines = [];
+  const undone = [];
+  const styleNow = syncStyleKey_();
 
   for (let i = 0; i < undoBatch.length; i++) {
     const item = undoBatch[i];
@@ -904,7 +917,7 @@ function executeAttendanceSyncUndo_(masterSs, props, undoBatch, hasOtherUndo) {
       fileId: item.xlsxFileId,
       isGoogleSheet: Boolean(item.isGoogleSheet)
     };
-    updateTargetAttendanceFile_(
+    const res = updateTargetAttendanceFile_(
       targetInfo,
       item.classId,
       item.className || '',
@@ -913,26 +926,55 @@ function executeAttendanceSyncUndo_(masterSs, props, undoBatch, hasOtherUndo) {
       {},
       item.previousCells || []
     );
-    if (item.groupKey) {
-      if (item.previousSyncedSig) {
-        restoredSets[item.groupKey] = item.previousSyncedSig;
-      } else {
-        restoredDeletes.push(item.groupKey);
-      }
+
+    let dayKey = String(item.dayKey || '');
+    if (!dayKey && item.groupKey) {
+      const gk = String(item.groupKey);
+      const dm = gk.slice(gk.lastIndexOf('__') + 2).match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (dm) dayKey = dm[1] + '-' + syncPad2_(dm[2]) + '-' + syncPad2_(dm[3]);
     }
+    // Base = the restored column (blank counts as present); unreadable cells keep their stored base value
+    const restored = {};
+    (item.previousCells || []).forEach(function(pc) {
+      if (!pc || !pc.sid) return;
+      const sidU = String(pc.sid).toUpperCase();
+      const m = readDayColumnMarks_([[pc.val]], [[pc.bg || '']], [sidU], getAttendanceStyle_())[sidU];
+      if (m === 'BLANK') restored[sidU] = 'P';
+      else if (m === 'P' || m === 'L' || m === 'E' || m === '-') restored[sidU] = m;
+    });
+    undone.push({ classId: item.classId, dayKey: dayKey, fileId: item.xlsxFileId, restored: restored, afterMs: Number(res && res.afterModifiedMs) || 0 });
+
     restoredLines.push('↩️ ' + item.classId + ': Restored date column ' + item.day + '/' + item.month + ' to its previous state.');
     appendAuditLog_(masterSs, 'SYNC_MENU', 'UNDO_ATTENDANCE_SYNC', item.classId + ' (' + item.day + '/' + item.month + ')', 'Restored previous column values');
   }
 
-  const undoPersist = updateSyncedSessionsMap_(restoredSets, restoredDeletes, 10000, function(p) {
-    p.deleteProperty(LAST_SYNC_PROP_KEY);
-    p.setProperty(LAST_ACTION_TYPE_KEY, hasOtherUndo ? 'CLASS_DELETE' : '');
+  // Pause these days (push and pull) until the manual Sync button is used again
+  const undoPersist = withMasterWriteLock_({}, 10000, function() {
+    const cur = readSyncBaseAll_(masterSs).map;
+    const upserts = [];
+    undone.forEach(function(u) {
+      if (!u.dayKey) return;
+      const prev = cur[syncBaseKey_(u.classId, u.dayKey)];
+      upserts.push({
+        classId: u.classId,
+        dayKey: u.dayKey,
+        fileId: u.fileId,
+        base: Object.assign({}, prev ? prev.base : {}, u.restored),
+        sheetModifiedMs: u.afterMs,
+        styleHash: styleNow,
+        paused: SYNC_PAUSE_UNDO
+      });
+    });
+    if (upserts.length > 0) writeSyncBaseBatch_(masterSs, upserts, []);
+    props.deleteProperty(LAST_SYNC_PROP_KEY);
+    props.setProperty(LAST_ACTION_TYPE_KEY, hasOtherUndo ? 'CLASS_DELETE' : '');
+    return { busy: false };
   });
   if (undoPersist && undoPersist.busy) {
     showAlert_('⏳ Files were restored but the Master sheet is busy, so the sync log was not updated. Please run Undo again in a minute.');
     return;
   }
-  showAlert_('✅ UNDO COMPLETED\n\n' + restoredLines.join('\n'));
+  showAlert_('✅ UNDO COMPLETED\n\n' + restoredLines.join('\n') + '\n\nAuto-sync of these dates is paused until you press "Sync Today\'s Attendance".');
 }
 
 
@@ -1486,132 +1528,510 @@ function saveAttendanceStyleSettings(styleCfg) {
 
 
 // ============================================================================
-// 8. BACKGROUND AUTO-SYNC (RUNS EVERY 15 MINUTES)
+// 8. BACKGROUND TWO-WAY AUTO-SYNC (RUNS EVERY 5 MINUTES)
+//    Per (class, day): 3-way merge of Web (Master Sheet) vs Sheet/XLSX vs the stored base (_Sync_Base).
+//    Sheet wins on conflict; only changed cells are written; nothing is read/converted when the file is unchanged.
 // ============================================================================
+function syncGateToMs_(v) {
+  if (v && Object.prototype.toString.call(v) === '[object Date]') return v.getTime();
+  const t = Date.parse(String(v || ''));
+  return isNaN(t) ? 0 : t;
+}
+
+function syncGateDayKey_(d) {
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
+// Cheap gate (no Drive/Calendar): true when a class has a session today (+3h after it ends) or is scheduled today within [start-45m, end+3h].
+// Returns 'active' | 'idle'. Unknown schedule -> fail-open between 06:00 and 23:00.
+function getSync2wGate_(masterSs, props, nowMs) {
+  const now = new Date(nowMs);
+  const todayKey = syncGateDayKey_(now);
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
+  try {
+    const sh = masterSs.getSheetByName('Sessions_Log');
+    const last = sh ? sh.getLastRow() : 0;
+    if (last > 1) {
+      const n = Math.min(SYNC2W_GATE_SESSION_ROWS, last - 1);
+      const rows = sh.getRange(last - n + 1, 1, n, 7).getValues();
+      for (let i = 0; i < rows.length; i++) {
+        const openedMs = syncGateToMs_(rows[i][3]);
+        if (!openedMs || syncGateDayKey_(new Date(openedMs)) !== todayKey) continue;
+        const endMs = syncGateToMs_(rows[i][6]) || syncGateToMs_(rows[i][5]) || 0;
+        if (!endMs || nowMs <= endMs + SYNC2W_GATE_AFTER_MIN * 60000) return 'active';
+      }
+    }
+  } catch (e) {
+    return 'active';
+  }
+
+  let usable = 0;
+  let gateActive = false;
+  try {
+    const raw = props.getProperty('QR_CLASS_SCHEDULE_META_MAP');
+    const map = raw ? JSON.parse(raw) : {};
+    Object.keys(map).forEach(function(cid) {
+      const en = map[cid];
+      if (!en || typeof en !== 'object') return;
+      const sd = Array.isArray(en.sessionDates) ? en.sessionDates : [];
+      const md = Array.isArray(en.makeUpDates) ? en.makeUpDates : [];
+      const dw = Array.isArray(en.daysOfWeek) ? en.daysOfWeek : (typeof en.dayOfWeek === 'number' ? [en.dayOfWeek] : []);
+      if (sd.length === 0 && md.length === 0 && dw.length === 0) return;
+      usable++;
+      const scheduled = sd.indexOf(todayKey) !== -1 || md.indexOf(todayKey) !== -1 || (sd.length === 0 && dw.indexOf(now.getDay()) !== -1);
+      if (!scheduled) return;
+      let startMin = SYNC2W_GATE_FAILOPEN_FROM_H * 60 + SYNC2W_GATE_BEFORE_MIN;
+      let endMin = SYNC2W_GATE_FAILOPEN_TO_H * 60 - SYNC2W_GATE_AFTER_MIN;
+      const sp = Number(en.startPeriod), ep = Number(en.endPeriod || en.startPeriod);
+      if (sp >= 1 && ep >= sp && ep <= 20) {
+        startMin = sp <= 6 ? 390 + (sp - 1) * 50 : 750 + (sp - 7) * 50;
+        endMin = ep <= 6 ? 390 + ep * 50 : 750 + (ep - 6) * 50;
+      }
+      if (nowMin >= startMin - SYNC2W_GATE_BEFORE_MIN && nowMin <= endMin + SYNC2W_GATE_AFTER_MIN) gateActive = true;
+    });
+  } catch (e) {
+    usable = 0;
+  }
+  if (gateActive) return 'active';
+  if (usable === 0) {
+    return (now.getHours() >= SYNC2W_GATE_FAILOPEN_FROM_H && now.getHours() < SYNC2W_GATE_FAILOPEN_TO_H) ? 'active' : 'idle';
+  }
+  return 'idle';
+}
+
 function autoSyncTodayAttendanceAfterClass() {
   const masterSs = SpreadsheetApp.getActiveSpreadsheet();
-  const now = new Date();
-  const currentDayStr = now.getFullYear() + '-' + (now.getMonth() + 1) + '-' + now.getDate();
   const props = PropertiesService.getScriptProperties();
-  const syncedMap = JSON.parse(props.getProperty(AUTO_SYNCED_SESSIONS_KEY) || '{}');
+  const gateNowMs = Date.now();
+  let gate = 'active';
+  try { gate = getSync2wGate_(masterSs, props, gateNowMs); } catch (e) { gate = 'active'; }
+  if (gate === 'idle') {
+    const lastFull = parseInt(props.getProperty(SYNC2W_LAST_FULL_KEY) || '0', 10) || 0;
+    if (gateNowMs - lastFull < SYNC2W_IDLE_INTERVAL_MS) return;
+  }
+  let cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e) {}
+  if (cache) {
+    try { if (cache.get(SYNC2W_RUNNING_KEY)) return; } catch (e) {}
+    try { cache.put(SYNC2W_RUNNING_KEY, String(Date.now()), SYNC2W_RUNNING_TTL_SEC); } catch (e) {}
+  }
+  try { props.setProperty(SYNC2W_LAST_FULL_KEY, String(gateNowMs)); } catch (e) {}
+  const t0 = Date.now();
+  let stats = null;
+  try {
+    stats = runTwoWayAutoSync_(masterSs, t0 + SYNC2W_DEADLINE_MS);
+  } catch (err) {
+    appendAuditLog_(masterSs, 'AUTO_SYNC', 'ATTENDANCE_SYNC_ERROR', 'SYNC2W', String(err && err.message || err || ''));
+  } finally {
+    if (cache) { try { cache.remove(SYNC2W_RUNNING_KEY); } catch (e) {} }
+  }
+  const elapsed = Date.now() - t0;
+  if (stats && (stats.worked > 0 || stats.errors > 0 || elapsed >= SYNC2W_LOG_MIN_MS)) {
+    appendAuditLog_(
+      masterSs,
+      'AUTO_SYNC',
+      'SYNC2W_RUN',
+      'classes=' + stats.classes + ' worked=' + stats.worked,
+      'gate=' + gate + ', elapsedMs=' + elapsed + ', pushedCells=' + stats.pushed + ', pulledCells=' + stats.pulled +
+      ', busy=' + stats.busy + ', errors=' + stats.errors + (stats.deadlineHit ? ', DEADLINE_HIT' : '')
+    );
+  }
+}
 
-  const classNamesMap = getClassNamesMap_(masterSs);
+function runTwoWayAutoSync_(masterSs, deadlineMs) {
+  const stats = { classes: 0, worked: 0, pushed: 0, pulled: 0, busy: 0, errors: 0, deadlineHit: false };
+  const props = PropertiesService.getScriptProperties();
+  const now = new Date();
+
+  const mig = ensureSyncBaseMigrated_(masterSs, props);
+  if (mig && mig.busy) {
+    stats.busy++;
+    appendAuditLog_(masterSs, 'AUTO_SYNC', 'AUTO_SYNC_LOCK_BUSY', 'SYNC_BASE_MIGRATION', 'Master sheet busy, will retry on next run');
+    return stats;
+  }
+
   const allGroups = getGroupedSessionsByClassDate_(masterSs);
-  if (allGroups.length === 0) return;
+  if (allGroups.length === 0) return stats;
 
-  let anySynced = false;
-  let lockBusyLogged = false;
+  const byClass = {};
+  allGroups.forEach(function(g) { (byClass[g.classId] = byClass[g.classId] || []).push(g); });
+  const classIds = Object.keys(byClass).sort();
+  const classNamesMap = getClassNamesMap_(masterSs);
+  const env = makeSyncEnv_(masterSs, now);
+
+  let startIdx = parseInt(props.getProperty(SYNC2W_CURSOR_KEY) || '0', 10);
+  if (!(startIdx >= 0) || startIdx >= classIds.length) startIdx = 0;
+
   const undoBatch = [];
-  const pendingSynced = {};
-
-  for (let i = 0; i < allGroups.length; i++) {
-    const sessionGroup = allGroups[i];
-    const classId = sessionGroup.classId;
-    const className = classNamesMap[classId] || '';
-    const isToday = (sessionGroup.dateKey === currentDayStr);
-
-    // Past dates that have ALREADY been synced at least once are strictly locked forever
-    if (!isToday && syncedMap[sessionGroup.groupKey]) continue;
-
-    if (isToday) {
-      const classEndMs = getClassEndTimeOnCalendarMs_(masterSs, classId, now, sessionGroup.openedAtMs);
-      if (now.getTime() < classEndMs) continue;
+  let nextCursor = 0;
+  for (let k = 0; k < classIds.length; k++) {
+    const idx = (startIdx + k) % classIds.length;
+    if (Date.now() >= deadlineMs) {
+      stats.deadlineHit = true;
+      nextCursor = idx;
+      break;
     }
-
-    if (!sessionGroup.allClosed && now.getTime() < sessionGroup.maxClosesAtMs) continue;
-
-    // Auto-pull any newly added students from Drive (.XLSX / Google Sheet) if file was modified
-    if (typeof syncSingleClassRosterFromDrive_ === 'function') {
-      try {
-        syncSingleClassRosterFromDrive_(masterSs, classId, className, {
-          onlyIfModified: true,
-          actor: 'AUTO_SYNC'
-        });
-      } catch (e) {}
-    }
-
-    const statusMap = getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup);
-    if (!statusMap || Object.keys(statusMap).length === 0) continue;
-
-    // Guard against syncing accidental/test sessions where 0 students were marked Present/Late/Excused
-    const hasAnyRealMark = Object.keys(statusMap).some(function(sid) {
-      const st = statusMap[sid];
-      return st === 'P' || st === 'L' || st === 'E';
-    });
-    if (!hasAnyRealMark) {
-      syncedMap[sessionGroup.groupKey] = 'SKIPPED_ZERO_CHECKINS';
-      pendingSynced[sessionGroup.groupKey] = 'SKIPPED_ZERO_CHECKINS';
-      anySynced = true;
+    const classId = classIds[idx];
+    stats.classes++;
+    let res = null;
+    try {
+      res = syncClassDays_(masterSs, env, classId, classNamesMap[classId] || '', byClass[classId], { manual: false, deadlineMs: deadlineMs });
+    } catch (err) {
+      stats.errors++;
+      appendAuditLog_(masterSs, 'AUTO_SYNC', 'ATTENDANCE_SYNC_ERROR', classId, String(err && err.message || err || ''));
       continue;
     }
+    if (res.busy) {
+      stats.busy++;
+      if (!env.lockBusyLogged) {
+        env.lockBusyLogged = true;
+        appendAuditLog_(masterSs, 'AUTO_SYNC', 'AUTO_SYNC_LOCK_BUSY', classId, 'Master sheet busy, will retry on next run');
+      }
+    }
+    if (res.worked) stats.worked++;
+    stats.pushed += res.pushed;
+    stats.pulled += res.pulled;
+    stats.errors += res.errors;
+    res.undoEntries.forEach(function(e) { undoBatch.push(e); });
+  }
 
-    const statusSignature = JSON.stringify(statusMap);
-    if (syncedMap[sessionGroup.groupKey] === statusSignature) continue;
+  if (stats.deadlineHit || props.getProperty(SYNC2W_CURSOR_KEY) !== null) {
+    try { props.setProperty(SYNC2W_CURSOR_KEY, String(stats.deadlineHit ? nextCursor : 0)); } catch (e) {}
+  }
 
-    const targetInfo = resolveClassTargetFile_(masterSs, classId, className);
-    if (!targetInfo) continue;
+  if (undoBatch.length > 0) {
+    const persistRes = persistUndoBatch_(undoBatch, 5000, false);
+    if (persistRes && persistRes.busy && !env.lockBusyLogged) {
+      appendAuditLog_(masterSs, 'AUTO_SYNC', 'AUTO_SYNC_LOCK_BUSY', 'UNDO_LOG', 'Master sheet busy, undo log not saved');
+    }
+  }
+  return stats;
+}
 
+function makeSyncEnv_(masterSs, now) {
+  return {
+    now: now,
+    currentDayStr: now.getFullYear() + '-' + (now.getMonth() + 1) + '-' + now.getDate(),
+    baseMap: readSyncBaseAll_(masterSs).map,
+    styleNow: syncStyleKey_(),
+    pre: null,
+    lockBusyLogged: false
+  };
+}
+
+function syncStyleKey_() {
+  return 'S' + styleHash_(getAttendanceStyle_());
+}
+
+function ensureWebPre_(masterSs, env, classId) {
+  if (!env.pre) {
+    const a = masterSs.getSheetByName('Attendance_Log');
+    env.pre = { attData: a ? a.getDataRange().getValues() : [], classValues: {} };
+  }
+  if (!Object.prototype.hasOwnProperty.call(env.pre.classValues, classId)) {
+    const s = masterSs.getSheetByName(classId);
+    env.pre.classValues[classId] = s ? s.getDataRange().getValues() : null;
+  }
+  return env.pre;
+}
+
+function persistUndoBatch_(undoBatch, waitMs, forceType) {
+  if (!undoBatch || undoBatch.length === 0) return { busy: false };
+  return withMasterWriteLock_({}, waitMs, function() {
+    const p = PropertiesService.getScriptProperties();
+    const trimmed = undoBatch.slice();
+    let json = JSON.stringify(trimmed);
+    while (json.length > 8500 && trimmed.length > 1) {
+      trimmed.shift();
+      json = JSON.stringify(trimmed);
+    }
     try {
-      const autoLockRes = withMasterWriteLock_({}, 3000, function() {
-        updateMasterClassSheet_(masterSs, classId, sessionGroup, statusMap);
+      p.setProperty(LAST_SYNC_PROP_KEY, json);
+      if (forceType || p.getProperty(LAST_ACTION_TYPE_KEY) !== 'CLASS_DELETE') {
+        p.setProperty(LAST_ACTION_TYPE_KEY, 'ATTENDANCE_SYNC');
+      }
+    } catch (e) {}
+    return { busy: false };
+  });
+}
+
+/**
+ * Two-way sync of the given session groups of ONE class. Used by the 5-minute trigger and the manual button.
+ * Order: decide from cheap data -> (maybe) one convert/read -> merge -> Sheet writes (no lock) -> short lock for
+ * Attendance_Log + _Sync_Base. A cell becomes "agreed" (base) only after the other side was written successfully.
+ */
+function syncClassDays_(masterSs, env, classId, className, groups, opts) {
+  opts = opts || {};
+  const manual = !!opts.manual;
+  const actor = manual ? 'MANUAL_SYNC' : 'AUTO_SYNC';
+  const lockWaitMs = opts.lockWaitMs || SYNC2W_LOCK_WAIT_MS;
+  const nowMs = env.now.getTime();
+  const has = function(o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
+  const out = { undoEntries: [], busy: false, lines: [], pushed: 0, pulled: 0, errors: 0, worked: false, days: [] };
+  const skipUpserts = [];
+  const markSkipDay = function(g) {
+    skipUpserts.push({ classId: classId, dayKey: g.dayKey, fileId: '', base: {}, sheetModifiedMs: 0, styleHash: '', paused: SYNC_SKIP_DAY });
+  };
+
+  // Mark-settings changed since the base was stored: stop syncing this class until the manual Sync button.
+  if (!manual) {
+    const prefix = classId + '|';
+    const rows = Object.keys(env.baseMap).filter(function(k) { return k.indexOf(prefix) === 0; }).map(function(k) { return env.baseMap[k]; });
+    const styleChanged = rows.some(function(r) { return r.paused === 0 && r.styleHash && r.styleHash !== env.styleNow; });
+    if (styleChanged) {
+      const pauseUpserts = rows.filter(function(r) { return r.paused === 0; }).map(function(r) {
+        return { classId: classId, dayKey: r.dayKey, paused: SYNC_PAUSE_STYLE };
+      });
+      const pr = withMasterWriteLock_({}, lockWaitMs, function() {
+        writeSyncBaseBatch_(masterSs, pauseUpserts, []);
         return { busy: false };
       });
-      if (autoLockRes && autoLockRes.busy) {
-        if (!lockBusyLogged) {
-          lockBusyLogged = true;
-          appendAuditLog_(masterSs, 'AUTO_SYNC', 'AUTO_SYNC_LOCK_BUSY', classId + ' (' + sessionGroup.day + '/' + sessionGroup.month + ')', 'Master sheet busy, will retry on next run');
-        }
-        continue;
-      }
-      const result = updateTargetAttendanceFile_(targetInfo, classId, className, sessionGroup.day, sessionGroup.month, statusMap, null);
-
-      undoBatch.push(buildAttendanceUndoEntry_(classId, className, targetInfo, result, sessionGroup, syncedMap[sessionGroup.groupKey]));
-
-      syncedMap[sessionGroup.groupKey] = statusSignature;
-      pendingSynced[sessionGroup.groupKey] = statusSignature;
-      anySynced = true;
-
-      appendAuditLog_(
-        masterSs,
-        'AUTO_SYNC',
-        'ATTENDANCE_SYNC_SUCCESS',
-        classId + ' (' + sessionGroup.day + '/' + sessionGroup.month + ')',
-        (targetInfo.isGoogleSheet ? '[Google Sheet] ' : '[.XLSX] ') +
-        'Present: ' + result.presentCount + ', Late: ' + result.lateCount +
-        (result.excusedCount ? ', Excused: ' + result.excusedCount : '') + ', Absent: ' + result.absentCount
-      );
-    } catch (err) {
-      const errMsg = String(err && err.message || err || '');
-      if (errMsg.indexOf('Date column ') !== -1 && errMsg.indexOf('not found') !== -1) {
-        // Lock unscheduled test dates so AUTO_SYNC never retries them every 15 minutes
-        syncedMap[sessionGroup.groupKey] = 'SKIPPED_NO_DATE_COL';
-        pendingSynced[sessionGroup.groupKey] = 'SKIPPED_NO_DATE_COL';
-        anySynced = true;
-      } else {
-        appendAuditLog_(
-          masterSs,
-          'AUTO_SYNC',
-          'ATTENDANCE_SYNC_ERROR',
-          classId + ' (' + sessionGroup.day + '/' + sessionGroup.month + ')',
-          errMsg
-        );
-      }
+      if (pr && pr.busy) { out.busy = true; return out; }
+      pauseUpserts.forEach(function(u) { env.baseMap[syncBaseKey_(classId, u.dayKey)].paused = SYNC_PAUSE_STYLE; });
+      appendAuditLog_(masterSs, actor, 'SYNC_STYLE_CHANGED', classId, 'Attendance mark settings changed: sync paused for this class until the manual Sync button is used');
+      return out;
     }
   }
 
-  if (anySynced) {
-    const persistRes = updateSyncedSessionsMap_(pendingSynced, [], 5000, function(p) {
-      if (undoBatch.length > 0) {
-        p.setProperty(LAST_SYNC_PROP_KEY, JSON.stringify(undoBatch));
-        if (p.getProperty(LAST_ACTION_TYPE_KEY) !== 'CLASS_DELETE') {
-          p.setProperty(LAST_ACTION_TYPE_KEY, 'ATTENDANCE_SYNC');
+  // 1. candidate days (cheap, in-memory)
+  const days = [];
+  groups.forEach(function(g) {
+    const be = env.baseMap[syncBaseKey_(classId, g.dayKey)] || null;
+    const isToday = g.dateKey === env.currentDayStr;
+    if (!manual && be) {
+      if (be.paused === SYNC_PAUSE_UNDO || be.paused === SYNC_PAUSE_STYLE) return;
+      if (be.paused === SYNC_SKIP_DAY && !isToday) return;
+    }
+    const hasBase = !!be && be.paused !== SYNC_SKIP_DAY;
+    const d = { g: g, be: hasBase ? be : null, hasBase: hasBase, isToday: isToday, skip: false, mode: hasBase ? 'BASE' : 'FIRST' };
+    if (!manual) {
+      if (isToday && nowMs < getClassEndTimeOnCalendarMs_(masterSs, classId, env.now, g.openedAtMs)) d.skip = true;
+      else if (!g.allClosed && nowMs < g.maxClosesAtMs) d.skip = true;
+    }
+    if (d.skip) return;
+    d.web = getMergedAttendanceStatusMap_(masterSs, classId, g, ensureWebPre_(masterSs, env, classId)) || {};
+    if (Object.keys(d.web).length === 0) return;
+    if (!hasBase) {
+      if (!manual) {
+        const real = Object.keys(d.web).some(function(sid) { const st = d.web[sid]; return st === 'P' || st === 'L' || st === 'E'; });
+        if (!real) { if (!isToday) markSkipDay(g); return; }
+      }
+    } else {
+      d.pushDiff = computePushDiff_(be.base, d.web);
+    }
+    days.push(d);
+  });
+
+  // 2. target file + decide whether anything must be read
+  let ti = null;
+  if (days.length > 0) {
+    ti = resolveClassTargetFile_(masterSs, classId, className);
+    if (!ti) {
+      if (manual) out.lines.push('⚠️ ' + classId + ': Skipped (Target Google Sheet / .XLSX file not found on Google Drive).');
+      days.length = 0;
+    }
+  }
+  const cur = ti ? (ti.lastUpdatedMs || 0) : 0;
+  let needRead = false;
+  const active = [];
+  days.forEach(function(d) {
+    const unchanged = !manual && d.mode === 'BASE' && cur > 0 && d.be.sheetModifiedMs === cur;
+    d.needRead = !unchanged;
+    if (d.needRead) needRead = true;
+    else if (Object.keys(d.pushDiff).length === 0) return;
+    active.push(d);
+  });
+
+  // 3. one conversion/read per class: roster + every date column
+  let extract = null;
+  if (needRead && opts.deadlineMs && Date.now() >= opts.deadlineMs) return out;
+  if (needRead) {
+    try {
+      extract = extractRosterFromTargetFile_(ti, classId, className);
+    } catch (err) {
+      out.errors++;
+      appendAuditLog_(masterSs, actor, 'ATTENDANCE_SYNC_ERROR', classId, String(err && err.message || err || ''));
+      if (manual) out.lines.push('❌ ' + classId + ': ' + String(err && err.message || err || ''));
+      active.length = 0;
+    }
+    if (extract && typeof syncSingleClassRosterFromDrive_ === 'function') {
+      try {
+        const rr = syncSingleClassRosterFromDrive_(masterSs, classId, className, {
+          onlyIfModified: false,
+          actor: actor,
+          extractResult: extract,
+          lockWaitMs: lockWaitMs,
+          groups: groups
+        });
+        if (rr && rr.busy) { out.busy = true; return out; }
+      } catch (e) {}
+    }
+  }
+
+  // 4. merge
+  active.forEach(function(d) {
+    if (!d.needRead) {
+      d.merge = { toSheet: d.pushDiff, toWeb: {}, newBase: Object.assign({}, d.be.base, d.pushDiff), conflicts: [] };
+      return;
+    }
+    const col = ((extract && extract.dateColumns) || []).filter(function(c) { return c.dayKey === d.g.dayKey; })[0] || null;
+    let sheetMarks;
+    if (col) {
+      sheetMarks = col.marks || {};
+    } else if (d.mode === 'FIRST') {
+      sheetMarks = {};
+      Object.keys(d.web).forEach(function(sid) { sheetMarks[sid] = 'BLANK'; });
+    } else {
+      d.skip = true;
+      return;
+    }
+    d.sheetMarks = sheetMarks;
+    d.merge = computeThreeWayMerge_(d.mode === 'FIRST' ? {} : d.be.base, d.web, sheetMarks, { firstPush: d.mode === 'FIRST' });
+  });
+
+  // 5. Sheet writes (outside the lock)
+  active.forEach(function(d) {
+    if (d.skip || !d.merge || Object.keys(d.merge.toSheet).length === 0) return;
+    if (opts.deadlineMs && Date.now() >= opts.deadlineMs) { d.skip = true; return; }
+    try {
+      const res = updateTargetAttendanceFile_(ti, classId, className, d.g.day, d.g.month, d.merge.toSheet, null, d.needRead ? d.sheetMarks : expectedMarksFromBase_(d.be.base, d.merge.toSheet));
+      d.written = res;
+      d.afterMs = Number(res && res.afterModifiedMs) || 0;
+      d.skippedSids = (res && res.skippedSids) || [];
+      if (!res.previousCells || res.previousCells.length > 0) out.undoEntries.push(buildAttendanceUndoEntry_(classId, className, ti, res, d.g, null));
+      out.worked = true;
+    } catch (err) {
+      d.skip = true;
+      const msg = String(err && err.message || err || '');
+      if (msg.indexOf('Date column ') !== -1 && msg.indexOf('not found') !== -1) {
+        if (!manual && d.mode === 'FIRST' && !d.isToday) markSkipDay(d.g);
+        else if (manual) out.lines.push('❌ ' + classId + ' (Date ' + d.g.day + '/' + d.g.month + '): ' + msg);
+      } else {
+        out.errors++;
+        appendAuditLog_(masterSs, actor, 'ATTENDANCE_SYNC_ERROR', classId + ' (' + d.g.day + '/' + d.g.month + ')', msg);
+        if (manual) out.lines.push('❌ ' + classId + ' (Date ' + d.g.day + '/' + d.g.month + '): ' + msg);
+      }
+    }
+  });
+
+  // 6. short lock: pull into Attendance_Log + base + master grid
+  const commitDays = active.filter(function(d) { return !d.skip && d.merge; });
+  const upserts = skipUpserts.slice();
+  const lockRes = (commitDays.length === 0 && upserts.length === 0) ? { busy: false } : withMasterWriteLock_({}, lockWaitMs, function() {
+    let touchedWeb = false;
+    commitDays.forEach(function(d) {
+      const m = d.merge;
+      const finalBase = Object.assign({}, m.newBase);
+      const revert = function(sid) {
+        if (d.mode === 'BASE' && has(d.be.base, sid)) finalBase[sid] = d.be.base[sid];
+        else delete finalBase[sid];
+      };
+      let retry = false;
+      // Cells the Sheet writer skipped (edited meanwhile) stay unagreed: merged again next run
+      (d.skippedSids || []).forEach(function(sid) { revert(sid); retry = true; });
+      // Web changed after the snapshot (e.g. a check-in): do not overwrite it with the older Sheet value
+      let toWebNow = m.toWeb;
+      if (Object.keys(m.toWeb).length > 0) {
+        let fresh = null;
+        try { fresh = getMergedAttendanceStatusMap_(masterSs, classId, d.g) || {}; } catch (e) { fresh = null; }
+        toWebNow = {};
+        Object.keys(m.toWeb).forEach(function(sid) {
+          if (fresh && has(fresh, sid) && fresh[sid] !== d.web[sid]) { revert(sid); retry = true; }
+          else toWebNow[sid] = m.toWeb[sid];
+        });
+      }
+      const toWebKeys = Object.keys(toWebNow);
+      if (toWebKeys.length > 0) {
+        let ok = false;
+        try {
+          const wr = typeof writeManualMarksForDay_ === 'function'
+            ? writeManualMarksForDay_(masterSs, classId, d.g.dayKey, toWebNow, { lockHeld: true, actor: 'SYNC2W', requestTag: 'SHEET_PULL' })
+            : null;
+          ok = !!(wr && wr.ok);
+        } catch (e) { ok = false; }
+        if (ok) {
+          touchedWeb = true;
+          d.pulledCount = toWebKeys.length;
+        } else {
+          out.errors++;
+          toWebKeys.forEach(revert);
+          retry = true;
         }
+      }
+      const ms = retry ? (d.be ? d.be.sheetModifiedMs : 0) : (d.written ? d.afterMs : cur);
+      const prev = d.be;
+      const same = !!prev && prev.paused === 0 && prev.fileId === ti.fileId && prev.styleHash === env.styleNow &&
+        prev.sheetModifiedMs === ms && JSON.stringify(prev.base) === JSON.stringify(finalBase);
+      if (!same) {
+        upserts.push({ classId: classId, dayKey: d.g.dayKey, fileId: ti.fileId, base: finalBase, sheetModifiedMs: ms, styleHash: env.styleNow, paused: 0 });
       }
     });
-    if (persistRes && persistRes.busy && !lockBusyLogged) {
-      appendAuditLog_(masterSs, 'AUTO_SYNC', 'AUTO_SYNC_LOCK_BUSY', 'SYNCED_MAP', 'Master sheet busy, will retry on next run');
+    if (commitDays.length > 0 && (touchedWeb || commitDays.some(function(d) { return d.written || d.mode === 'FIRST'; }))) {
+      const last = commitDays[commitDays.length - 1];
+      try { updateMasterClassSheet_(masterSs, classId, last.g, last.web); } catch (e) {}
     }
+    if (upserts.length > 0) writeSyncBaseBatch_(masterSs, upserts, []);
+    return { busy: false };
+  });
+
+  if (lockRes && lockRes.busy) {
+    out.busy = true;
+    return out;
   }
+  upserts.forEach(function(u) {
+    const k = syncBaseKey_(classId, u.dayKey);
+    env.baseMap[k] = Object.assign({ updatedAt: '' }, env.baseMap[k] || {}, u);
+  });
+
+  // 7. audit + summaries
+  commitDays.forEach(function(d) {
+    const label = classId + ' (' + d.g.day + '/' + d.g.month + ')';
+    const pushedN = d.written ? Object.keys(d.merge.toSheet).length - (d.skippedSids || []).length : 0;
+    const counts = countStatuses_(d.web);
+    out.pushed += pushedN;
+    if (d.pulledCount) {
+      out.pulled += d.pulledCount;
+      out.worked = true;
+    }
+    out.days.push({ g: d.g, mode: d.mode, pushed: pushedN, pulled: d.pulledCount || 0, counts: counts, conflicts: d.merge.conflicts.length });
+    if (d.written) {
+      appendAuditLog_(
+        masterSs, actor, 'ATTENDANCE_SYNC_SUCCESS', label,
+        (ti.isGoogleSheet ? '[Google Sheet] ' : '[.XLSX] ') +
+        'Present: ' + counts.P + ', Late: ' + counts.L + (counts.E ? ', Excused: ' + counts.E : '') + ', Absent: ' + counts.A +
+        ' (pushed ' + pushedN + ' cell(s)' + (d.mode === 'FIRST' ? ', first sync' : '') + ')'
+      );
+    }
+    if (d.pulledCount) {
+      const shown = Object.keys(d.merge.toWeb).slice(0, 10).map(function(sid) { return sid + '=' + d.merge.toWeb[sid]; }).join(', ');
+      appendAuditLog_(masterSs, actor, 'SHEET_PULL_APPLIED', label, d.pulledCount + ' cell(s) from Sheet: ' + shown + (d.pulledCount > 10 ? ', ...' : ''));
+    }
+    if (d.merge.conflicts.length > 0) {
+      appendAuditLog_(masterSs, actor, 'SYNC_CONFLICT_SHEET_WINS', label, d.merge.conflicts.slice(0, 10).join(', '));
+    }
+    if (d.sheetMarks) {
+      const unknown = Object.keys(d.sheetMarks).filter(function(sid) { return d.sheetMarks[sid] === 'UNKNOWN'; });
+      if (unknown.length > 0) {
+        appendAuditLog_(masterSs, actor, 'SYNC_UNKNOWN_MARK', label, 'Unrecognised mark ignored for: ' + unknown.slice(0, 10).join(', '));
+      }
+    }
+  });
+  return out;
+}
+
+// Sheet unchanged since the stored stamp: each cell is expected to read back as what was last written for its base value
+function expectedMarksFromBase_(base, toSheet) {
+  const st = getAttendanceStyle_();
+  const out = {};
+  Object.keys(toSheet || {}).forEach(function(sid) {
+    const b = (base || {})[sid];
+    if (b === undefined) return;
+    const text = b === 'P' ? st.presentText : b === 'L' ? st.lateText : b === 'E' ? st.excusedText : st.absentText;
+    const bg = b === 'P' ? st.presentBg : b === 'L' ? st.lateBg : b === 'E' ? st.excusedBg : st.absentBg;
+    out[sid] = readDayColumnMarks_([[text]], [[bg || '']], ['X'], st).X;
+  });
+  return out;
 }
 
 function buildAttendanceUndoEntry_(classId, className, targetInfo, result, sessionGroup, prevSig) {
@@ -1623,10 +2043,213 @@ function buildAttendanceUndoEntry_(classId, className, targetInfo, result, sessi
     sheetName: result.sheetName,
     day: sessionGroup.day,
     month: sessionGroup.month,
+    dayKey: sessionGroup.dayKey,
     groupKey: sessionGroup.groupKey,
     previousSyncedSig: prevSig || null,
     previousCells: result.previousCells
   };
+}
+
+
+// ============================================================================
+// 8b. _SYNC_BASE STORE (hidden sheet), MIGRATION FROM THE OLD SYNCED MAP, PAST-DAY IMPORT
+// ============================================================================
+function syncBaseKey_(classId, dayKey) {
+  return classId + '|' + dayKey;
+}
+
+function syncPad2_(n) {
+  return ('0' + n).slice(-2);
+}
+
+function normSyncDayKey_(v) {
+  if (v && typeof v.getTime === 'function' && !isNaN(v.getTime())) {
+    return v.getFullYear() + '-' + syncPad2_(v.getMonth() + 1) + '-' + syncPad2_(v.getDate());
+  }
+  return String(v === undefined || v === null ? '' : v).trim();
+}
+
+function syncPausedValue_(v) {
+  if (v === true) return SYNC_PAUSE_UNDO;
+  const n = Number(v);
+  return n > 0 ? n : 0;
+}
+
+function getSyncBaseSheet_(masterSs, createIfMissing) {
+  let sh = masterSs.getSheetByName(SYNC_BASE_SHEET_NAME);
+  if (!sh && createIfMissing) {
+    sh = masterSs.insertSheet(SYNC_BASE_SHEET_NAME);
+    try { sh.getRange('A:F').setNumberFormat('@'); } catch (e) {}
+    sh.getRange(1, 1, 1, SYNC_BASE_HEADER.length).setValues([SYNC_BASE_HEADER]);
+    try { sh.hideSheet(); } catch (e) {}
+  }
+  return sh || null;
+}
+
+function readSyncBaseAll_(masterSs) {
+  const out = { map: {}, order: [] };
+  const sh = getSyncBaseSheet_(masterSs, false);
+  if (!sh) return out;
+  const last = sh.getLastRow();
+  if (last < 2) return out;
+  const vals = sh.getRange(2, 1, last - 1, SYNC_BASE_HEADER.length).getValues();
+  vals.forEach(function(r) {
+    const classId = String(r[0] === undefined || r[0] === null ? '' : r[0]).trim();
+    const dayKey = normSyncDayKey_(r[1]);
+    if (!classId || !dayKey) return;
+    const k = syncBaseKey_(classId, dayKey);
+    if (out.map[k]) return;
+    let base = {};
+    try {
+      const parsed = JSON.parse(String(r[3] || '{}'));
+      if (parsed && typeof parsed === 'object') base = parsed;
+    } catch (e) {}
+    out.map[k] = {
+      classId: classId,
+      dayKey: dayKey,
+      fileId: String(r[2] || ''),
+      base: base,
+      sheetModifiedMs: Number(r[4]) || 0,
+      styleHash: String(r[5] || ''),
+      updatedAt: String(r[6] || ''),
+      paused: syncPausedValue_(r[7])
+    };
+    out.order.push(k);
+  });
+  return out;
+}
+
+/**
+ * Batch upsert/remove of base rows (one read, one write). Caller holds the master lock when needed.
+ * An upsert is partial: fields that are not given keep their stored value.
+ */
+function writeSyncBaseBatch_(masterSs, upserts, removeKeys) {
+  const cur = readSyncBaseAll_(masterSs);
+  const nowIso = new Date().toISOString();
+  (upserts || []).forEach(function(e) {
+    const dayKey = normSyncDayKey_(e.dayKey);
+    const k = syncBaseKey_(e.classId, dayKey);
+    const prev = cur.map[k];
+    if (!prev) cur.order.push(k);
+    const merged = Object.assign({ classId: e.classId, dayKey: dayKey, fileId: '', base: {}, sheetModifiedMs: 0, styleHash: '', paused: 0 }, prev || {}, e);
+    merged.dayKey = dayKey;
+    merged.updatedAt = nowIso;
+    cur.map[k] = merged;
+  });
+  const rm = {};
+  (removeKeys || []).forEach(function(k) { rm[k] = true; });
+  const keys = cur.order.filter(function(k) { return cur.map[k] && !rm[k]; });
+  const rows = keys.map(function(k) {
+    const e = cur.map[k];
+    return [e.classId, e.dayKey, e.fileId || '', JSON.stringify(e.base || {}), Number(e.sheetModifiedMs) || 0, e.styleHash || '', e.updatedAt || nowIso, Number(e.paused) || 0];
+  });
+  const sh = getSyncBaseSheet_(masterSs, true);
+  const prevLast = sh.getLastRow();
+  if (rows.length > 0) sh.getRange(2, 1, rows.length, SYNC_BASE_HEADER.length).setValues(rows);
+  if (prevLast - 1 > rows.length) {
+    sh.getRange(2 + rows.length, 1, prevLast - 1 - rows.length, SYNC_BASE_HEADER.length).clearContent();
+  }
+  return { rows: rows.length };
+}
+
+// Used by CANCEL_MISTAKEN_SESSION (the caller already holds the master lock): forget the base of the given days.
+function removeSyncBaseRows_(masterSs, classId, dayKeys) {
+  if (!getSyncBaseSheet_(masterSs, false)) return 0;
+  const cur = readSyncBaseAll_(masterSs);
+  const rm = [];
+  (dayKeys || []).forEach(function(d) {
+    const k = syncBaseKey_(classId, normSyncDayKey_(d));
+    if (cur.map[k]) rm.push(k);
+  });
+  if (rm.length === 0) return 0;
+  writeSyncBaseBatch_(masterSs, [], rm);
+  return rm.length;
+}
+
+function ensureSyncBaseMigrated_(masterSs, props) {
+  if (props.getProperty(SYNC_BASE_MIGRATED_KEY)) return { busy: false, migrated: false };
+  const res = withMasterWriteLock_({}, SYNC2W_LOCK_WAIT_MS, function() {
+    migrateSyncedMapToBase_(masterSs, props);
+    return { busy: false, migrated: true };
+  });
+  return res || { busy: false };
+}
+
+// One-time: turn the old per-day status signatures (QR_CENTER_AUTO_SYNCED_SESSIONS) into base rows. SKIPPED_* markers are ignored.
+function migrateSyncedMapToBase_(masterSs, props) {
+  let map = {};
+  try { map = JSON.parse(props.getProperty(AUTO_SYNCED_SESSIONS_KEY) || '{}') || {}; } catch (e) {}
+  const upserts = [];
+  Object.keys(map).forEach(function(key) {
+    const v = map[key];
+    if (typeof v !== 'string' || v.indexOf('SKIPPED_') === 0) return;
+    const i = key.lastIndexOf('__');
+    if (i < 1) return;
+    const dm = key.slice(i + 2).match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (!dm) return;
+    let parsed = null;
+    try { parsed = JSON.parse(v); } catch (e) {}
+    if (!parsed || typeof parsed !== 'object') return;
+    const base = {};
+    Object.keys(parsed).forEach(function(sid) {
+      const st = String(parsed[sid]).toUpperCase();
+      if (st === 'P' || st === 'L' || st === 'E' || st === '-') base[String(sid).toUpperCase()] = st;
+    });
+    upserts.push({
+      classId: key.slice(0, i),
+      dayKey: dm[1] + '-' + syncPad2_(dm[2]) + '-' + syncPad2_(dm[3]),
+      fileId: '',
+      base: base,
+      sheetModifiedMs: 0,
+      styleHash: '',
+      paused: 0
+    });
+  });
+  if (upserts.length > 0) writeSyncBaseBatch_(masterSs, upserts, []);
+  props.setProperty(SYNC_BASE_MIGRATED_KEY, '1');
+  return upserts.length;
+}
+
+// Past days that have marks on the Sheet but no session at all: create the (fake) session + TEACHER_MANUAL marks once,
+// and start their base. Fully blank columns are ignored (blank = present only counts when the column has other marks).
+function importPastDaysFromSheet_(masterSs, classId, targetInfo, dateColumns, opts) {
+  if (typeof writeManualMarksForDay_ !== 'function') return 0;
+  const now = new Date();
+  const todayKey = now.getFullYear() + '-' + syncPad2_(now.getMonth() + 1) + '-' + syncPad2_(now.getDate());
+  const baseMap = readSyncBaseAll_(masterSs).map;
+  const candidates = (dateColumns || []).filter(function(dc) {
+    return dc && dc.dayKey && dc.dayKey < todayKey && !baseMap[syncBaseKey_(classId, dc.dayKey)];
+  });
+  if (candidates.length === 0) return 0;
+  const groups = (opts && opts.groups) || getGroupedSessionsByClassDate_(masterSs).filter(function(g) { return g.classId === classId; });
+  const hasSession = {};
+  groups.forEach(function(g) { hasSession[g.dayKey] = true; });
+  const imports = [];
+  candidates.forEach(function(dc) {
+    if (hasSession[dc.dayKey]) return;
+    const marks = {};
+    let clear = 0;
+    Object.keys(dc.marks || {}).forEach(function(sid) {
+      const m = dc.marks[sid];
+      if (m === 'BLANK') marks[sid] = 'P';
+      else if (m === 'P' || m === 'L' || m === 'E' || m === '-') { marks[sid] = m; clear++; }
+    });
+    if (clear > 0) imports.push({ dayKey: dc.dayKey, marks: marks });
+  });
+  if (imports.length === 0) return 0;
+  const styleNow = syncStyleKey_();
+  const upserts = [];
+  const res = withMasterWriteLock_({}, (opts && opts.lockWaitMs) || SYNC2W_LOCK_WAIT_MS, function() {
+    imports.forEach(function(it) {
+      const wr = writeManualMarksForDay_(masterSs, classId, it.dayKey, it.marks, { lockHeld: true, actor: 'SHEET_IMPORT' });
+      if (wr && wr.ok) {
+        upserts.push({ classId: classId, dayKey: it.dayKey, fileId: targetInfo.fileId, base: it.marks, sheetModifiedMs: targetInfo.lastUpdatedMs || 0, styleHash: styleNow, paused: 0 });
+      }
+    });
+    if (upserts.length > 0) writeSyncBaseBatch_(masterSs, upserts, []);
+    return { busy: false };
+  });
+  return res && res.busy ? 0 : upserts.length;
 }
 
 
@@ -2367,6 +2990,9 @@ function withTargetSpreadsheet_(targetInfo, classId, className, isWrite, callbac
     const res = callback(ss, sheet);
     if (isWrite) {
       SpreadsheetApp.flush();
+      if (res && typeof res === 'object') {
+        try { res.afterModifiedMs = DriveApp.getFileById(targetInfo.fileId).getLastUpdated().getTime(); } catch (e) {}
+      }
     }
     return res;
   }
@@ -2437,6 +3063,10 @@ function withTargetSpreadsheet_(targetInfo, classId, className, isWrite, callbac
 
       if (updateRes.getResponseCode() >= 300) {
         throw new Error('Failed to update target .XLSX file: ' + updateRes.getContentText());
+      }
+      if (res && typeof res === 'object') {
+        const afterMs = Date.parse(getModifiedTime_());
+        if (afterMs) res.afterModifiedMs = afterMs;
       }
     }
 
@@ -2666,74 +3296,31 @@ function extractRosterFromTargetFile_(targetInfo, classId, className) {
 
     saveManualExamBanForClass_(classId, manualBans);
 
-    // Extract past completed attendance columns (dayKey <= todayKey with at least 1 mark/color in the column)
+    // Read every date column once (same conversion as the roster) so the two-way sync can reuse it
+    const dateColumns = [];
     try {
-      const now = new Date();
-      const todayKey =
-        now.getFullYear() + '-' +
-        ('0' + (now.getMonth() + 1)).slice(-2) + '-' +
-        ('0' + now.getDate()).slice(-2);
-      const pastHistoryDays = [];
       const readMarkStyle = getAttendanceStyle_();
-
       for (let d = 0; d < detectedDateCols.length; d++) {
         const dc = detectedDateCols[d];
-        if (dc.dayKey > todayKey) continue;
-
-        let colHasActivity = false;
-        const rawMarksByStudent = {};
-
+        const colVals = [];
+        const colBgs = [];
         for (let r = 0; r < rows.length; r++) {
-          const sidUpper = validRowStudentIds[r];
-          if (!sidUpper) continue;
-
-          const cellVal = String(rows[r][dc.colIdx0] !== undefined && rows[r][dc.colIdx0] !== null ? rows[r][dc.colIdx0] : '').trim();
-          const cellUpper = cellVal.toUpperCase();
-          const bgType = infoBgs && infoBgs[r] ? classifySheetCellColor_(infoBgs[r][dc.colIdx0]) : 'EMPTY';
-
-          const styleMark = classifyMarkFromStyle_(cellUpper, infoBgs && infoBgs[r] ? infoBgs[r][dc.colIdx0] : '', readMarkStyle);
-
-          if (styleMark) {
-            colHasActivity = true;
-            rawMarksByStudent[sidUpper] = styleMark;
-          } else if (bgType === 'ORANGE' || cellUpper === 'E' || cellUpper === 'P_EXCUSED') {
-            colHasActivity = true;
-            rawMarksByStudent[sidUpper] = 'E';
-          } else if (bgType === 'YELLOW' || cellUpper === 'L' || cellUpper === 'M') {
-            colHasActivity = true;
-            rawMarksByStudent[sidUpper] = 'L';
-          } else if (cellUpper === 'X' || cellUpper === 'V' || cellUpper === 'A' || cellUpper === '-') {
-            colHasActivity = true;
-            rawMarksByStudent[sidUpper] = 'A_MANUAL';
-          } else if (cellUpper === 'P' || cellUpper === '1' || cellUpper === '✓') {
-            colHasActivity = true;
-            rawMarksByStudent[sidUpper] = 'P';
-          } else {
-            rawMarksByStudent[sidUpper] = 'P';
-          }
+          colVals.push([rows[r][dc.colIdx0]]);
+          colBgs.push([infoBgs && infoBgs[r] ? infoBgs[r][dc.colIdx0] : '']);
         }
-
-        if (colHasActivity) {
-          pastHistoryDays.push({
-            dayKey: dc.dayKey,
-            displayDate: dc.displayDate,
-            label: dc.label,
-            sessionId: 'HIST_' + classId + '_' + dc.dayKey.replace(/-/g, ''),
-            marks: rawMarksByStudent
-          });
-        }
+        dateColumns.push({
+          dayKey: dc.dayKey,
+          displayDate: dc.displayDate,
+          label: dc.label,
+          marks: readDayColumnMarks_(colVals, colBgs, validRowStudentIds, readMarkStyle)
+        });
       }
-
-      PropertiesService.getScriptProperties().setProperty(
-        'QR_SHEET_PAST_HISTORY_' + classId,
-        JSON.stringify(pastHistoryDays)
-      );
-      try { CacheService.getScriptCache().remove('CLASS_ATT_STATS_V36_' + classId); } catch (ce) {}
-    } catch (histErr) {}
+    } catch (colErr) {}
 
     return {
       roster: roster,
-      sheetName: sheet.getName()
+      sheetName: sheet.getName(),
+      dateColumns: dateColumns
     };
   });
 }
@@ -2872,8 +3459,11 @@ function mergeAndSaveClassSessionDates_(classId, sessionDates, extraMetaFields) 
 
 /**
  * Update attendance marks for (targetDay, targetMonth) on either a Google Sheet or .XLSX file.
+ * `cellsToWrite` = { STUDENT_ID: 'P'|'L'|'E'|'-' }: only those cells are written (grouped RangeList writes),
+ * `previousCells` lists only the touched cells, and `afterModifiedMs` is the file's modified time after the write.
+ * `restoreCells` (Undo) keeps the legacy cell-by-cell restore.
  */
-function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, targetMonth, statusMap, restoreCells) {
+function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, targetMonth, cellsToWrite, restoreCells, expectedSheetMarks) {
   const markStyle = getAttendanceStyle_();
 
   return withTargetSpreadsheet_(targetInfo, classId, className, true, function(ss, sheet) {
@@ -2961,7 +3551,8 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
       lateCount: 0,
       excusedCount: 0,
       absentCount: 0,
-      previousCells: []
+      previousCells: [],
+      skippedSids: []
     };
 
     if (restoreCells !== null) {
@@ -2998,29 +3589,32 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
     const oldColValues = targetColRange.getDisplayValues();
     const oldColBgs = targetColRange.getBackgrounds();
 
-    // Normalize statusMap keys to uppercase so alphanumeric IDs match case-insensitively
-    const normStatusMap = {};
-    const statusKeys = Object.keys(statusMap || {});
-    for (let k = 0; k < statusKeys.length; k++) {
-      normStatusMap[statusKeys[k].toUpperCase()] = statusMap[statusKeys[k]];
-    }
+    // Normalize keys to uppercase so alphanumeric IDs match case-insensitively
+    const normCells = {};
+    Object.keys(cellsToWrite || {}).forEach(function(k) { normCells[String(k).toUpperCase()] = cellsToWrite[k]; });
 
-    const outColValues = [];
-    const outColBgs = [];
     const manualBans = {};
+    const writeGroups = {};
+    const colLetter = colLetterSync_(targetCol);
 
     for (let idx = 0; idx < numRows; idx++) {
       const rowNumber = layout.dataStartRow + idx;
       const sid = extractRowStudentIdAndName_(idAndNameRows[idx], layout).sid;
-      if (!sid) {
-        outColValues.push([oldColValues[idx][0]]);
-        outColBgs.push([oldColBgs[idx][0] || null]);
-        continue;
-      }
+      if (!sid) continue;
 
       const sidKey = sid.toUpperCase();
       if (isStudentRowHighlightedRed_(infoBgs, infoFontColors, idx, maxColNeeded)) {
         manualBans[sidKey] = true;
+      }
+      if (!Object.prototype.hasOwnProperty.call(normCells, sidKey)) continue;
+
+      // Optimistic check: the cell must still look like it did when it was read for the merge
+      if (expectedSheetMarks && Object.prototype.hasOwnProperty.call(expectedSheetMarks, sidKey)) {
+        const nowMark = readDayColumnMarks_([[oldColValues[idx][0]]], [[oldColBgs[idx][0]]], [sidKey], markStyle)[sidKey];
+        if (nowMark !== expectedSheetMarks[sidKey]) {
+          stats.skippedSids.push(sidKey);
+          continue;
+        }
       }
 
       const oldBg = oldColBgs[idx][0];
@@ -3028,43 +3622,60 @@ function updateTargetAttendanceFile_(targetInfo, classId, className, targetDay, 
       stats.previousCells.push({
         row: rowNumber,
         val: oldColValues[idx][0],
-        bg: (oldBg && oldBg !== '#ffffff' && oldBg !== '#FFFFFF') ? oldBg : null
+        bg: (oldBg && oldBg !== '#ffffff' && oldBg !== '#FFFFFF') ? oldBg : null,
+        sid: sidKey
       });
 
-      let status = normStatusMap[sidKey] || '-';
-      // If teacher already highlighted this cell Orange on the sheet for Excused (E), preserve E
-      if (status === '-' && oldBgColorClass === 'ORANGE') {
-        status = 'E';
-        statusMap[sidKey] = 'E';
-      }
-
+      const status = normCells[sidKey];
+      let text, bg;
       if (status === 'P') {
-        outColValues.push([markStyle.presentText]);
-        outColBgs.push([markStyle.presentBg ? markStyle.presentBg : null]);
+        text = markStyle.presentText;
+        bg = markStyle.presentBg ? markStyle.presentBg : null;
         stats.presentCount++;
       } else if (status === 'L') {
-        outColValues.push([markStyle.lateText]);
-        outColBgs.push([markStyle.lateBg ? markStyle.lateBg : null]);
+        text = markStyle.lateText;
+        bg = markStyle.lateBg ? markStyle.lateBg : null;
         stats.lateCount++;
       } else if (status === 'E') {
-        outColValues.push([markStyle.excusedText !== undefined ? markStyle.excusedText : '']);
-        outColBgs.push([markStyle.excusedBg ? markStyle.excusedBg : (oldBgColorClass === 'ORANGE' ? oldBg : '#ff9900')]);
+        text = markStyle.excusedText !== undefined ? markStyle.excusedText : '';
+        bg = markStyle.excusedBg ? markStyle.excusedBg : (oldBgColorClass === 'ORANGE' ? oldBg : '#ff9900');
         stats.excusedCount++;
       } else {
-        outColValues.push([markStyle.absentText]);
-        outColBgs.push([markStyle.absentBg ? markStyle.absentBg : null]);
+        text = markStyle.absentText;
+        bg = markStyle.absentBg ? markStyle.absentBg : null;
         stats.absentCount++;
       }
+
+      // A red cell means "no information" for the lecturer: write the mark text but keep the red background
+      const keepBg = oldBgColorClass === 'RED';
+      const gKey = text + '' + (keepBg ? 'KEEP' : (bg || ''));
+      if (!writeGroups[gKey]) writeGroups[gKey] = { text: text, bg: bg, keepBg: keepBg, a1: [] };
+      writeGroups[gKey].a1.push(colLetter + rowNumber);
     }
 
     saveManualExamBanForClass_(classId, manualBans);
 
-    targetColRange.setValues(outColValues);
-    targetColRange.setBackgrounds(outColBgs);
-    targetColRange.setHorizontalAlignment('center');
+    Object.keys(writeGroups).forEach(function(k) {
+      const grp = writeGroups[k];
+      const rl = sheet.getRangeList(grp.a1);
+      rl.setValue(grp.text);
+      if (!grp.keepBg) rl.setBackground(grp.bg || null);
+      rl.setHorizontalAlignment('center');
+    });
 
     return stats;
   });
+}
+
+function colLetterSync_(n) {
+  let s = '';
+  let x = Number(n);
+  while (x > 0) {
+    const m = (x - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    x = Math.floor((x - 1) / 26);
+  }
+  return s;
 }
 
 
@@ -3097,6 +3708,113 @@ function mergeAttendanceSync_(p1, p2, p2Opened) {
   if (!s2Present) return '-';
   if (s1 === 'P') return 'P';
   return 'L';
+}
+
+// ---- Two-way sync pure helpers (no Sheet/Drive/Cache access) ----
+function readDayColumnMarks_(vals, bgs, rowSids, style) {
+  const out = {};
+  const one = function(a, i) { const x = a ? a[i] : ''; return Array.isArray(x) ? x[0] : x; };
+  for (let r = 0; r < (rowSids || []).length; r++) {
+    const sid = String(rowSids[r] || '').trim().toUpperCase();
+    if (!sid) continue;
+    const raw = one(vals, r);
+    const bgRaw = one(bgs, r);
+    const cu = String(raw === undefined || raw === null ? '' : raw).trim().toUpperCase();
+    const sm = classifyMarkFromStyle_(cu, bgRaw, style);
+    const bgType = classifySheetCellColor_(bgRaw);
+    let st;
+    if (sm === 'E' || sm === 'L' || sm === 'P') st = sm;
+    else if (sm === 'A_MANUAL') st = '-';
+    else if (bgType === 'RED') st = 'RED_SKIP';
+    else if (bgType === 'ORANGE' || cu === 'E' || cu === 'P_EXCUSED') st = 'E';
+    else if (bgType === 'YELLOW' || cu === 'L' || cu === 'M') st = 'L';
+    else if (cu === 'X' || cu === 'V' || cu === 'A' || cu === '-') st = '-';
+    else if (cu === 'P' || cu === '1' || cu === '✓') st = 'P';
+    else if (cu === '') st = 'BLANK';
+    else st = 'UNKNOWN';
+    out[sid] = st;
+  }
+  return out;
+}
+
+function computeThreeWayMerge_(base, web, sheet, opts) {
+  const b0 = base || {}, w0 = web || {}, s0 = sheet || {};
+  const firstPush = !!(opts && opts.firstPush);
+  const has = function(o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
+  const isClear = function(v) { return v !== undefined && v !== 'BLANK' && v !== 'UNKNOWN' && v !== 'RED_SKIP'; };
+  const res = { toSheet: {}, toWeb: {}, newBase: {}, conflicts: [] };
+  Object.keys(b0).forEach(function(k) { res.newBase[k] = b0[k]; });
+  const sids = {};
+  [b0, w0, s0].forEach(function(o) { Object.keys(o).forEach(function(k) { sids[k] = 1; }); });
+  Object.keys(sids).forEach(function(sid) {
+    const w = has(w0, sid) ? w0[sid] : undefined;
+    const raw = has(s0, sid) ? s0[sid] : undefined;
+    if (raw === undefined || raw === 'UNKNOWN' || raw === 'RED_SKIP') return;
+    const inBase = has(b0, sid);
+    if (firstPush) {
+      if (raw === 'BLANK') {
+        if (w !== undefined) { res.toSheet[sid] = w; res.newBase[sid] = w; }
+      } else {
+        if (w !== raw) res.toWeb[sid] = raw;
+        res.newBase[sid] = raw;
+      }
+      return;
+    }
+    let sh = raw;
+    if (raw === 'BLANK') {
+      if (!inBase) return;
+      sh = 'P';
+    }
+    if (!inBase) {
+      if (w === undefined) { res.toWeb[sid] = sh; }
+      else if (w !== sh) { res.toWeb[sid] = sh; res.conflicts.push(sid); }
+      res.newBase[sid] = sh;
+      return;
+    }
+    const b = b0[sid];
+    const webChanged = w !== undefined && w !== b;
+    const sheetChanged = sh !== b;
+    if (sheetChanged) {
+      if (webChanged && w === sh) { res.newBase[sid] = sh; return; }
+      res.toWeb[sid] = sh;
+      res.newBase[sid] = sh;
+      if (webChanged) res.conflicts.push(sid);
+    } else if (webChanged) {
+      res.toSheet[sid] = w;
+      res.newBase[sid] = w;
+    }
+  });
+  return res;
+}
+
+function computePushDiff_(base, web) {
+  const out = {};
+  const b0 = base || {}, w0 = web || {};
+  Object.keys(b0).forEach(function(sid) {
+    if (Object.prototype.hasOwnProperty.call(w0, sid) && w0[sid] !== b0[sid]) out[sid] = w0[sid];
+  });
+  return out;
+}
+
+function countStatuses_(map) {
+  const c = { P: 0, L: 0, E: 0, A: 0 };
+  Object.keys(map || {}).forEach(function(k) {
+    const v = map[k];
+    if (v === 'P') c.P++; else if (v === 'L') c.L++; else if (v === 'E') c.E++; else c.A++;
+  });
+  return c;
+}
+
+function isDayEligibleForPull_(hasSession, hasBase, isPaused) {
+  return !!hasSession && !!hasBase && !isPaused;
+}
+
+function styleHash_(style) {
+  const st = style || {};
+  const s = Object.keys(st).sort().map(function(k) { return k + '=' + String(st[k] === undefined || st[k] === null ? '' : st[k]); }).join('|');
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(16);
 }
 
 function isRound2SessionSync_(sessionId, sessionLabel) {
@@ -3176,6 +3894,7 @@ function getGroupedSessionsByClassDate_(masterSs) {
         day: day,
         month: month,
         dateKey: dateKey,
+        dayKey: year + '-' + ('0' + month).slice(-2) + '-' + ('0' + day).slice(-2),
         sessionIds: [],
         p1SessionIds: [],
         p2SessionIds: [],
@@ -3266,7 +3985,7 @@ function getClassEndTimeOnCalendarMs_(masterSs, classId, now, openedAtMs) {
   return Math.max(fallbackEnd.getTime(), openedAtMs || 0);
 }
 
-function getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup) {
+function getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup, pre) {
   const statusMap = {};
   const p1Marks = {};
   const p2Marks = {};
@@ -3274,9 +3993,10 @@ function getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup) {
   const p2Manual = {};
   const allKeys = {};
 
-  const classSheet = masterSs.getSheetByName(classId);
-  if (classSheet) {
-    const values = classSheet.getDataRange().getValues();
+  const preClassValues = pre && pre.classValues ? pre.classValues[classId] : null;
+  const classSheet = pre && pre.classValues ? null : masterSs.getSheetByName(classId);
+  if (classSheet || preClassValues) {
+    const values = preClassValues || classSheet.getDataRange().getValues();
     if (values.length > 1) {
       const headers = values[0].map(function(h) { return String(h).trim(); });
       const matchedFinalCols = [];
@@ -3316,9 +4036,10 @@ function getMergedAttendanceStatusMap_(masterSs, classId, sessionGroup) {
     if (isRound2SessionSync_(sId, '')) hasP2Session = true;
   }
 
-  const attSheet = masterSs.getSheetByName('Attendance_Log');
-  if (attSheet) {
-    const attData = attSheet.getDataRange().getValues();
+  const preAttData = pre && pre.attData ? pre.attData : null;
+  const attSheet = preAttData ? null : masterSs.getSheetByName('Attendance_Log');
+  if (attSheet || preAttData) {
+    const attData = preAttData || attSheet.getDataRange().getValues();
     for (let i = 1; i < attData.length; i++) {
       const rowSessId = String(attData[i][2] || '').trim();
       const rowClassId = String(attData[i][3] || '').trim();

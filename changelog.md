@@ -1,8 +1,33 @@
-# 📦 CCS — ClassCheck System — Release Notes & Changelog (EN / VI)
+# CCS — ClassCheck System — Release Notes & Changelog (EN / VI)
 
-## 🇬🇧 ENGLISH VERSION
+## ENGLISH VERSION
 
-### 🔧 Version `v3.9.2` — *Strict Attendance Rule Validation, Present-Colour Sync Fix & Safe XLSX Overwrite Guard*
+### Version `v3.10.1` — *Run Gate for the 5-Minute Two-Way Sync Trigger (Quota Protection)*
+* **Fix / Performance: Run Gate for Sync Trigger**: the 5-minute two-way sync trigger now has a cheap run gate. It runs the full sync only when today has an attendance session (open until 3 hours after it closes), or when a class has a schedule today within [start time − 45 min, end time + 3 h]. Outside those windows it exits almost immediately without reading Drive, and runs the full sync only every 30 minutes. If there is no schedule data, it runs within 06:00–23:00.
+* **Purpose**: keeps trigger usage within the ~90 min/day quota of a standard Google account. Manual runs are not affected.
+* **Log**: `SYNC2W_RUN` entries in `Audit_Log` now include `gate=active|idle`.
+* **Version Bump (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.10.1.text`)**:
+  * Version set to `3.10.1` (cache busters `?v=3.10.1`). Backend file renamed from `code3.10.0.text`.
+  * Backend change needs an Apps Script deploy (`New version`) to take effect.
+
+### Version `v3.10.0` — *Two-Way Sync Within ~5 Minutes, Cell-Level Web-to-Sheet Push, Manual Mark Fixes & Audit Log for Rejected Onboarding*
+* **Two-Way Sync (Sheet / XLSX to Web)**: edits made in the lecturer's Google Sheet or `.XLSX` reach the web and students within about 5 minutes.
+* **Two-Way Sync (Web to Sheet)**: edits made on the web are pushed to the Sheet only for the cells that changed. The whole column is never overwritten.
+* **Conflict Rule**: when both sides change the same cell, the Sheet wins.
+* **Blank = Present**: a blank cell counts as present, but only for a session that exists and already has baseline data.
+* **Sync Trigger**: the sync trigger runs every 5 minutes instead of 15. The 23:00-06:00 quiet window is removed.
+* **Baseline Storage**: baseline data is kept in the hidden tab `_Sync_Base`.
+* **Undo Sync**: pauses sync for that day until Sync is pressed manually.
+* **Fix: Manual Present (P) on Old Sessions**: for past sessions that have both Session 1 and Session 2, a manual Present used to write only one session and left Late (L). Both sessions are now written.
+* **Fix: Manual Marks Validation**: manual marks accept only `P / L / E / -`, so formula strings can no longer reach `Attendance_Log`.
+* **Fix: Writes During Sync**: check-ins made during a sync are no longer overwritten by old Sheet values, and a cell the lecturer edits mid-sync is not overwritten. The Apps Script 6-minute limit is checked during writes.
+* **Added: Audit Log**: `ONBOARD_REJECTED` (error code + MSSV, no device ID) is written to `Audit_Log` when an MSSV link is rejected.
+* **Note for Deploy**: after deploying, open the Sheet once so the 15-minute trigger is replaced by the 5-minute one. Delete any old `QR_SHEET_PAST_HISTORY_*` Script Properties.
+* **Version Bump (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.10.0.text`)**:
+  * Version set to `3.10.0` (cache busters `?v=3.10.0`). Backend file renamed from `code3.9.2.text`.
+  * Backend and Sync changes need an Apps Script deploy (`New version`) to take effect.
+
+### Version `v3.9.2` — *Strict Attendance Rule Validation, Present-Colour Sync Fix & Safe XLSX Overwrite Guard*
 * **Rules Validated Before Save**: a blank, out-of-range or non-numeric rule value is now rejected instead of silently clamped. Before, a threshold of `-1` became `0` (one absence banned a student from the exam) and a blank total of sessions became `1`. Invalid fields are marked in the form (`min`/`max`/`required`) and named in the message; nothing is saved. The backend returns `ERR_INVALID_RULES` (with `field`) for the same checks.
 * **Sync Reads the Present Colour**: with `CUSTOM` marks, a cell filled with the configured `Present` background is read as `P`, so a column where the whole class is present still counts as one session.
 * **Safe XLSX Overwrite**: if Sync cannot read the target `.XLSX` modified time, it stops and does not overwrite the file. Before, it still wrote.
@@ -12,7 +37,7 @@
   * Version set to `3.9.2` (cache busters `?v=3.9.2`). Backend file renamed from `code3.9.1.text`.
   * Backend and Sync changes need an Apps Script deploy (`New version`) to take effect.
 
-### 🔧 Version `v3.9.1` — *Sync Reads Custom Attendance Marks, Attendance Rules Panel Polish*
+### Version `v3.9.1` — *Sync Reads Custom Attendance Marks, Attendance Rules Panel Polish*
 * **Sync Reads Back Custom Marks**: `Sync.gs` reads attendance cells by the symbols and colors set in `Attendance Mark Settings` (`CUSTOM` mode) first. Before, a custom absent symbol such as `KP` was read as present, and colors other than default yellow/orange were not recognized. The old detection (yellow/orange and default `X/A/P/L/E`) stays as fallback.
 * **New Test**: `test-sync-marks.js` (18 cases, including free-text day and period detection), added to `run-all-tests.js`.
 * **Attendance Rules Panel**: classes without a saved rule open with `Custom` selected and default numbers prefilled; repeated labels removed; compact form; the notice after saving says how many students changed status; students no longer switch to the default rule right after check-in.
@@ -20,7 +45,7 @@
   * Version set to `3.9.1` (cache busters `?v=3.9.1`). Backend file renamed from `code3.9.0.text`.
   * Backend and Sync changes need an Apps Script deploy (`New version`) to take effect.
 
-### ✨ Version `v3.9.0` — *Per-Class Attendance Rules (Presets, Detailed Editor, Preview & JSON Import/Export), Accent-Insensitive Search, Student ID Rule & Sync Hardening*
+### Version `v3.9.0` — *Per-Class Attendance Rules (Presets, Detailed Editor, Preview & JSON Import/Export), Accent-Insensitive Search, Student ID Rule & Sync Hardening*
 * **Per-Class Attendance Rules (`CLASS_RULES_V1`)**: each class can have its own scoring and exam-ban rules. Classes without a saved rule keep the IUH formula from `RULES.md` 3.1-3.3, so nothing changes for them.
   * **Preset dropdown**: `IUH` (default) and `Attendance only, no exam ban` (`banMode: OFF`). Community presets are loaded from `presets.json` in the repo.
   * **Edit details**: base score, deductions for A / L / E, E-to-absence ratio, ban mode (`BOTH` / `ABSENCES` / `SCORE` / `OFF`), absence threshold by count or percent, total sessions, score threshold and warning margins.
@@ -39,7 +64,7 @@
 * **Version Bump (`index.html`, `sync.txt`, `js/attendance-rules.js`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `css/styles.css`, `RULES.md`, `code3.9.0.text`)**:
   * Version set to `3.9.0` (cache busters `?v=3.9.0`). Backend file renamed from `code3.8.1.text`.
   * Backend changes need an Apps Script deploy (`New version`).
-### 🔧 Version `v3.8.1` — *Mobile Bar, Tap Targets, Notice & Grouping Feedback Patch (Frontend)*
+### Version `v3.8.1` — *Mobile Bar, Tap Targets, Notice & Grouping Feedback Patch (Frontend)*
 * **Frontend-Only Release**: backend logic is unchanged. Only the `SYSTEM_VERSION` constant and the file name changed (`code3.8.1.text`). **No Apps Script deploy is needed.**
 * **Mobile Blue Bar (`<= 480px`)**: the bar is `47px` tall (was `75px`) and is no longer pinned to the top of the page.
 * **Tap Targets by Input Type**: on PC (mouse, `hover` + `pointer: fine`) the P/L/E/- buttons are `30px` and the blue-bar button is `32px`; touch devices keep `40px`.
@@ -52,7 +77,7 @@
 * **Tests**: new 10-student class simulation test (`test-sim-class.js`).
 * **Version Bump (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.8.1.text`)**:
   * Version set to `3.8.1` (cache busters `?v=3.8.1`).
-### 🔧 Version `v3.8.0` — *Accessibility, Mobile Layout & Undo Release (Frontend)*
+### Version `v3.8.0` — *Accessibility, Mobile Layout & Undo Release (Frontend)*
 * **Frontend-Only Release**: backend logic is unchanged. Only the `SYSTEM_VERSION` constant and the file name changed (`code3.8.0.text`). No Apps Script deploy is needed.
 * **Undo for Manual Marks**: after the lecturer marks `P / L / E / -` by hand, a 5-second "Undo" bar appears (no confirmation box).
 * **Accessibility**:
@@ -67,7 +92,7 @@
 * **Terminology & Symbols**: "Lần 2" is now "Phiên 2" throughout; calendar arrows changed from `◀ ▶` to `‹ ›`.
 * **Version Bump (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.8.0.text`)**:
   * Version set to `3.8.0` (cache busters `?v=3.8.0`).
-### 🔧 Version `v3.7.11` — *Network Safety, Student Stats Consistency & Robustness Patch*
+### Version `v3.7.11` — *Network Safety, Student Stats Consistency & Robustness Patch*
 * **Network Timeouts & Safe Retries**:
   * Every request now has a timeout (15–90 seconds, depending on the action).
   * Teacher commands (open session, close, +2 min, Round 2, etc.) carry a `requestId`, so a retry after a network error is no longer applied twice (+2 min can no longer add +4).
@@ -91,12 +116,12 @@
   * `test-core.js` now has 181 checks (EXTEND_2M branches, request dedup, callBackend retry/timeout, merged stats).
 * **Version Bump (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.7.11.text`)**:
   * Version set to `3.7.11` (cache busters `?v=3.7.11`).
-### 🔧 Version `v3.7.10` — *Bug Fix: Cancelling a Mistaken Round 2 Session Deletes Only That Session*
+### Version `v3.7.10` — *Bug Fix: Cancelling a Mistaken Round 2 Session Deletes Only That Session*
 * **Cancel Mistaken Session Scope (`code3.7.10.text`, `CANCEL_MISTAKEN_SESSION`)**:
   * Fix: cancelling a mistaken Round 2 (Phiên 2) session now deletes only that Round 2 session and its check-ins; Phiên 1 and its marks are kept. Cancelling a Phiên 1 session still removes the whole day.
 * **Version Bump (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`)**:
   * Version set to `3.7.10` (cache busters `?v=3.7.10`).
-### 🔧 Version `v3.7.9` — *Backend Stability Patch: Sync Writes Under Script Lock, Check-Ins No Longer Blocked by Heavy Work, Cache Fixes & Leading-Zero Student IDs*
+### Version `v3.7.9` — *Backend Stability Patch: Sync Writes Under Script Lock, Check-Ins No Longer Blocked by Heavy Work, Cache Fixes & Leading-Zero Student IDs*
 * **Master Sheet Writes Under Script Lock (`code3.7.9.text`, `sync.txt`)**:
   * Class delete/restore, roster import, the 15-minute auto sync and the manual sync now take the script lock, so a check-in written at the same moment can no longer be lost.
   * If the lock is busy, the 15-minute sync skips that class and retries on the next run (audit row `AUTO_SYNC_LOCK_BUSY`).
@@ -121,7 +146,7 @@
 * **Tests (`.agent/skills/appscript-deploy/scripts/test-core.js`)**:
   * `test-core.js` grows to 136 checks.
 * **Not in This Release (noted for the lecturer)**: cancelling a mistaken Round-2 session still deletes all sessions of that day. Decision pending.
-### 🔧 Version `v3.7.8` — *Security Patch: Lecturer Pairing QR No Longer Sent to a Third Party, PING Data Gated by Device Credential & Frontend Secret Removal*
+### Version `v3.7.8` — *Security Patch: Lecturer Pairing QR No Longer Sent to a Third Party, PING Data Gated by Device Credential & Frontend Secret Removal*
 * **Lecturer Pairing QR Kept Off Third-Party Services (`code3.7.8.text`, `index.html`, `js/teacher.js`)**:
   * The Master Key is no longer placed in any `quickchart.io` URL. Cell `B9` now holds a short instruction. Menu **View Teacher Pairing** opens a dialog that draws the QR inside the browser (built-in QR encoder, no external service) and shows the temporary 6-digit PC code and the Master Key behind a **Show** button. Master Key unchanged.
   * The student onboarding QR (`A9`) contains no secret and is unchanged.
@@ -138,7 +163,7 @@
   * Scan the pairing QR with a real phone to confirm it works.
 * **Tests (`.agent/skills/appscript-deploy/scripts/test-core.js`)**:
   * `test-core.js` grows to 68 checks (QR encoder structure, PING gating, receipts, token hygiene).
-### 🔧 Version `v3.7.7` — *Backend Security Patch: Fail-Closed GPS Validation, Bounded `STUDENT_AVG_3` Room Center, Global Lecturer Code Lockout & PIN Credential-Mismatch Guard*
+### Version `v3.7.7` — *Backend Security Patch: Fail-Closed GPS Validation, Bounded `STUDENT_AVG_3` Room Center, Global Lecturer Code Lockout & PIN Credential-Mismatch Guard*
 * **GPS Input Validation (`code3.7.7.text`, `handleStudentCheckIn`)**:
   * Check-in now rejects non-numeric, infinite or out-of-range `lat`, `lng` or `accuracy`. Previously a non-numeric accuracy such as `"abc"` made the distance `NaN` and skipped the radius check; distance validation is now fail-closed.
 * **`STUDENT_AVG_3` Room-Center Bounds (`code3.7.7.text`)**:
@@ -153,12 +178,12 @@
 * **Tests (`.agent/skills/appscript-deploy/scripts/`)**:
   * New `test-core.js` runs the backend in a `vm` sandbox and covers the GPS gate, `STUDENT_AVG_3`, teacher auth, PIN, and `mergeAttendance` / PIN / score parity.
   * New `run-all-tests.js` runs all 4 suites.
-### 🔧 Version `v3.7.6` — *Stale Session-Cache Fix (Students No Longer Told "Session Not Open" After Opening, Check-In Rejected After Closing), Authoritative In-Lock Session Re-Check & Legacy Apps Script Endpoint Redirect*
+### Version `v3.7.6` — *Stale Session-Cache Fix (Students No Longer Told "Session Not Open" After Opening, Check-In Rejected After Closing), Authoritative In-Lock Session Re-Check & Legacy Apps Script Endpoint Redirect*
 * **Session State Consistency (`code3.7.6.text`)**:
   * `handleStudentCheckIn`: when the cached session map says "no open session", it re-reads `Sessions_Log` once (`getAllLatestSessionsMap(ss, true)`) before returning `ERR_SESSION_CLOSED`; inside `LockService` it re-checks the exact session row (`isSessionRowStillOpen_`: same `Session_ID`, no `Closed_Manually_At` earlier than request arrival, `Closes_At` not passed) so a stale cache can no longer accept check-ins after the lecturer closed the session.
   * `SpreadsheetApp.flush()` now runs before `invalidateClassCache()` in `Start`, `CLOSE_NOW`, `OPEN_ROUND_2`, `EXTEND_2M`, `REOPEN_5M`, `SET_QR_MODE` and `CANCEL_MISTAKEN_SESSION`, so concurrent pings cannot re-cache the pre-write state.
 * **Legacy Endpoint Redirect (`js/schedule-config.js`)**: three old Apps Script deployments (`@1`, `@2`, `@HEAD`) added to `LEGACY_LECTURER_APIS`; `normalizeApiUrl()` now moves any device still paired to them onto the current endpoint, fixing wrong Course Progress (`0/22` instead of `8/30`) and sessions managed through outdated backend code.
-### ✨ Version `v3.7.5` — *100% Centered Floating Confirmation Popups (`#confirm-modal`), Instant `0ms` Anti-Double-Click & Anti-Overwrite Locks (`isConfirmModalBusy` + `manualMarkSeqByStudent` + `LockService`), Clean Non-AI Button Typography, Per-Device Brute-Force Lockout Isolation & Classroom PC Session Preservation on `CLOSE_NOW`*
+### Version `v3.7.5` — *100% Centered Floating Confirmation Popups (`#confirm-modal`), Instant `0ms` Anti-Double-Click & Anti-Overwrite Locks (`isConfirmModalBusy` + `manualMarkSeqByStudent` + `LockService`), Clean Non-AI Button Typography, Per-Device Brute-Force Lockout Isolation & Classroom PC Session Preservation on `CLOSE_NOW`*
 * **100% Centered Floating Confirmation Popups (`#confirm-modal`, `z-index: 350`) (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/teacher.js`, `js/student.js`)**:
   * Removed all inline confirmation bars (`#tea-open-confirm-bar` and `.past-ses-confirm-box`) so opening a confirmation never shifts page layout or hides inside a scrolled list.
   * Added a dedicated centered floating confirmation popup (`#confirm-modal` at `z-index: 350`, stacking cleanly even above `#app-modal` at `z-index: 200` for History Calendar and Group Maker dialogs) across **every** confirmation action: **Open Session** (both normal scheduled sessions and off-schedule **Make-up Session** checkbox gating), **Open Round 2**, **Close Session**, **Cancel Mistaken Session**, **Past-Session Status Edit (`P / L / E / -`)**, **Student Device Unlock (`Mở khóa`)**, **Clear Sent Classroom Groups (`Thu hồi nhóm`)**, and **Student First-Time Device Link (`Lưu và Liên kết thiết bị`)**.
@@ -173,7 +198,7 @@
   * Removed decorative toolbar SVGs and stopped `pulseButtonConfirm()` from injecting animated circle/clock/cross SVGs into text-only buttons; unified button semantics (`.btn-outline-danger` for `Hủy phiên nhầm` and `Thu hồi nhóm`, `.btn-toggle-active` + dynamic `Ẩn tên` / `Hiện tên` on `#btn-toggle-names`, explicit `type="button"` on all 37 buttons, active `.past-ses-row` `P / L / E / -` highlights, and `var(--success-text)` in History summary).
   * Scoped `cc_tea_last_preview_mark` and `applyTeacherState` local session caching strictly to matching bound `studentId`, auto-hid `#onboard-compact-rules` once a student device is bound on a valid main browser, throttled wake-up syncs (`800ms` Lecturer / `1000ms` Student), and set `16px` mobile input font size (`< 768px`) to prevent iOS Safari focus auto-zoom.
 
-### 🔧 Version `v3.7.4` — *Fallback GPS Mode (`COLLECTING_AVG_3`) Stale-Coordinate Fix, Indoor Lecturer GPS Fallback (`enableHighAccuracy: false`), Mistaken-Session Coordinate Restoration, Discreet Projector GPS Wording & Past-History Cache Sync*
+### Version `v3.7.4` — *Fallback GPS Mode (`COLLECTING_AVG_3`) Stale-Coordinate Fix, Indoor Lecturer GPS Fallback (`enableHighAccuracy: false`), Mistaken-Session Coordinate Restoration, Discreet Projector GPS Wording & Past-History Cache Sync*
 * **Fallback GPS Mode (`COLLECTING_AVG_3` / `STUDENT_AVG_3`) Stale-Coordinate Fix & Mistaken-Session Coordinate Restoration (`code3.7.4.text`)**:
   * Removed the `maxCampusRadius` (`850m`) pre-check against stale `Classes_Config` (`campusLat/Lng`) coordinates inside `COLLECTING_AVG_3` (`handleStudentCheckIn`), preventing false `ERR_LOCATION_OUT_OF_RANGE` rejections when a prior test session was opened off-campus or when a class moves buildings.
   * When `COLLECTING_AVG_3` locks the classroom center from the first 3 verified students (`accuracy <= 100m`, non-mock GPS, within `radiusMeters` of each other), it now persists the locked coordinates to `Classes_Config` (`Room_Lat, Room_Lng`) in addition to `Sessions_Log`.
@@ -187,7 +212,7 @@
   * Guarded the `onlyIfModified` fast path in `syncSingleClassRosterFromDrive_` with `props.getProperty('QR_SHEET_PAST_HISTORY_' + classId)` so classes missing past-session history are always scanned, and invalidated `CLASS_ATT_STATS_V36_<classId>` immediately inside `extractRosterFromTargetFile_`.
   * Set `grp.manualLocked[sid] = true` on `TEACHER_MANUAL` records in `buildGroupedClassDayRecords_` so past-session manual marks (make-up `P`, late `L`, excused `E`) are strictly preserved across cache refreshes and Sheet rebuilds.
 
-### ✨ Version `v3.7.3` — *Unified `+2 Mins` (`EXTEND_2M`) 4-Branch Session Control & Removal of `Reopen 5 Mins`, Instant `0ms` Round 2 `1-Tap GPS` Mode Switch, Zero-Lag 45-Student `PIN_10S` Concurrency (`reqArrivalMs` + `+600ms` Lead + `2500ms` Grace + Zero-RPC Cache Hits) & 5-Layer Classroom Anti-Cheat*
+### Version `v3.7.3` — *Unified `+2 Mins` (`EXTEND_2M`) 4-Branch Session Control & Removal of `Reopen 5 Mins`, Instant `0ms` Round 2 `1-Tap GPS` Mode Switch, Zero-Lag 45-Student `PIN_10S` Concurrency (`reqArrivalMs` + `+600ms` Lead + `2500ms` Grace + Zero-RPC Cache Hits) & 5-Layer Classroom Anti-Cheat*
 * **Unified `+2 Mins` (`EXTEND_2M`) 4-Branch State Machine, `L -> P` Student Re-Check-In Upgrade & Removal of `Reopen 5 Mins` (`#btn-tea-reopen`) (`code3.7.3.text`, `index.html`, `js/teacher.js`)**:
   * Removed the redundant **`"Mở lại 5 phút"` (`#btn-tea-reopen` / `REOPEN_5M`)** button from `index.html` and consolidated all time extensions and session reopenings into the single **`+2 Phút` (`#btn-tea-extend` / `EXTEND_2M`)** button using a 4-branch state machine:
     1. **Closed Session (`!isTargetOpen` — P1 or P2)**: Reopens the session for an exact 2-minute Present (`P`) window (`newPresent = nowMs + 120000`, `newClose = newPresent`, clearing `Closed_Manually_At`) without adding a 55-minute Late tail.
@@ -211,7 +236,7 @@
   4. **Brute-Force Random Guessing Lockout (`PIN_LOCKED` — 4 Wrong Strikes $\rightarrow$ `25s` Lock)**: Tracks consecutive `PIN_WRONG` attempts in `CacheService` (`PIN_GUARD_<sessionId>_<studentId>`) and locks PIN entry for `25s` after 4 wrong guesses, while **never** penalizing `PIN_EXPIRED` (legitimate slow network / end-of-window typing).
   5. **Soft Relay Telemetry Flag (`SUSPECT_PIN_RELAY`)**: Records `firstKeyIdleMs` and `pinTypedDurationMs`; if a check-in exhibits both `firstKeyIdleMs >= 5000ms` and `pinAgeMs >= 6500ms`, the student is still marked Present (`P`/`L` — zero false rejections) and softly badged (`Nghi vấn`) on the Lecturer roster.
 
-### 🔧 Version `v3.7.2` — *Round 2 Button Vietnamese Typography Fix, 3-Layer Cross-Healing Device Vault (`localStorage` + `Cookie 365d` + `IndexedDB`) & Private/Incognito Anti-Cheat Guard*
+### Version `v3.7.2` — *Round 2 Button Vietnamese Typography Fix, 3-Layer Cross-Healing Device Vault (`localStorage` + `Cookie 365d` + `IndexedDB`) & Private/Incognito Anti-Cheat Guard*
 * **Vietnamese Diacritic Typography Fix on Round 2 & Form Controls (`css/styles.css`, `js/schedule-config.js`)**:
   * Explicitly declared `font-family: var(--font-sans)` on `button, input, select, textarea`, `.btn`, `.btn-open-p2-main`, `.p2-opt-pill input[type="number"]`, and `.round-segmented .seg-btn`.
   * Adjusted `.btn-open-p2-main` and `.p2-opt-pill input[type="number"]` font weight from `800` to `700` to prevent browser User-Agent control fonts from synthesizing mismatched fallback glyphs on stacked Vietnamese diacritics (`"Mở điểm danh Lần 2 (Đột xuất)"`).
@@ -221,7 +246,7 @@
 * **Private / Incognito Browsing Anti-Cheat Guard (`detectPrivateBrowsingMode` in `js/schedule-config.js`, `js/student.js`)**:
   * Detects Private/Incognito tabs (`localStorage` persistence check, WebKit `openDatabase` private check, and ephemeral RAM storage quota `< 120MB`) during both Student Onboarding and Check-In (`ERR_PRIVATE_BROWSING`), preventing accidental registration in ephemeral tabs and blocking Incognito proxy check-in attempts while preserving 100% strict `SHA-256(cc_device_cred)` verification on the backend.
 
-### ✨ Version `v3.7.1` — *Desktop/Laptop 2-Column Split-View Lecturer UX (`>= 960px`), Double-Click Floating PIN Spotlight Mode (`Option A`), Legacy Camera QR Scanner Cleanup & Automated In-Place Apps Script Deployment (`appscript-deploy`)*
+### Version `v3.7.1` — *Desktop/Laptop 2-Column Split-View Lecturer UX (`>= 960px`), Double-Click Floating PIN Spotlight Mode (`Option A`), Legacy Camera QR Scanner Cleanup & Automated In-Place Apps Script Deployment (`appscript-deploy`)*
 * **Desktop/Laptop 2-Column Split-View Lecturer Dashboard (`>= 960px`) & `Enter`-to-Login (`index.html`, `css/styles.css`)**:
   * Expanded `#main-container:has(#view-teacher:not(.hidden))` to `max-width: 1140px` on desktop/laptop screens (`@media (min-width: 960px)`) while keeping mobile (`< 960px`) and Student View (`540px`) 100% untouched.
   * Arranged `#box-teacher-dashboard:not(.hidden)` into a 2-column CSS Grid (`420px minmax(0, 1fr)`): Left column holds **Panel 1 (Session Control)** + **Panel 3 (Admin & Sync)**; Right column (`sticky`, `.roster-list` `max-height: calc(100dvh - 235px)`) displays **15–18 students simultaneously** without pushing the roster below the fold.
@@ -236,7 +261,7 @@
 * **Automated Google Apps Script In-Place Deployment Skill (`appscript-deploy`)**:
   * Added `@google/clasp` automation (`.agent/skills/appscript-deploy/scripts/deploy-appscript.js`) linked to Script ID `1KL0rnBXXhflTa1ErNuKt461lVxyX7gKx80qWq9V_VFrVGeN82jzuKKnF` and locked to Deployment ID `AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q` so backend updates push `Code.gs` + `Sync.gs` and create a new version in-place without ever changing the `/exec` URL.
 
-### ✨ Version `v3.7.0` — *Round 2 Spot-Check Attendance (`P2`), Strict Truth Table `mergeAttendance`, Read-Only `Kết quả cuối` Tab, 10-Second Rotating PIN (`PIN_10S` + `clockOffset` + `PIN_GRACE_MS` + `Pin_Check_Log`) & 3-Column Sheet Breakdown*
+### Version `v3.7.0` — *Round 2 Spot-Check Attendance (`P2`), Strict Truth Table `mergeAttendance`, Read-Only `Kết quả cuối` Tab, 10-Second Rotating PIN (`PIN_10S` + `clockOffset` + `PIN_GRACE_MS` + `Pin_Check_Log`) & 3-Column Sheet Breakdown*
 * **Strict Truth-Table Attendance Merging (`mergeAttendance(p1, p2, p2Opened)` in `code3.7.0.text`, `sync.txt`, `js/schedule-config.js`)**:
   * **No Round 2 (`p2Opened === false`)**: Preserves 100% of Round 1 status (`P -> P`, `L -> L`, `E -> E`, `- -> -`).
   * **Round 2 Opened (`p2Opened === true`)**:
@@ -258,7 +283,7 @@
 * **3-Column Sheet Breakdown When Round 2 Occurs (`code3.7.0.text`, `sync.txt`)**:
   * Days with only Round 1 write 1 column (`dd/MM/yyyy`); days with Round 2 write `dd/MM/yyyy (P1)`, `dd/MM/yyyy (P2)` (light gray info columns), and `dd/MM/yyyy (Chốt)` (official grading column read by `sync.txt`).
 
-### 🔧 Version `v3.6.6` — *Vietnamese Given-Name `A -> Z` Student Roster Sorting & Exact 5-Minute `Reopen 5 Mins` (`REOPEN_5M`) Without `55-Minute` Late Tail*
+### Version `v3.6.6` — *Vietnamese Given-Name `A -> Z` Student Roster Sorting & Exact 5-Minute `Reopen 5 Mins` (`REOPEN_5M`) Without `55-Minute` Late Tail*
 * **Vietnamese Given-Name `A -> Z` Roster Sorting (`js/teacher.js`, `code3.6.6.text`)**:
   * Fixed the issue where `Object.values(rosterMap)` in V8 / Apps Script automatically re-ordered numeric 8-digit Student ID keys (`MSSV`) in ascending numeric order.
   * Added `compareStudentsVietnameseAZ` (Frontend `applyTeacherState`) and `compareStudentsVietnameseAZ_` (Backend `handleTeacherGetState`) to sort all class rosters and history modals alphabetically `A -> Z` by **Vietnamese given name (`Tên chính` $\rightarrow$ `Họ và tên đệm` $\rightarrow$ `MSSV`)** using `localeCompare(..., 'vi')`.
@@ -266,7 +291,7 @@
   * Updated `REOPEN_5M` in `handleTeacherControlSession` (`code3.6.6.text`) so `newPresent = nowMs + 5 * 60 * 1000` and `newClose = newPresent`, removing the extra `+ cfg.lateMins` (`55m–60m`) tail.
   * Added client-side `reopen5mCapBySession` enforcement in `js/teacher.js` (`applyTeacherState`, `setupTeacherCountdown`, `teacherControlSession`) so even if a Google Sheet is still running an older `Code.gs` deployment, clicking `"Mở lại 5 phút"` counts down strictly from `05:00` to `00:00` and automatically fires `CLOSE_NOW` when the 5 minutes expire.
 
-### 🔧 Version `v3.6.5` — *iOS Safari Indoor GPS Check-In Fix: 15-Second Live Handshake Between `Check GPS` & `Check In Now`, Indoor Wi-Fi/Cellular Fallback (`enableHighAccuracy: false`), Single-Stream Onboarding GPS & iOS Dual-Switch Guide*
+### Version `v3.6.5` — *iOS Safari Indoor GPS Check-In Fix: 15-Second Live Handshake Between `Check GPS` & `Check In Now`, Indoor Wi-Fi/Cellular Fallback (`enableHighAccuracy: false`), Single-Stream Onboarding GPS & iOS Dual-Switch Guide*
 * **Indoor Wi-Fi/Cellular Live Fallback & Immediate `<= 100m` Resolution (`js/schedule-config.js`)**:
   * Updated `acquireLiveHighAccuracyGps(4500, 2500, 100)` so any live GPS fix with `accuracy <= 100m` resolves immediately in `0ms` without opening `watchPosition` and stalling iOS Safari for an extra `3.5s`.
   * Fixed the indoor fallback inside `getAccuratePosition()` (`line 1358`) from `{ enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }` to **`{ enableHighAccuracy: false, timeout: 4500, maximumAge: 0 }`**: when concrete ceilings block GNSS satellites, iOS CoreLocation immediately switches to live Wi-Fi / cellular positioning (`maximumAge: 0`, zero stale coordinate cache) instead of hanging for 14 seconds and failing.
@@ -276,7 +301,7 @@
   * Separated `code === 1` (browser/OS permission blocked — including iPhone's second switch at `Settings -> Privacy & Security -> Location Services -> Safari Websites -> While Using the App + Precise Location`) from `code === 2, 3` (indoor GPS signal loss — prompting students to turn on the Wi-Fi icon and Location Services).
   * Fixed out-of-range error code comparison (`ERR_LOCATION_OUT_OF_RANGE`) on `#btn-start-checkin` so red button pulses display `"NGOÀI BÁN KÍNH PHÒNG HỌC"`.
 
-### ✨ Version `v3.6.4` — *Automatic Calendar-Day Session UI Reset (Past-Day Isolation vs. Same-Day Closed Retention), Permanent Today Check-In Button Lock (`P` Emerald / `L` Amber) & Cohesive Semantic `Pulse to Confirm` System (`code3.6.4.text`)*
+### Version `v3.6.4` — *Automatic Calendar-Day Session UI Reset (Past-Day Isolation vs. Same-Day Closed Retention), Permanent Today Check-In Button Lock (`P` Emerald / `L` Amber) & Cohesive Semantic `Pulse to Confirm` System (`code3.6.4.text`)*
 * **Automatic Calendar-Day Session UI Reset & Past-Day Protection (`code3.6.4.text`, `js/teacher.js`)**:
   * **New-Day Dashboard Reset**: When a lecturer opens a class on a **new calendar day** where no session has been opened yet today (e.g., opening Class `002` on Friday `06/11` when the previous session was on Monday `02/11`), both `handleTeacherGetState` and `applyTeacherState` automatically isolate the past-day closed session from the live dashboard:
     * Displays badge **`CHƯA MỞ PHIÊN HÔM NAY`** (`NO SESSION TODAY`), resets live counters to `0 / N Có mặt` (`P: 0 | L: 0 | A: N | E: 0`), and clears past-day `P / L / E` button states, timestamps, and distances from the live student roster so the lecturer starts with a clean slate for the new class day.
@@ -294,7 +319,7 @@
   * **Student Check-In Error Feedback**: Flashes Red (`'danger'` — `PHIÊN ĐÃ ĐÓNG`, `NGOÀI PHẠM VI PHÒNG HỌC`, `KHÔNG THỂ GỬI DỮ LIỆU`) for `1150ms` when check-in is rejected, then unlocks after a `3s` cooldown so the student can retry.
   * **Lecturer Semantic Action Pulses**: Changed `#btn-tea-close` (`Đóng phiên` $ightarrow$ `ĐÃ ĐÓNG PHIÊN`) and `#btn-tea-cancel-mistaken` (`Hủy phiên nhầm` $ightarrow$ `ĐÃ HỦY PHIÊN NHẦM`) from Green to **Red (`'danger'`)**; added Green `'success'` pulse (`ĐÃ MỞ KHÓA`) on each student row's `Mở khóa` button (`teacherResetStudentDevice`); added semantic Green/Amber pulse on `#btn-reg-gate-toggle` (`ĐK thiết bị: MỞ / KHÓA`); and added confirmation pulses inside the Random Caller (`Gọi tiếp` / `ĐÃ HỦY ĐIỂM DANH`) and Group Maker (`Trộn lại` / `ĐÃ GỬI NHÓM`) modals.
 
-### ✨ Version `v3.6.3` — *Tactile `Pulse to Confirm` Feedback (Student `P` Green / `L` Yellow + Lecturer Open Session & Manual Marks `P/L/E/-`), Always-Visible Compact Mobile Browser Walkthrough (`Zalo` & iOS Code Scanner Guard) & Behavior-Preserving Backend Cleanup*
+### Version `v3.6.3` — *Tactile `Pulse to Confirm` Feedback (Student `P` Green / `L` Yellow + Lecturer Open Session & Manual Marks `P/L/E/-`), Always-Visible Compact Mobile Browser Walkthrough (`Zalo` & iOS Code Scanner Guard) & Behavior-Preserving Backend Cleanup*
 * **Tactile `Pulse to Confirm` Micro-Interactions Across Student & Lecturer Buttons (`css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)**:
   * Added `pulseButtonConfirm(btnOrId, confirmLabel, variant, durationMs)` with a crisp single-ring border glow (`3px–5px` `@keyframes ccsPulseGreen`, `ccsPulseAmber`, `ccsPulseOrange`, `ccsPulseSlate`) and inline animated SVG icons (`@keyframes ccsCheckDraw`):
     * **Student Check-In (`#btn-start-checkin`)**: Flashes **Emerald Green (`#16a34a`, `.btn-pulse-success` + checkmark SVG)** when recorded **Present (`P` — `ĐÃ ĐIỂM DANH CÓ MẶT`)**, and **Amber/Yellow (`#eab308`, `.btn-pulse-warn` + clock SVG)** when recorded **Late (`L` — `ĐÃ GHI NHẬN ĐI TRỄ`)**.
@@ -307,7 +332,7 @@
 * **Behavior-Preserving Backend Cleanup (`code3.6.0.text` & `sync.txt`)**:
   * Deduplicated helper functions across `code3.6.0.text` (`invalidateSessionCaches_`, `ensureSheetWithHeaders_`, `normalizeDashboardBaseUrl_`, `resetFailedAuthCounterIfNeeded_`, `getEnrolledStudentsMap_`) and `sync.txt` (`collectMasterClassStudentIds_`, `partitionAndRewriteSheetByClassCol_`, `extractRowStudentIdAndName_`, `isStudentRowHighlightedRed_`, `buildAttendanceUndoEntry_`, `scanSheetDateColumns_`, `mergeAndSaveClassSessionDates_`), unified `CLASS_ATT_STATS_V36_` cache invalidation, and removed dead cache keys with 100% identical runtime behavior.
 
-### ✨ Version `v3.6.2` — *Streamlined Lecturer Progress Strip, Calendar-Only Session Selection & Swapped Session Action Buttons*
+### Version `v3.6.2` — *Streamlined Lecturer Progress Strip, Calendar-Only Session Selection & Swapped Session Action Buttons*
 * **Swapped `"Hủy phiên nhầm"` and `"Đóng phiên"` Button Positions (`index.html`)**:
   * Placed **`"Hủy phiên nhầm"`** (`Cancel Mistaken Session`, `#btn-tea-cancel-mistaken`) before **`"Đóng phiên"`** (`Close Session`) at the right edge of the session control row (`+2 Phút` $\rightarrow$ `Mở lại 5 phút` $\rightarrow$ `Hủy phiên nhầm` $\rightarrow$ `Đóng phiên`), keeping 100% of each button's handler (`promptCancelMistakenSession()` / `teacherControlSession('CLOSE_NOW')`), color styling, and confirmation dialog intact.
 * **Streamlined Single-Row Course Progress Bar (`js/teacher.js` & `css/styles.css`)**:
@@ -317,11 +342,11 @@
 * **Visual Product Screenshot Demo Rule (`.agent/rules/ui-demo-preview.md` & `RULES.md`)**:
   * Standardized the isolated `/tmp/ccs-demo` + headless Chromium `2x` Retina screenshot preview workflow prior to applying UI modifications to production files.
 
-### ✨ Version `v3.6.1` — *Interactive Attendance Month Calendar, Course Progress Strip, Make-Up Session Confirmation & Cancel Mistaken Session*
+### Version `v3.6.1` — *Interactive Attendance Month Calendar, Course Progress Strip, Make-Up Session Confirmation & Cancel Mistaken Session*
 * **Interactive Month Calendar & Past Attendance Sync (`js/teacher.js`, `sync.txt`, `code3.6.0.text`)**:
   * Added an interactive Month Calendar widget (`renderHistoryCalendarWidget`) inside the Lecturer **`"Lịch sử"`** modal, course progress tracking (`#tea-course-progress-strip`), 2-step confirmation for out-of-schedule make-up sessions (`#chk-confirm-makeup-session`), and 1-click **`"Hủy phiên nhầm"`** (`CANCEL_MISTAKEN_SESSION`) to delete accidental same-day sessions without penalizing students.
 
-### ✨ Version `v3.6.0` — *Official Attendance Score & Exam Ban (`CẤM THI`) on Student UI, Same-Day Session Merging & Ghost Filtering, Customizable `Excused (E)` + Smart Color-Family Detection (`sync.txt`), Past-Session Excuse Approval, Shuffle-Bag Random Caller & Instant Classroom Group Maker*
+### Version `v3.6.0` — *Official Attendance Score & Exam Ban (`CẤM THI`) on Student UI, Same-Day Session Merging & Ghost Filtering, Customizable `Excused (E)` + Smart Color-Family Detection (`sync.txt`), Past-Session Excuse Approval, Shuffle-Bag Random Caller & Instant Classroom Group Maker*
 * **Official Attendance Score (`10.0` Base), Near-Limit Warning & `CẤM THI` Banner on Student UI (`code3.6.0.text`, `js/student.js`, `css/styles.css`)**:
   * Implemented the official attendance scoring and exam eligibility rules (displayed exclusively on the **Student UI** to keep the Lecturer UI clean):
     * **Base Score**: `10.0` points.
@@ -365,7 +390,7 @@
   * Auto-Rebind on Check-In after Lecturer Device Reset (`REVOKED` -> `ACTIVE` seamlessly) + Precision Anti-Cheat Soft-Flagging (`deviceFp`, 6-decimal coords, F12/Mock GPS).
   * Refactored and deduplicated helper functions (`invalidateSessionCaches_`, `ensureSheetWithHeaders_`, `normalizeDashboardBaseUrl_`, `resetFailedAuthCounterIfNeeded_`, `getEnrolledStudentsMap_`) and removed dead cache keys with 100% identical runtime behavior.
 
-### 🔧 Version `v3.5.1` — *Unified GitHub Repository & GitHub Pages URL (`tntrung8321/ccs` & `https://tntrung8321.github.io/ccs/`) + Seamless Legacy Redirect*
+### Version `v3.5.1` — *Unified GitHub Repository & GitHub Pages URL (`tntrung8321/ccs` & `https://tntrung8321.github.io/ccs/`) + Seamless Legacy Redirect*
 * **Unified GitHub Repository & GitHub Pages Endpoint (`tntrung8321/ccs`)**:
   * Renamed the official GitHub repository from `tntrung8321/ClassCheck-GPS` to **`tntrung8321/ccs`** (`https://github.com/tntrung8321/ccs`) and unified the GitHub Pages web application URL to **`https://tntrung8321.github.io/ccs/`**.
   * Because browser `localStorage` is scoped to the origin (`https://tntrung8321.github.io`), 100% of existing Student ID bindings, local attendance history, and Lecturer pairing profiles remain intact across the path transition.
@@ -373,7 +398,7 @@
   * Updated `ensureDashboardTab()`, `syncDashboardVersionBadge_()`, and `updateDashboardQRs()` in `code3.5.1.text` so new and existing Google Sheets automatically set/migrate Cell `B5` (`Frontend Web App URL`) from `https://tntrung8321.github.io/ClassCheck-GPS/` to `https://tntrung8321.github.io/ccs/`.
   * Deployed a dedicated automatic redirect repository at `https://tntrung8321.github.io/ClassCheck-GPS/` (`index.html` + `404.html`) that immediately forwards visitors to `https://tntrung8321.github.io/ccs/` while preserving all URL query parameters (`?onboard=...`, `?pair=...`, `?s=...`) and hash fragments so existing QR codes and bookmarks never hit a 404 error.
 
-### ✨ Version `v3.5.0` — *Utilitarian (`taste`) Student Attendance Summary (`P / L / E / A`), Phone-Local Expandable Attendance History Drawer, `0.01s` Optimistic Manual Marking & Zero-Extra-Cloud-Load RAM Caching*
+### Version `v3.5.0` — *Utilitarian (`taste`) Student Attendance Summary (`P / L / E / A`), Phone-Local Expandable Attendance History Drawer, `0.01s` Optimistic Manual Marking & Zero-Extra-Cloud-Load RAM Caching*
 * **Utilitarian Academic (`taste`) Student Attendance Summary & Expandable Phone-Local History Drawer (`#stu-attendance-summary` + `#stu-att-history-drawer`)**:
   * **Monochrome Slate Box + 7px Colored Status Dots (`.att-dot`)**: Replaced colorful pastel badge backgrounds with a clean, professional monochrome slate bar (`background: var(--surface)` `#f8fafc`, `border: 1px solid var(--border)` `#cbd5e1`, `border-radius: 8px`) matching `#gps-panel`. Displays `Chuyên cần: ● Có mặt: X  ● Đi trễ: Y  ● Có phép: Z  ● Vắng: W` using clean Slate typography, `tabular-nums` monospace numbers, and 7px semantic status dots:
     * **Có mặt (`P` / Present)**: Green (`#16a34a`)
@@ -393,7 +418,7 @@
   * **Single-Pass Cached `getAllLatestSessionsMap` & `getSessionAttendanceMap`**: Cached all classes' latest sessions under `ALL_LATEST_SES_V35` (eliminating 6–9 repeated `Sessions_Log` reads for classes without sessions) and cached active session check-ins with their exact `rowIndex` under `SES_ATT_MAP_V35_<sessionId>` (`updateSessionAttendanceMapCache_`). `handleTeacherManualMark` now updates existing student rows in `O(1)` via `existing.rowIndex` without scanning `Attendance_Log`, and `getClassAttendanceStatsMap_` caches per-class student stats under `CLASS_ATT_STATS_V35_<classId>`.
   * **Batched Master Sheet Sync (`sync.txt`)**: Upgraded `updateMasterClassSheet_` in `sync.txt` to write all student session marks and `Total_Present / Total_Late` counters in 2 batch `.setValues()` calls instead of `3 × N` per-row `.setValue()` calls.
 
-### ✨ Version `v3.4.9` — *2-Tap Address Bar Website Location Unblock Guide (`•••` / Tune Icon), Synchronous User-Gesture Permission Prompt & Live Auto-Recovery*
+### Version `v3.4.9` — *2-Tap Address Bar Website Location Unblock Guide (`•••` / Tune Icon), Synchronous User-Gesture Permission Prompt & Live Auto-Recovery*
 * **Synchronous User-Gesture Native Location Prompt (`getCurrentPosition` Before `watchPosition`)**:
   * Updated `acquireLiveHighAccuracyGps()` (`js/schedule-config.js`) and `submitStudentOnboarding()` (`js/student.js`) to invoke `navigator.geolocation.getCurrentPosition()` **synchronously inside the user's button click gesture** (`userActivation.isActive`) before any `async/await` network calls (`PING` / `STUDENT_ONBOARD`) or `watchPosition` loops. This guarantees that iOS Safari and Android Chrome always display the native **"Allow Location / Cho phép vị trí"** popup on the very first tap instead of silently dropping it after an `await` delay.
 * **Visual 2-Step Address Bar Website Permission Guide (`#gps-permission-guide-box`) — Zero Deep Settings Hunting**:
@@ -404,7 +429,7 @@
   * Subscribes to `navigator.permissions.query({ name: 'geolocation' })` (`permStatus.onchange`) so the moment a student switches the website's address-bar permission to **"Allow / Cho phép"**, `#gps-permission-guide-box` automatically disappears and `handleStudentPreCheckGps()` runs immediately to turn `#gps-dot` green without requiring a page reload.
   * Added `#btn-open-external-browser` (`openInExternalMainBrowser()`) inside `#ios-install-banner` using `intent://...#Intent;scheme=https;package=com.android.chrome;end` on Android and `x-safari-https://` on iOS to jump out of Zalo/Messenger WebViews in 1 tap.
 
-### ✨ Version `v3.4.8` — *Natural Page Scrolling, Permanent Student ID Lock & Live High-Accuracy GPS Warm-Up (Zero GPS Caching, Strict `100m` + `50m` Anti-Cheat)*
+### Version `v3.4.8` — *Natural Page Scrolling, Permanent Student ID Lock & Live High-Accuracy GPS Warm-Up (Zero GPS Caching, Strict `100m` + `50m` Anti-Cheat)*
 * **Restored Natural Vertical Page Scrolling on Student Devices**: Removed the restrictive `body.student-locked-scroll` (`height: 100dvh; overflow: hidden`) viewport lock in `css/styles.css` and `js/schedule-config.js`, enabling smooth native vertical scrolling (`overflow-y: auto; -webkit-overflow-scrolling: touch`) across all mobile browsers so content and inline status messages are never clipped.
 * **Permanent Student ID (`MSSV`) Input Lock & Hidden Onboarding Box After First Registration**:
   * Removed the `"Đổi mã số sinh viên"` (`#btn-toggle-add-course`) button from the Student header (`index.html`).
@@ -414,43 +439,43 @@
   * **Live Hardware GPS Warm-Up (`acquireLiveHighAccuracyGps` via `watchPosition`) & In-Flight Deduplication**: Previously, `getCurrentPosition({ enableHighAccuracy: true, maximumAge: 0 })` immediately resolved with the phone's initial coarse cell-tower seed fix (`accuracy = 150m–500m`), which showed green `"Đã bật GPS"` on pre-check but failed the strict `100m` server check-in, or collided when `"Kiểm tra GPS"` and `"ĐIỂM DANH NGAY"` were tapped back-to-back. `getAccuratePosition()` now uses live `watchPosition` (`enableHighAccuracy: true, maximumAge: 0`) to filter out initial coarse cell-tower fixes (`> 65m`) and let the GPS chip lock onto satellites (`10m–45m`), while deduplicating concurrent in-flight sensor calls (`window.activeGpsPromise`).
   * **Synchronized Pre-Check Diagnostics & Auto-Rebind After Unlock (`code3.4.8.text`)**: `"Kiểm tra GPS"` now checks for unsupported in-app browsers (`Zalo`/`Messenger`) and warns if `"Precise Location" (Vị trí chính xác)` is turned off (`accuracy > 100m`), provides step-by-step iOS Safari / Android Chrome location unblock instructions (`formatGpsErrorGuide`), auto-selects the student's active open-session class, and automatically rebinds `REVOKED` devices to `ACTIVE` on check-in after the Lecturer clicks `"Mở khóa"`.
 
-### ✨ Version `v3.4.7` — *Hidden Student ID (`MSSV`) on Roster List & Cache-Busted (`?v=3.4.7`) Instant Script Reload*
+### Version `v3.4.7` — *Hidden Student ID (`MSSV`) on Roster List & Cache-Busted (`?v=3.4.7`) Instant Script Reload*
 * **Hidden Student IDs (`MSSV`) by Default on the Lecturer Roster List**: Hid raw Student IDs (`(25692791)`) from `.roster-item` rows in `renderTeacherRoster()` (`js/teacher.js`) so students sitting in class cannot copy classmates' Student IDs from the projector screen (displaying only masked last-3 digits `***791` if two students share the exact same full name, while preserving full Student ID search in `#inp-roster-search` and hover tooltips for the Lecturer).
 * **Cache-Busted Script & Stylesheet Loading (`?v=3.4.7`)**: Added explicit `?v=3.4.7` cache-busting query strings and `no-cache` meta headers in `index.html`, plus automatic `ServiceWorker` / `CacheStorage` cleanup in `migrateStoredUrls()`, ensuring browsers immediately load the compact single-row `P | L | E | - | Mở khóa` buttons without serving stale cached JS files.
 
-### ✨ Version `v3.4.6` — *Compact Single-Row Roster Action Codes (`P / L / E / -`) & Non-Wrapping Student Rows*
+### Version `v3.4.6` — *Compact Single-Row Roster Action Codes (`P / L / E / -`) & Non-Wrapping Student Rows*
 * **Restored Compact Single-Row Roster Action Buttons (`P`, `L`, `E`, `-`, `Mở khóa` / `Unlock`)**: Restored the standard single-letter attendance status buttons (`P`, `L`, `E`, `-`) alongside `Mở khóa` / `Unlock` (with descriptive tooltips on hover) and single-line flex layout (`flex-wrap: nowrap`) in `#tea-roster-container`, keeping every student row on a single horizontal line without wrapping onto two lines.
 * **Preserved Compact `P: 0 | L: 0 | A: 0 | E: 0` Breakdown & `v3.4.5` UI Refinements**: Preserved the compact `P: 0 | L: 0 | A: 0 | E: 0` live breakdown counter, single-line GPS status in `#gps-panel`, subtle Advanced GPS link below `"Mở phiên điểm danh"`, removal of prose abbreviations (`SV`, `GV`, `TB 3 SV`), and 100% bilingual (`VI / EN`) switching.
 
-### ✨ Version `v3.4.5` — *Single-Line GPS Readout, Subtle Advanced GPS Link, Zero Abbreviations & Complete Bilingual (`VI / EN`) UI*
+### Version `v3.4.5` — *Single-Line GPS Readout, Subtle Advanced GPS Link, Zero Abbreviations & Complete Bilingual (`VI / EN`) UI*
 * **Eliminated Triple-Repetition on the Student Check-In Card**: Removed redundant `#gps-live-pill`, `#gps-inline-status`, and `#stu-gps-telemetry` elements so GPS pre-check and live positioning feedback are consolidated into a single clean status line (`#gps-dot` + `#gps-readout`) inside `#gps-panel`.
 * **Subtle Text Link for Advanced GPS Mode Below `"Mở phiên điểm danh"`**: Replaced the bulky `"GPS nâng cao"` button with a subtle text link (`#btn-toggle-adv-gps`: *"Chế độ định vị GPS nâng cao"* / *"Advanced GPS positioning mode"*) positioned directly below the `"Mở phiên điểm danh"` button, matching the *"Cài đặt kết nối nâng cao"* link on the Student view and toggling `#box-adv-gps-mode` open beneath it.
 * **Zero Abbreviations Across All Student & Lecturer Views**: Replaced all shorthand and abbreviated labels (`SV`, `GV`, `TB 3 SV`, `60p`, `5p`, `+2 Phút`, `ĐK thiết bị`) with clear, unabbreviated terminology (`sinh viên`, `Giảng viên`, `trung bình vị trí 3 sinh viên đầu tiên`, `60 phút`, `5 phút`, `Thêm 2 phút`, `Đăng ký thiết bị mới: Đang mở`), while keeping the compact `P: 0 | L: 0 | A: 0 | E: 0` counter breakdown.
 * **100% Bilingual (`VI / EN`) Synchronization**: Added complete `data-i18n` and `data-i18n-placeholder` bindings across `index.html` and full dynamic string localization in `js/schedule-config.js`, `js/student.js`, and `js/teacher.js`. Switching `VI / EN` (`toggleLanguage()`) immediately re-renders both Student and Lecturer dashboards without mixed-language text.
 
-### ✨ Version `v3.4.4` — *Compact UI Copy, Fast 2.5s Live Roster Polling & Zero-Kickout Session Reload*
+### Version `v3.4.4` — *Compact UI Copy, Fast 2.5s Live Roster Polling & Zero-Kickout Session Reload*
 * **Compact Lecturer & Student UI**: Removed redundant `"Toàn màn hình"` (`#btn-projector-fs`) and `"Làm mới"` (`#btn-refresh-tea`) buttons, eliminated duplicate class/session headers, shortened all GPS and inline status readouts across Student and Lecturer modes, and tucked the 3-student centroid override inside the collapsible `"GPS nâng cao"` toggle.
 * **Fast 2.5s Live Roster Polling & Instant Visibility Refresh**: Reduced the active Lecturer polling interval from `4.5s` to `2.5s` with an in-flight request lock (`isRefreshingTeaState`), added instant sync when returning to the browser tab (`visibilitychange` / `focus`), and enabled cached class/roster reads in `handleTeacherGetState(ss, body)` (`getClassesMap(ss, false)` and `getClassRosterMap(ss, selectedId, false)`) to cut Google Sheets read overhead on every 2.5s poll.
 * **Zero-Kickout Page Refresh (`F5`) & Strict 6-Digit Code Expiration**: Persisted active Lecturer mode (`cc_active_mode`), selected class (`cc_tea_selected_class`), and state cache across browser reloads (`F5`) so refreshing the page stays on the Lecturer Dashboard instead of resetting to Student mode, while strictly enforcing 6-digit `TEMP_PC_CODE` expiration/rotation on session close (`CLOSE_NOW`) so shared classroom PCs automatically log out when the code changes or expires.
 
-### 🔧 Version `v3.4.3` — *Precision Anti-Cheat Soft-Flagging & Auto-Updated `B6` Version Badge*
+### Version `v3.4.3` — *Precision Anti-Cheat Soft-Flagging & Auto-Updated `B6` Version Badge*
 * **Eliminated Co-Timing (`<= 2s`) False Positives on the `"Nghi vấn"` Tab**: Removed the raw `<= 2 seconds` simultaneous check-in rule from `detectCoCheckInSuspects` (`js/teacher.js`) and `handleStudentCheckIn` (`code3.3.0.text`) so students tapping check-in at the same moment in class are never falsely flagged. The `"Nghi vấn"` (`SUSPECT`) filter now flags **only verified technical anomalies**: identical hardware fingerprints across two browsers on the same phone (`Safari + Chrome`, `sameHardwareFp && diffSec <= 20 && pairDist <= 5`), exact 6-decimal coordinate duplication (`sameExactCoords`), or DevTools / Mock GPS spoofing (`F12_GEO_OVERRIDE`, `MOCK_ACCURACY_PATTERN`, `STALE_GPS_TIMESTAMP`).
 * **Automatic `Setup_&_Dashboard` Cell `B6` Version Refresh**: Added `syncDashboardVersionBadge_(ss)` to `onOpen` and `handleTeacherAuth` so cell `B6` automatically updates to `✅ Verified & Ready (v3.4.3)` whenever the Sheet is opened or the Lecturer logs in.
 
-### ✨ Version `v3.4.2` — *Lecturer UI Decluttering, 1-Tap Device Unlock & Projector Auto-Rehide*
+### Version `v3.4.2` — *Lecturer UI Decluttering, 1-Tap Device Unlock & Projector Auto-Rehide*
 * **Single-Column Lecturer Session Control & Removed Decorative Radar Box**: Removed the secondary `.gps-station-box` column (`.radar-circle` and `#poster-class-title`) from Panel 1 of the Lecturer Dashboard and integrated `#tea-gps-anchor-hint`, `#btn-toggle-adv-gps`, and `#box-adv-gps-mode` directly inside `#teacher-session-control-box` for a cleaner, faster single-column layout.
 * **Removed Redundant `"Che MSSV"` Button & Unused QR Generator Library**: Removed `#btn-toggle-privacy` (`Che MSSV`) from the Panel 2 Roster header so only the 2 core actions (`Gọi ngẫu nhiên 1 SV` and `Ẩn/Hiện danh sách`) remain. Removed the unused `qrcode.min.js` library and legacy classroom QR poster nodes while preserving `html5-qrcode.min.js` for scanning Course Onboarding and Lecturer Pairing QR codes from the Google Sheet (`Setup_&_Dashboard`).
 * **Projector Auto-Rehide on Search Action & 1-Tap Device Unlock**:
   * When the class roster is hidden on the projector (`showRosterNames === false`) and the Lecturer types into `#inp-roster-search` to find a student, clicking **`P`**, **`L`**, **`E`**, **`-`**, or **`Mở khóa`** now automatically clears `#inp-roster-search` and hides the roster again on the projector immediately.
   * Streamlined `teacherResetStudentDevice(studentId)` (`Mở khóa`) to execute in a single tap without a blocking confirmation modal (displaying feedback in `#tea-session-inline-status`), while keeping `P` and `L` buttons independent so late students (`L`) who cleared browser cache can be unlocked and marked accurately.
 
-### 🔧 Version `v3.4.1` — *Lecturer-Proximity Priority (`TEACHER_GPS`) & Advanced 3-Student Centroid Mode (`STUDENT_AVG_3`)*
+### Version `v3.4.1` — *Lecturer-Proximity Priority (`TEACHER_GPS`) & Advanced 3-Student Centroid Mode (`STUDENT_AVG_3`)*
 * **Default Lecturer-Proximity Evaluation (`TEACHER_GPS`)**: Whenever the Lecturer's device returns valid GPS coordinates (with Advanced Mode off), the session room center is strictly locked to the Lecturer's live position (`TEACHER_GPS`). Every student is evaluated strictly by their distance to the Lecturer (`<= 100m`), immediately rejecting any student sitting in another building (`ERR_LOCATION_OUT_OF_RANGE`).
 * **Advanced Mode Toggle & No-GPS Fallback (`STUDENT_AVG_3` — Average of First 3 Students)**:
   * Added a dedicated `"Chế độ GPS nâng cao"` button (`#btn-toggle-adv-gps`) and toggle (`#chk-use-student-avg3`: *"Sử dụng GPS Sinh viên — Lấy trung bình 3 bạn đầu tiên làm tâm phòng"*) on the Lecturer dashboard.
   * **Only** when the Lecturer's device has no GPS at all, **or** when the Lecturer explicitly enables this Advanced Mode toggle, the session activates **`STUDENT_AVG_3`** (`COLLECTING_AVG_3`): it collects the coordinates of the **first 3 verified, non-spoofed students** inside the campus (`<= 850m`) and within `100m` of the running classroom average, locking the final classroom center to their exact centroid $\left(\frac{\text{Lat}_1+\text{Lat}_2+\text{Lat}_3}{3}, \frac{\text{Lng}_1+\text{Lng}_2+\text{Lng}_3}{3}\right)$.
 
-### 🚀 Version `v3.4.0` — *Zero-Scroll Student UI, Contextual Inline Alerts & Dynamic Multi-Room Session Anchor*
+### Version `v3.4.0` — *Zero-Scroll Student UI, Contextual Inline Alerts & Dynamic Multi-Room Session Anchor*
 * **Zero-Scroll (`100dvh`) Student Viewport & Contextual Inline Alerts**:
   * Locked the mobile Student check-in view (`body.student-locked-scroll`) to a compact, single-screen `100dvh` layout (`overflow: hidden`, `overscroll-behavior: none`), eliminating accidental vertical dragging while tapping check-in controls. Automatically unlocks scroll when opening the camera modal or advanced settings.
   * Replaced the detached bottom status banner with contextual inline notifications (`#gps-inline-status` inside `#gps-panel`, `#checkin-inline-status` directly below `"ĐIỂM DANH NGAY"`, `#onboard-inline-status` inside `#box-add-course`, plus `#tea-login-inline-status`, `#tea-session-inline-status`, and `#tea-admin-inline-status` for Lecturers) so errors and confirmations appear at the exact point of interaction.
@@ -462,13 +487,13 @@
   * Added `handleRosterSearchKeydown(event)` so pressing `Enter` when a single student matches marks them `P` (`Present`) immediately and clears the search box.
 * **Pre-Export Auto-Sync for Mid-Semester Roster Additions**: Updated `autoSyncTodayAttendanceAfterClass()` in `sync.txt` to invoke `syncSingleClassRosterFromDrive_` (`onlyIfModified: true`) prior to exporting attendance to `.XLSX` / Google Sheets, ensuring any newly added student in the Drive workbook is automatically imported before end-of-class grading.
 
-### 🔧 Version `v3.3.1` — *Universal Content-Aware Drive Roster Sync & Zero-Lag Mid-Semester Student Import*
+### Version `v3.3.1` — *Universal Content-Aware Drive Roster Sync & Zero-Lag Mid-Semester Student Import*
 * **Universal Content-Aware File & Tab Resolution (`Class_ID` + `MSSV` / `Full_Name`)**: Upgraded `resolveClassTargetFile_` and `findBestMatchingSheet_` to universally disambiguate multiple files sharing the same `Class_ID` (such as a Class Diary / Course Syllabus sheet vs. an Attendance Roster workbook) by verifying the presence of valid `MSSV` (`Student_ID`) and `Full_Name` student rows rather than relying on personal filename suffixes. Added native resolution for Google Drive Shortcuts (`application/vnd.google-apps.shortcut`).
 * **Zero-Lag Modified-Time Delta Detection (`ROSTER_SYNC_META_PROP_KEY`)**: Tracks each class's Drive file `lastUpdated` timestamp and synced student count so unchanged `.XLSX` files are skipped in `0ms`, while any `.XLSX` / Sheet file edited mid-semester to add new students is automatically re-scanned, badged (`🔄 +N new`), and pre-selected in the Sync dialog. Removed the legacy restriction that ignored ticked synced classes when the secondary re-scan toggle was unchecked.
 * **1-Click Web App & Student Lookup Rescue Sync**: Connected the Lecturer Web App's `"Đồng bộ vào Google Sheet"` button (`TEACHER_REBUILD_REPORT`) and Student ID onboarding (`STUDENT_LOOKUP_RESCUE`) to `syncSingleClassRosterFromDrive_` (`onlyIfModified: true`), automatically importing newly added students from modified Drive `.XLSX` files and clearing roster caches immediately.
 * **Batch Attendance Export Optimization**: Replaced per-row `setValue` / `setBackground` loops in `updateTargetAttendanceFile_` with single-range batch array writes (`setValues` / `setBackgrounds`), accelerating attendance sync to Google Sheets and `.XLSX` files by 5x–8x.
 
-### ✨ Version `v3.3.0` — *Modular Architecture, Utilitarian UI & Smart Schedule Engine*
+### Version `v3.3.0` — *Modular Architecture, Utilitarian UI & Smart Schedule Engine*
 * **Modular Frontend Architecture**: Refactored the single-file frontend into a clean, maintainable 5-module structure (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`) while preserving 100% of existing student and lecturer `localStorage` data (`cc_student_profiles`, `cc_active_inst`, `cc_device_cred`).
 * **`taste` Utilitarian Academic UI & Technical Monoline SVGs**: Rebuilt the visual system with high-contrast Slate & Academic Navy tokens, tabular monospace telemetry readouts, and an embedded 12-icon technical monoline SVG sprite (`stroke-width="1.75"`, zero emoji clutter).
 * **Pre-Check & Activate GPS Panel (`#gps-panel`)**: Added a dedicated pre-session GPS verification bar (`#gps-dot`, `#gps-readout`, `#btn-check-gps`) allowing students to test location permissions and accuracy before class. Enforces `window.cachedGPS = null` so `executeStudentCheckIn` always acquires a fresh live GPS reading (`maximumAge: 0`) at check-in time, paired with an immediate `isSubmitting` anti-spam lock (`"Đang gửi dữ liệu..."`).
@@ -476,7 +501,7 @@
 * **Default Master Sheet Endpoint & Auto-Migration (`INST_KfweyxZcv4`)**: Updated the default Master Sheet API endpoint (`INST_KfweyxZcv4`) and added automatic silent `localStorage` migration from legacy/tester Web App URLs so existing student and lecturer devices seamlessly connect to the production deployment.
 * **Isolated Session Control & 2-Step Inline Confirmation**: Isolated lecturer session controls inside `#teacher-session-control-box` and replaced 1-tap session start with a 2-step inline confirmation bar (`#tea-open-confirm-bar`) featuring separate `"Hủy"` and `"Xác nhận mở lớp [Mã Lớp]"` buttons, alongside live roster filter tabs (`Tất cả / Có mặt / Vắng / Nghi vấn`) and Projector ID Privacy masking.
 
-### 🚀 Version `v3.2.0` — *High-Concurrency Engine & Anti-Cheat Hardening*
+### Version `v3.2.0` — *High-Concurrency Engine & Anti-Cheat Hardening*
 * **High-Concurrency RAM Caching (`CacheService`)**: Added row-aware in-memory caching for class configurations, rosters, and active sessions, cutting `LockService` hold time by ~90% to support 60+ simultaneous check-ins and multiple concurrent classes without bottlenecks.
 * **Pre-Lock Rate Limiting & Idempotency**: Filtered duplicate taps and blocked automated API spam loops (`F12` / script flooding) in RAM prior to spreadsheet lock acquisition.
 * **Multi-Browser & DevTools Spoofing Detection**:
@@ -485,25 +510,51 @@
 * **Spot-Check Revocation Lock**: Prevented students whose attendance was manually revoked (`-`) during a live random spot-check from re-submitting attendance in the same session.
 * **Multi-Lecturer & Modular Sync Compatibility**: Auto-revealed lecturer selection when a student links courses across multiple lecturers, and ensured zero-delay compatibility with external `.XLSX` Sync modules.
 
-### 🔧 Version `v3.1.1` — *Roster Full-Name Parsing & Sync Refinement*
+### Version `v3.1.1` — *Roster Full-Name Parsing & Sync Refinement*
 * **Split-Column Full Name Merging**: Automatically detected and merged separate Last/Middle Name and First Name columns when importing `.XLSX` attendance workbooks.
 * **Attendance Grid Mapping & Audit Logging**: Refined session-column mapping for two-way Drive synchronization and expanded `Audit_Log` traceability.
 
-### ✨ Version `v3.1.0` — *Two-Way Google Drive `.XLSX` / Sheet Sync & Undo Backup*
+### Version `v3.1.0` — *Two-Way Google Drive `.XLSX` / Sheet Sync & Undo Backup*
 * **Automated Two-Way Drive Sync & Backup**: Added one-click roster import from `.XLSX` / Google Sheets on Drive and automated attendance export/backup back to official attendance books.
 * **Safe Class Deletion with Undo Cache (`_Undo_Backup_Cache`)**: Preserved full JSON snapshots of class configs, rosters, sessions, and logs prior to deletion for instant 1-click restoration.
 
-### 🎯 Version `v3.0.0` — *1-Tap GPS Attendance Architecture*
+### Version `v3.0.0` — *1-Tap GPS Attendance Architecture*
 * **1-Tap GPS Check-In**: Transitioned daily student check-in from mandatory camera QR scanning to a single-tap GPS verification flow, keeping QR scanning as an optional fallback.
 * **Dynamic Sheet Session Auth**: Enabled lecturer sign-in via rotating 6-digit session codes from Google Sheets (with 5-attempt brute-force lockout) alongside Master Key pairing.
 * **Zero-Cache Web App**: Removed Service Worker (`sw.js`) caching to ensure mobile browsers (especially iOS Safari) always load the latest release immediately.
 
-### 🌱 Version `v2.1.0` — *Original Baseline (`ClassCheck QR`)*
+### Version `v2.1.0` — *Original Baseline (`ClassCheck QR`)*
 * **Core QR & Device-Lock Foundation**: Static/Rotating (15s) QR attendance, accuracy-aware Haversine GPS radius check, `1 Phone = 1 Student ID` SHA-256 browser binding (`Device_Registry`), and automated `Setup_&_Dashboard` initialization.
 
-## 🇻🇳 PHIÊN BẢN TIẾNG VIỆT
+## PHIÊN BẢN TIẾNG VIỆT
 
-### 🔧 Version `v3.9.2` — *Kiểm Tra Chặt Quy Chế Chuyên Cần, Sửa Sync Nhận Màu Có Mặt & Chốt An Toàn Khi Ghi Đè XLSX*
+### Version `v3.10.1` — *Cổng Chạy Nhanh Cho Trigger Đồng Bộ Hai Chiều 5 Phút (Giữ Hạn Mức)*
+* **Sửa Lỗi / Hiệu Năng: Cổng Chạy Cho Trigger Đồng Bộ**: trigger đồng bộ hai chiều 5 phút nay có cổng chạy nhẹ. Chỉ chạy đầy đủ khi hôm nay có phiên điểm danh (mở đến 3 giờ sau khi phiên đóng), hoặc lớp có lịch hôm nay trong khoảng [giờ bắt đầu − 45 phút, giờ kết thúc + 3 giờ]. Ngoài các khoảng đó, trigger thoát gần như ngay mà không đọc Drive, và chỉ chạy đầy đủ mỗi 30 phút. Nếu không có dữ liệu lịch, trigger chạy trong khung 06:00–23:00.
+* **Mục đích**: giữ mức dùng trigger trong hạn mức ~90 phút/ngày của tài khoản Google thường. Chạy tay không bị ảnh hưởng.
+* **Nhật ký**: các dòng `SYNC2W_RUN` trong `Audit_Log` nay có thêm `gate=active|idle`.
+* **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.10.1.text`)**:
+  * Phiên bản đặt thành `3.10.1` (cache buster `?v=3.10.1`). File backend đổi tên từ `code3.10.0.text`.
+  * Thay đổi Backend cần deploy Apps Script (`New version`) mới có hiệu lực.
+
+
+### Version `v3.10.0` — *Đồng Bộ Hai Chiều Trong Khoảng 5 Phút, Đẩy Từng Ô Từ Web Sang Sheet, Sửa Điểm Danh Tay & Nhật Ký Khi Liên Kết MSSV Bị Từ Chối*
+* **Đồng Bộ Hai Chiều (Sheet / XLSX sang Web)**: chỉnh sửa trong Google Sheet hoặc `.XLSX` của giảng viên được đưa lên web và cho sinh viên thấy trong khoảng 5 phút.
+* **Đồng Bộ Hai Chiều (Web sang Sheet)**: chỉnh sửa trên web chỉ đẩy sang Sheet những ô đã đổi. Không ghi đè cả cột.
+* **Quy Tắc Xung Đột**: khi cả hai bên cùng đổi một ô, Sheet thắng.
+* **Ô Trống = Có Mặt**: ô trống được tính là có mặt, nhưng chỉ với buổi đã có phiên và đã có dữ liệu nền.
+* **Trigger Đồng Bộ**: trigger chạy mỗi 5 phút thay vì 15 phút. Bỏ khung nghỉ 23h-6h.
+* **Lưu Dữ Liệu Nền**: dữ liệu nền được lưu ở tab ẩn `_Sync_Base`.
+* **Undo Sync**: tạm dừng đồng bộ ngày đó cho tới khi bấm Sync thủ công.
+* **Sửa Lỗi: Chấm Tay Có Mặt (P) Buổi Cũ**: với buổi cũ có cả Phiên 1 và Phiên 2, việc chấm tay Có mặt trước đây chỉ ghi một phiên và để Đi trễ (L). Nay ghi cả hai phiên.
+* **Sửa Lỗi: Kiểm Tra Điểm Danh Tay**: điểm danh tay chỉ nhận `P / L / E / -`, chặn chuỗi công thức đi vào `Attendance_Log`.
+* **Sửa Lỗi: Ghi Dữ Liệu Lúc Đồng Bộ**: điểm danh của sinh viên xen giữa lúc đồng bộ không còn bị ghi đè bằng giá trị Sheet cũ. Ô giảng viên vừa sửa giữa lúc đồng bộ không bị ghi đè. Giới hạn 6 phút của Apps Script được kiểm trong lúc ghi.
+* **Bổ Sung: Nhật Ký Kiểm Tra**: ghi `ONBOARD_REJECTED` (mã lỗi + MSSV, không ghi mã thiết bị) vào `Audit_Log` khi liên kết MSSV bị từ chối.
+* **Lưu Ý Khi Deploy**: sau khi deploy, mở Sheet một lần để trigger 15 phút được thay bằng trigger 5 phút. Xóa các Script Property `QR_SHEET_PAST_HISTORY_*` cũ nếu còn.
+* **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.10.0.text`)**:
+  * Phiên bản đặt thành `3.10.0` (cache buster `?v=3.10.0`). File backend đổi tên từ `code3.9.2.text`.
+  * Thay đổi Backend và Sync cần deploy Apps Script (`New version`) mới có hiệu lực.
+
+### Version `v3.9.2` — *Kiểm Tra Chặt Quy Chế Chuyên Cần, Sửa Sync Nhận Màu Có Mặt & Chốt An Toàn Khi Ghi Đè XLSX*
 * **Kiểm Tra Quy Chế Trước Khi Lưu**: giá trị để trống, ngoài khoảng cho phép hoặc không phải số giờ bị từ chối, không còn bị ép về giá trị gần nhất. Trước đây ngưỡng `-1` thành `0` (vắng 1 buổi là bị cấm thi) và tổng số buổi để trống thành `1`. Ô sai được đánh dấu trên form (`min`/`max`/`required`) và báo rõ tên ô; không lưu gì. Backend trả `ERR_INVALID_RULES` (kèm `field`) với cùng các kiểm tra.
 * **Sync Nhận Màu Có Mặt**: khi dùng ký hiệu `CUSTOM`, ô có nền màu `Có mặt` đã cấu hình được đọc là `P`, nên cột mà cả lớp có mặt vẫn được tính là một buổi học.
 * **Chốt An Toàn Khi Ghi Đè XLSX**: nếu Sync không đọc được thời gian sửa file `.XLSX` đích thì dừng và không ghi đè. Trước đây vẫn ghi.
@@ -513,7 +564,7 @@
   * Đặt phiên bản `3.9.2` (cache `?v=3.9.2`). Tên file backend đổi từ `code3.9.1.text`.
   * Thay đổi backend và Sync cần deploy Apps Script (`New version`) để có hiệu lực.
 
-### 🔧 Version `v3.9.1` — *Sync Đọc Lại Ký Hiệu Điểm Danh Tùy Chỉnh, Tinh Chỉnh Bảng Quy Chế*
+### Version `v3.9.1` — *Sync Đọc Lại Ký Hiệu Điểm Danh Tùy Chỉnh, Tinh Chỉnh Bảng Quy Chế*
 * **Sync Đọc Lại Ký Hiệu Tùy Chỉnh**: `Sync.gs` đọc ô điểm danh theo ký hiệu và màu đã đặt trong `Attendance Mark Settings` (chế độ `CUSTOM`) trước tiên. Trước đây ký hiệu tự đặt như `KP` cho vắng bị hiểu thành có mặt, và màu khác vàng/cam không được nhận ra. Cách nhận diện cũ (vàng/cam và `X/A/P/L/E` mặc định) vẫn giữ làm dự phòng.
 * **Test Mới**: `test-sync-marks.js` (18 ca, gồm nhận diện Thứ/Tiết từ chữ tự do), thêm vào `run-all-tests.js`.
 * **Bảng Quy Chế Chuyên Cần**: lớp chưa cấu hình mở ra với `Tùy chỉnh` và số mặc định điền sẵn; bỏ chữ lặp; form gọn; thông báo sau khi lưu nói bao nhiêu sinh viên đổi trạng thái; sinh viên không còn chuyển sang luật mặc định ngay sau khi điểm danh.
@@ -521,7 +572,7 @@
   * Đặt phiên bản `3.9.1` (cache `?v=3.9.1`). Tên file backend đổi từ `code3.9.0.text`.
   * Thay đổi backend và Sync cần deploy Apps Script (`New version`) để có hiệu lực.
 
-### ✨ Version `v3.9.0` — *Quy Chế Chuyên Cần Theo Từng Lớp (Preset, Chỉnh Chi Tiết, Xem Trước & Xuất/Nhập JSON), Tìm Kiếm Không Dấu, Quy Tắc MSSV & Gia Cố Đồng Bộ*
+### Version `v3.9.0` — *Quy Chế Chuyên Cần Theo Từng Lớp (Preset, Chỉnh Chi Tiết, Xem Trước & Xuất/Nhập JSON), Tìm Kiếm Không Dấu, Quy Tắc MSSV & Gia Cố Đồng Bộ*
 * **Quy Chế Chuyên Cần Theo Lớp (`CLASS_RULES_V1`)**: mỗi lớp có quy chế điểm và cấm thi riêng. Lớp chưa lưu quy chế vẫn dùng công thức IUH trong `RULES.md` mục 3.1-3.3, nên không đổi gì với các lớp đó.
   * **Dropdown preset**: `IUH` (mặc định) và `Chỉ điểm danh, không cấm thi` (`banMode: OFF`). Preset cộng đồng đọc từ `presets.json` trong repo.
   * **Chỉnh chi tiết**: điểm gốc, mức trừ A / L / E, hệ số quy đổi E sang vắng, kiểu cấm thi (`BOTH` / `ABSENCES` / `SCORE` / `OFF`), ngưỡng vắng theo buổi hoặc %, tổng số buổi, ngưỡng điểm và biên cảnh báo.
@@ -540,7 +591,7 @@
 * **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/attendance-rules.js`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `css/styles.css`, `RULES.md`, `code3.9.0.text`)**:
   * Đặt phiên bản `3.9.0` (cache `?v=3.9.0`). Tên file backend đổi từ `code3.8.1.text`.
   * Thay đổi backend cần deploy Apps Script (`New version`).
-### 🔧 Version `v3.8.1` — *Bản Vá Thanh Di Động, Vùng Chạm, Thông Báo & Phản Hồi Chia Nhóm (Frontend)*
+### Version `v3.8.1` — *Bản Vá Thanh Di Động, Vùng Chạm, Thông Báo & Phản Hồi Chia Nhóm (Frontend)*
 * **Chỉ Frontend**: logic backend không đổi. Chỉ hằng số `SYSTEM_VERSION` và tên file đổi thành `code3.8.1.text`. **Không cần deploy Apps Script.**
 * **Thanh Xanh Di Động (`<= 480px`)**: thanh cao `47px` (trước là `75px`) và không còn ghim ở đầu trang.
 * **Vùng Chạm Theo Thiết Bị**: trên PC (chuột, `hover` + `pointer: fine`) nút P/L/E/- cao `30px` và nút thanh xanh `32px`; điện thoại cảm ứng giữ `40px`.
@@ -553,7 +604,7 @@
 * **Kiểm Thử**: thêm test mô phỏng lớp 10 sinh viên (`test-sim-class.js`).
 * **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.8.1.text`)**:
   * Đặt phiên bản `3.8.1` (cache `?v=3.8.1`).
-### 🔧 Version `v3.8.0` — *Bản Phát Hành Trợ Năng, Bố Cục Di Động & Hoàn Tác (Frontend)*
+### Version `v3.8.0` — *Bản Phát Hành Trợ Năng, Bố Cục Di Động & Hoàn Tác (Frontend)*
 * **Chỉ Frontend**: logic backend không đổi. Chỉ hằng số `SYSTEM_VERSION` và tên file đổi thành `code3.8.0.text`. Không cần deploy lại Apps Script.
 * **Hoàn Tác Chấm Tay**: sau khi giảng viên chấm tay `P / L / E / -`, hiện thanh "Hoàn tác" trong 5 giây (không có hộp xác nhận).
 * **Trợ Năng**:
@@ -568,7 +619,7 @@
 * **Thuật Ngữ & Ký Hiệu**: "Lần 2" đổi thành "Phiên 2" xuyên suốt; mũi tên lịch đổi từ `◀ ▶` sang `‹ ›`.
 * **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.8.0.text`)**:
   * Đặt phiên bản `3.8.0` (cache `?v=3.8.0`).
-### 🔧 Version `v3.7.11` — *Bản Vá An Toàn Mạng, Thống Kê Sinh Viên Nhất Quán & Tăng Độ Bền*
+### Version `v3.7.11` — *Bản Vá An Toàn Mạng, Thống Kê Sinh Viên Nhất Quán & Tăng Độ Bền*
 * **Timeout Mạng & Gửi Lại An Toàn**:
   * Mọi yêu cầu nay có timeout (15–90 giây, tùy hành động).
   * Lệnh của giảng viên (mở phiên, đóng, +2 phút, Lần 2, v.v.) có `requestId`, nên gửi lại sau lỗi mạng không còn bị áp dụng hai lần (+2 phút không còn bị cộng thành +4).
@@ -592,12 +643,12 @@
   * `test-core.js` nay có 181 kiểm tra (nhánh EXTEND_2M, khử trùng requestId, retry/timeout của callBackend, thống kê hợp nhất).
 * **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.7.11.text`)**:
   * Đặt phiên bản `3.7.11` (cache `?v=3.7.11`).
-### 🔧 Version `v3.7.10` — *Sửa Lỗi: Huỷ Phiên Lần 2 Nhầm Chỉ Xoá Đúng Phiên Đó*
+### Version `v3.7.10` — *Sửa Lỗi: Huỷ Phiên Lần 2 Nhầm Chỉ Xoá Đúng Phiên Đó*
 * **Phạm Vi Huỷ Phiên Mở Nhầm (`code3.7.10.text`, `CANCEL_MISTAKEN_SESSION`)**:
   * Sửa: huỷ phiên mở nhầm khi đang ở Phiên 2 (Lần 2) chỉ xoá đúng Phiên 2 và các lượt điểm danh của nó; giữ nguyên Phiên 1 và điểm của Phiên 1. Huỷ Phiên 1 vẫn xoá cả ngày.
 * **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`)**:
   * Đặt phiên bản `3.7.10` (cache `?v=3.7.10`).
-### 🔧 Version `v3.7.9` — *Bản Vá Ổn Định Backend: Ghi Sổ Master Sheet Dưới Khóa Script, Điểm Danh Không Còn Bị Chặn Bởi Việc Nặng, Sửa Cache & Giữ Số 0 Đầu Mã Sinh Viên*
+### Version `v3.7.9` — *Bản Vá Ổn Định Backend: Ghi Sổ Master Sheet Dưới Khóa Script, Điểm Danh Không Còn Bị Chặn Bởi Việc Nặng, Sửa Cache & Giữ Số 0 Đầu Mã Sinh Viên*
 * **Ghi Master Sheet Dưới Khóa Script (`code3.7.9.text`, `sync.txt`)**:
   * Xóa/khôi phục lớp, nhập danh sách lớp, đồng bộ tự động 15 phút và đồng bộ thủ công nay đều giữ khóa script, nên lượt điểm danh ghi đúng lúc đó không còn bị mất.
   * Nếu khóa đang bận, đồng bộ 15 phút bỏ qua lớp đó và thử lại ở lần chạy sau (dòng audit `AUTO_SYNC_LOCK_BUSY`).
@@ -622,7 +673,7 @@
 * **Kiểm Thử (`.agent/skills/appscript-deploy/scripts/test-core.js`)**:
   * `test-core.js` tăng lên 136 kiểm tra.
 * **Chưa Có Trong Bản Này (ghi nhận cho giảng viên)**: hủy phiên Lần 2 nhầm vẫn xóa toàn bộ phiên của ngày đó. Đang chờ quyết định.
-### 🔧 Version `v3.7.8` — *Bản Vá Bảo Mật: Mã QR Ghép Nối Giảng Viên Không Còn Gửi Ra Bên Thứ Ba, Dữ Liệu PING Chỉ Trả Khi Có Thông Tin Xác Thực Thiết Bị & Gỡ Bí Mật Khỏi Frontend*
+### Version `v3.7.8` — *Bản Vá Bảo Mật: Mã QR Ghép Nối Giảng Viên Không Còn Gửi Ra Bên Thứ Ba, Dữ Liệu PING Chỉ Trả Khi Có Thông Tin Xác Thực Thiết Bị & Gỡ Bí Mật Khỏi Frontend*
 * **Mã QR Ghép Nối Giảng Viên Không Gửi Ra Dịch Vụ Ngoài (`code3.7.8.text`, `index.html`, `js/teacher.js`)**:
   * Master Key không còn nằm trong bất kỳ URL `quickchart.io` nào. Ô `B9` nay chỉ chứa hướng dẫn ngắn. Menu **View Teacher Pairing** mở hộp thoại vẽ QR ngay trong trình duyệt (bộ mã hóa QR tích hợp, không dùng dịch vụ ngoài), hiển thị mã PC 6 số tạm thời và Master Key sau nút **Hiện**. Master Key không đổi.
   * Mã QR đăng ký sinh viên (`A9`) không chứa bí mật nên không đổi.
@@ -639,7 +690,7 @@
   * Quét mã QR ghép nối bằng điện thoại thật để xác nhận hoạt động.
 * **Kiểm Thử (`.agent/skills/appscript-deploy/scripts/test-core.js`)**:
   * `test-core.js` tăng lên 68 kiểm tra (cấu trúc bộ mã hóa QR, cổng PING, biên nhận, vệ sinh token).
-### 🔧 Version `v3.7.7` — *Bản Vá Bảo Mật Backend: Kiểm Tra GPS Chặn Mặc Định (Fail-Closed), Giới Hạn Tâm Phòng `STUDENT_AVG_3`, Khóa Mã 6 Số Giảng Viên Toàn Cục & Chặn Lệch Tài Khoản Khi Dùng PIN*
+### Version `v3.7.7` — *Bản Vá Bảo Mật Backend: Kiểm Tra GPS Chặn Mặc Định (Fail-Closed), Giới Hạn Tâm Phòng `STUDENT_AVG_3`, Khóa Mã 6 Số Giảng Viên Toàn Cục & Chặn Lệch Tài Khoản Khi Dùng PIN*
 * **Kiểm Tra Dữ Liệu GPS (`code3.7.7.text`, `handleStudentCheckIn`)**:
   * Điểm danh nay từ chối `lat`, `lng` hoặc `accuracy` không phải số, vô cực hoặc ngoài phạm vi hợp lệ. Trước đây `accuracy` không phải số như `"abc"` làm khoảng cách thành `NaN` và bỏ qua kiểm tra bán kính; nay kiểm tra khoảng cách theo nguyên tắc chặn mặc định (fail-closed).
 * **Giới Hạn Tâm Phòng `STUDENT_AVG_3` (`code3.7.7.text`)**:
@@ -654,12 +705,12 @@
 * **Kiểm Thử (`.agent/skills/appscript-deploy/scripts/`)**:
   * Thêm `test-core.js`: chạy backend trong sandbox `vm`, kiểm tra cổng GPS, `STUDENT_AVG_3`, xác thực giảng viên, PIN và tính nhất quán `mergeAttendance` / PIN / điểm.
   * Thêm `run-all-tests.js`: chạy đủ 4 bộ kiểm thử.
-### 🔧 Version `v3.7.6` — *Sửa Cache Phiên Cũ (Hết Báo "Chưa Mở Phiên" Sau Khi Đã Mở, Hết Nhận Điểm Danh Sau Khi Đã Đóng), Kiểm Tra Lại Phiên Trong Khóa & Chuyển Hướng Endpoint Apps Script Cũ*
+### Version `v3.7.6` — *Sửa Cache Phiên Cũ (Hết Báo "Chưa Mở Phiên" Sau Khi Đã Mở, Hết Nhận Điểm Danh Sau Khi Đã Đóng), Kiểm Tra Lại Phiên Trong Khóa & Chuyển Hướng Endpoint Apps Script Cũ*
 * **Nhất Quán Trạng Thái Phiên (`code3.7.6.text`)**:
   * `handleStudentCheckIn`: khi cache báo "không có phiên mở", hệ thống đọc lại `Sessions_Log` một lần (`getAllLatestSessionsMap(ss, true)`) rồi mới trả `ERR_SESSION_CLOSED`; trong `LockService` kiểm tra lại đúng dòng phiên (`isSessionRowStillOpen_`: cùng `Session_ID`, không có `Closed_Manually_At` sớm hơn lúc yêu cầu đến, `Closes_At` chưa qua), nên cache cũ không còn nhận điểm danh sau khi giảng viên đã đóng phiên.
   * `SpreadsheetApp.flush()` chạy trước `invalidateClassCache()` ở `Start`, `CLOSE_NOW`, `OPEN_ROUND_2`, `EXTEND_2M`, `REOPEN_5M`, `SET_QR_MODE` và `CANCEL_MISTAKEN_SESSION`, tránh các lượt ping đồng thời nạp lại trạng thái trước khi ghi.
 * **Chuyển Hướng Endpoint Cũ (`js/schedule-config.js`)**: thêm 3 deployment Apps Script cũ (`@1`, `@2`, `@HEAD`) vào `LEGACY_LECTURER_APIS`; `normalizeApiUrl()` tự đưa thiết bị còn ghép với chúng sang endpoint hiện tại, khắc phục Tiến độ học phần sai (`0/22` thay vì `8/30`) và phiên bị điều khiển bằng code backend cũ.
-### ✨ Version `v3.7.5` — *Đồng Bộ 100% Hộp Thoại Xác Nhận Nổi Giữa Màn Hình (`#confirm-modal`), Khóa Chống Bấm Đúp & Chống Ghi Đè Tức Thì `0ms` (`isConfirmModalBusy` + `manualMarkSeqByStudent` + `LockService`), Tinh Gọn Nút Bấm Không Icon AI, Cô Lập Khóa Sai Mật Khẩu Theo Thiết Bị & Giữ Phiên PC Phòng Học Khi Đóng Phiên 1*
+### Version `v3.7.5` — *Đồng Bộ 100% Hộp Thoại Xác Nhận Nổi Giữa Màn Hình (`#confirm-modal`), Khóa Chống Bấm Đúp & Chống Ghi Đè Tức Thì `0ms` (`isConfirmModalBusy` + `manualMarkSeqByStudent` + `LockService`), Tinh Gọn Nút Bấm Không Icon AI, Cô Lập Khóa Sai Mật Khẩu Theo Thiết Bị & Giữ Phiên PC Phòng Học Khi Đóng Phiên 1*
 * **Đồng Bộ 100% Hộp Thoại Xác Nhận Nổi Giữa Màn Hình (`#confirm-modal`, `z-index: 350`) (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/teacher.js`, `js/student.js`)**:
   * Loại bỏ hoàn toàn các thanh xác nhận nội tuyến gây nhảy bố cục trang (`#tea-open-confirm-bar` và `.past-ses-confirm-box`).
   * Bổ sung hộp thoại xác nhận nổi chính giữa màn hình (`#confirm-modal` với `z-index: 350`, hiển thị nổi chồng mượt mà ngay cả trên hộp thoại Lịch sử và Chia nhóm `#app-modal` `z-index: 200`) cho **tất cả** thao tác cần xác nhận: **Mở phiên điểm danh** (cả buổi đúng lịch và **Mở phiên dạy bù** có hộp kiểm xác nhận), **Mở điểm danh Lần 2**, **Đóng phiên**, **Hủy phiên nhầm**, **Sửa điểm danh buổi cũ (`P / L / E / -`)**, **Mở khóa thiết bị sinh viên (`Mở khóa`)**, **Thu hồi danh sách chia nhóm (`Thu hồi nhóm`)**, và **Liên kết thiết bị lần đầu của Sinh viên (`Lưu và Liên kết thiết bị`)**.
@@ -674,7 +725,7 @@
   * Loại bỏ các icon trang trí nhỏ trên thanh công cụ Panel 2 và ngừng chèn các vòng tròn/đồng hồ SVG tự vẽ vào các nút chữ trong `pulseButtonConfirm()`; đồng bộ ngữ nghĩa nút (`.btn-outline-danger` cho `Hủy phiên nhầm` & `Thu hồi nhóm`, `.btn-toggle-active` + đổi nhãn động `Ẩn tên` / `Hiện tên` cho `#btn-toggle-names`, gắn đủ `type="button"` cho toàn bộ 37 nút, tô màu trạng thái đang chọn `P / L / E / -` trong lịch sử `.past-ses-row`, và sửa biến màu `var(--success-text)`).
   * Giới hạn `cc_tea_last_preview_mark` chỉ áp dụng đúng với `studentId` đang liên kết trên trình duyệt, tự ẩn hộp hướng dẫn `#onboard-compact-rules` sau khi sinh viên đã liên kết máy hợp lệ, tiết lưu đồng bộ khi mở khóa màn hình (`800ms` Giảng viên / `1000ms` Sinh viên), và đặt cỡ chữ `16px` cho ô nhập trên điện thoại (`< 768px`) chống iOS Safari tự phóng to lệch khung.
 
-### 🔧 Version `v3.7.4` — *Sửa Lỗi Chế Độ Định Vị GPS Dự Phòng (`COLLECTING_AVG_3`) Bị Chặn Bởi Tọa Độ Cũ, Fallback GPS Trong Phòng Kín Cho Giảng Viên, Tự Khôi Phục Tọa Độ Khi Hủy Phiên Nhầm, Ẩn Cơ Chế 3 Sinh Viên Trên Màn Chiếu & Đồng Bộ Đủ Tiến Độ Buổi Học*
+### Version `v3.7.4` — *Sửa Lỗi Chế Độ Định Vị GPS Dự Phòng (`COLLECTING_AVG_3`) Bị Chặn Bởi Tọa Độ Cũ, Fallback GPS Trong Phòng Kín Cho Giảng Viên, Tự Khôi Phục Tọa Độ Khi Hủy Phiên Nhầm, Ẩn Cơ Chế 3 Sinh Viên Trên Màn Chiếu & Đồng Bộ Đủ Tiến Độ Buổi Học*
 * **Sửa Lỗi Chế Độ Định Vị Dự Phòng (`COLLECTING_AVG_3` / `STUDENT_AVG_3`) & Tự Khôi Phục Tọa Độ Khi Hủy Phiên Nhầm (`code3.7.4.text`)**:
   * Loại bỏ bước kiểm tra `maxCampusRadius` (`850m`) so với tọa độ cũ lưu trong `Classes_Config` (`campusLat/Lng`) khi phiên đang ở chế độ `COLLECTING_AVG_3` (`handleStudentCheckIn`), khắc phục triệt để lỗi từ chối toàn bộ sinh viên (`ERR_LOCATION_OUT_OF_RANGE`) nếu trước đó từng mở phiên thử ở ngoài trường hoặc lớp đổi cơ sở học.
   * Khi chế độ dự phòng chốt tâm từ 3 sinh viên hợp lệ đầu tiên (`accuracy <= 100m`, không giả lập GPS, đứng cùng phòng học `<= 100m`), hệ thống tự động lưu tọa độ chuẩn này vào cả `Classes_Config` (`Room_Lat, Room_Lng`) lẫn `Sessions_Log`.
@@ -688,7 +739,7 @@
   * Kiểm tra thuộc tính `QR_SHEET_PAST_HISTORY_<classId>` trước khi bỏ qua file không đổi ở nhánh `onlyIfModified` trong `syncSingleClassRosterFromDrive_`, đồng thời xóa ngay cache thống kê tạm `CLASS_ATT_STATS_V36_<classId>` trong `extractRosterFromTargetFile_` để điện thoại luôn hiển thị đúng tổng số buổi đã học (`7 / 30 buổi`).
   * Bổ sung `grp.manualLocked[sid] = true` cho các bản ghi `TEACHER_MANUAL` trong `buildGroupedClassDayRecords_`, khóa bảo vệ 100% các lượt chấm bù (`P`), đi trễ (`L`), có phép (`E`) của các buổi học trước khi làm mới cache hoặc đồng bộ lại Sheet.
 
-### ✨ Version `v3.7.3` — *Hợp Nhất Nút `+2 Phút` (`EXTEND_2M` 4 Nhánh Trạng Thái) & Bỏ Nút `Mở lại 5 phút`, Chuyển Đổi `1-Chạm (Không PIN)` Tức Thì `0ms`, Kiến Trúc `PIN_10S` Chịu Tải 45 Sinh Viên Không Nghẽn (`reqArrivalMs` + Chiếu Sớm `+600ms` + Ân Hạn `2.5s` + Zero-RPC Cache) & 5 Lớp Chống Gian Lận Thông Minh*
+### Version `v3.7.3` — *Hợp Nhất Nút `+2 Phút` (`EXTEND_2M` 4 Nhánh Trạng Thái) & Bỏ Nút `Mở lại 5 phút`, Chuyển Đổi `1-Chạm (Không PIN)` Tức Thì `0ms`, Kiến Trúc `PIN_10S` Chịu Tải 45 Sinh Viên Không Nghẽn (`reqArrivalMs` + Chiếu Sớm `+600ms` + Ân Hạn `2.5s` + Zero-RPC Cache) & 5 Lớp Chống Gian Lận Thông Minh*
 * **Hợp Nhất Nút `+2 Phút` (`EXTEND_2M` 4 Nhánh Trạng Thái), Tự Động Nâng `L -> P` Khi Điểm Danh Lại & Loại Bỏ Nút `"Mở lại 5 phút"` (`#btn-tea-reopen`) (`code3.7.3.text`, `index.html`, `js/teacher.js`)**:
   * Xóa nút **`"Mở lại 5 phút"` (`#btn-tea-reopen` / `REOPEN_5M`)** khỏi giao diện Giảng viên và gom toàn bộ thao tác cộng giờ / mở lại phiên về duy nhất nút **`+2 Phút` (`#btn-tea-extend` / `EXTEND_2M`)** vận hành theo máy trạng thái 4 nhánh:
     1. **Khi phiên đang Đóng (`!isTargetOpen` — cả P1 hoặc P2)**: Mở lại phiên đúng **2 phút Có mặt (`P`)** (`newPresent = nowMs + 120000`, `newClose = newPresent`, xóa `Closed_Manually_At`), tuyệt đối không cộng đuôi 55 phút Đi trễ.
@@ -712,7 +763,7 @@
   4. **Khóa tạm 25 giây khi đoán mò sai 4 lần liên tiếp (`PIN_LOCKED`)**: Đếm số lần nhập sai mã (`PIN_WRONG`) trong `CacheService` (`PIN_GUARD_<sessionId>_<studentId>`) và khóa tạm `25 giây` nếu gõ bừa sai 4 lần liên tiếp; tuyệt đối **không** tính lỗi đối với `PIN_EXPIRED` (do mạng 4G chậm hoặc vừa đổi số).
   5. **Gắn cờ nghi vấn mềm khi ngâm khung PIN chờ tin nhắn (`SUSPECT_PIN_RELAY`)**: Ghi nhận thời gian chờ gõ phím đầu tiên (`firstKeyIdleMs`); nếu vừa mở khung PIN ngâm chờ `>= 5 giây` vừa nộp sát cuối chu kỳ mã (`pinAgeMs >= 6.5 giây`), hệ thống **vẫn cho điểm danh thành công (`P`/`L` — không bao giờ đánh trượt oan)** nhưng gắn cờ mềm `SUSPECT_PIN_RELAY` vào tab `Nghi vấn` để Giảng viên dễ dàng gọi kiểm tra.
 
-### 🔧 Version `v3.7.2` — *Sửa Lỗi Font Tiếng Việt Nút Mở Phiên 2, Lưu Trữ Đa Tầng Tự Phục Hồi Chéo (`localStorage` + `Cookie 365 Ngày` + `IndexedDB`) & Chặn Tab Ẩn Danh (`Anti-Cheat 100%`)*
+### Version `v3.7.2` — *Sửa Lỗi Font Tiếng Việt Nút Mở Phiên 2, Lưu Trữ Đa Tầng Tự Phục Hồi Chéo (`localStorage` + `Cookie 365 Ngày` + `IndexedDB`) & Chặn Tab Ẩn Danh (`Anti-Cheat 100%`)*
 * **Sửa Lỗi Font Chữ Tiếng Việt Ở Nút Mở Phiên 2 & Các Nút Điều Khiển (`css/styles.css`, `js/schedule-config.js`)**:
   * Khai báo tường minh `font-family: var(--font-sans)` cho toàn bộ `button, input, select, textarea`, `.btn`, `.btn-open-p2-main`, `.p2-opt-pill input[type="number"]` và `.round-segmented .seg-btn`.
   * Chuẩn hóa `font-weight` của `.btn-open-p2-main` từ `800` về `700`, khắc phục triệt để hiện tượng trình duyệt dùng font mặc định của `<button>` ghép glyph lỗi cho các chữ cái tiếng Việt có dấu chồng (`"Mở điểm danh Lần 2 (Đột xuất)"`).
@@ -722,7 +773,7 @@
 * **Phát Hiện & Chặn Đăng Ký / Điểm Danh Trong Tab Ẩn Danh (`detectPrivateBrowsingMode` trong `js/schedule-config.js`, `js/student.js`)**:
   * Tự động phát hiện chế độ Duyệt web Riêng tư / Ẩn danh (kiểm tra ghi/đọc `localStorage`, `openDatabase` trên Safari và hạn mức bộ nhớ tạm RAM `< 120MB`) ngay khi bấm Liên kết thiết bị và Điểm danh (`ERR_PRIVATE_BROWSING`), vừa bảo vệ sinh viên thật không đăng ký nhầm trong Tab Ẩn danh, vừa khóa chặt kẽ hở mở Tab Ẩn danh để điểm danh hộ, giữ nguyên khóa mật mã 1–1 tuyệt đối `SHA-256(cc_device_cred)` trên Server.
 
-### ✨ Version `v3.7.1` — *Giao Diện Giảng Viên 2 Cột (`Split-View`) Trên Laptop/PC (`>= 960px`), Chế Độ Nhấp Đúp Phóng To Mã PIN Toàn Màn Hình (`Floating PIN Spotlight`), Xóa Bỏ Cụm Camera QR Cũ & Tự Động Deploy Apps Script Tại Chỗ (`appscript-deploy`)*
+### Version `v3.7.1` — *Giao Diện Giảng Viên 2 Cột (`Split-View`) Trên Laptop/PC (`>= 960px`), Chế Độ Nhấp Đúp Phóng To Mã PIN Toàn Màn Hình (`Floating PIN Spotlight`), Xóa Bỏ Cụm Camera QR Cũ & Tự Động Deploy Apps Script Tại Chỗ (`appscript-deploy`)*
 * **Giao Diện Giảng Viên 2 Cột (`Split-View`) Trên Laptop/PC (`>= 960px`) & Nhấn `Enter` Đăng Nhập (`index.html`, `css/styles.css`)**:
   * Tự động mở rộng khung Giảng viên (`#main-container:has(#view-teacher:not(.hidden))`) lên `max-width: 1140px` trên màn hình máy tính (`@media (min-width: 960px)`), giữ nguyên 100% bố cục 1 cột trên điện thoại (`< 960px`) và màn hình Sinh viên (`540px`).
   * Chia `#box-teacher-dashboard:not(.hidden)` thành lưới 2 cột (`420px minmax(0, 1fr)`): **Cột trái (`420px`)** gom gọn *1. Điều khiển Phiên điểm danh* và *3. Quản trị và Đồng bộ dữ liệu*; **Cột phải (`1fr`, ghim `sticky`)** dành trọn cho *2. Danh sách Sinh viên* với chiều cao `calc(100dvh - 235px)`, hiển thị **15–18 sinh viên cùng lúc** mà không bị đẩy khuất xuống dưới.
@@ -737,7 +788,7 @@
 * **Tự Động Đẩy Code & Deploy Google Apps Script Tại Chỗ (`appscript-deploy`)**:
   * Tích hợp công cụ tự động hóa `@google/clasp` (`.agent/skills/appscript-deploy/scripts/deploy-appscript.js`) kết nối trực tiếp với Script ID `1KL0rnBXXhflTa1ErNuKt461lVxyX7gKx80qWq9V_VFrVGeN82jzuKKnF` và khóa cứng Deployment ID `AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q` để tự động cập nhật `Code.gs` + `Sync.gs` lên phiên bản mới (`New version`) mà không bao giờ làm thay đổi đường dẫn `/exec`.
 
-### ✨ Version `v3.7.0` — *Điểm Danh Phiên 2 Kiểm Tra Giữa/Cuối Giờ (`P2`), Bảng Sự Thật `mergeAttendance`, Khóa Chỉ Xem Tab `Kết quả cuối`, Mã PIN Xoay Vòng 10 Giây (`PIN_10S` + `clockOffset` + `PIN_GRACE_MS` + `Pin_Check_Log`) & Xuất 3 Cột Sheet (`P1 / P2 / Chốt`)*
+### Version `v3.7.0` — *Điểm Danh Phiên 2 Kiểm Tra Giữa/Cuối Giờ (`P2`), Bảng Sự Thật `mergeAttendance`, Khóa Chỉ Xem Tab `Kết quả cuối`, Mã PIN Xoay Vòng 10 Giây (`PIN_10S` + `clockOffset` + `PIN_GRACE_MS` + `Pin_Check_Log`) & Xuất 3 Cột Sheet (`P1 / P2 / Chốt`)*
 * **Hàm Hợp Nhất Điểm Danh 2 Phiên Chuẩn Bảng Sự Thật (`mergeAttendance(p1, p2, p2Opened)` trong `code3.7.0.text`, `sync.txt`, `js/schedule-config.js`)**:
   * **Không mở Phiên 2 (`p2Opened === false`)**: Giữ nguyên 100% kết quả Phiên 1 (`P -> P`, `L -> L`, `E -> E`, `- -> -`).
   * **Có mở Phiên 2 (`p2Opened === true`)**:
@@ -759,7 +810,7 @@
 * **Xuất 3 Cột Trên Bảng Điểm Danh Khi Có Phiên 2 (`code3.7.0.text`, `sync.txt`)**:
   * Buổi chỉ mở P1 ghi 1 cột `dd/MM/yyyy`; buổi có mở P2 ghi 3 cột `dd/MM/yyyy (P1)`, `dd/MM/yyyy (P2)` (cột phụ nền xám nhạt) và `dd/MM/yyyy (Chốt)` (cột chính thức dùng để tính điểm chuyên cần và đồng bộ sang sổ điểm gốc).
 
-### 🔧 Version `v3.6.6` — *Sắp Xếp Danh Sách Sinh Viên Chuẩn Tiếng Việt `A -> Z` (Theo Tên Chính) & Sửa Nút `"Mở lại 5 phút"` (`REOPEN_5M`) Chỉ Mở Đúng 5 Phút Không Còn 55 Phút Đuôi `Late`*
+### Version `v3.6.6` — *Sắp Xếp Danh Sách Sinh Viên Chuẩn Tiếng Việt `A -> Z` (Theo Tên Chính) & Sửa Nút `"Mở lại 5 phút"` (`REOPEN_5M`) Chỉ Mở Đúng 5 Phút Không Còn 55 Phút Đuôi `Late`*
 * **Sắp Xếp Danh Sách Sinh Viên Chuẩn Tiếng Việt `A -> Z` (`js/teacher.js`, `code3.6.6.text`)**:
   * Khắc phục triệt để hiện tượng hàm `Object.values(rosterMap)` của JavaScript tự động xếp các key số nguyên 8 chữ số (`MSSV`) theo thứ tự số từ nhỏ đến lớn.
   * Bổ sung bộ so sánh tiếng Việt `compareStudentsVietnameseAZ` (trên cả Frontend `applyTeacherState` và Backend `handleTeacherGetState`) tự động tách từ cuối cùng làm **Tên chính** (`Tên chính` $\rightarrow$ `Họ và tên đệm` $\rightarrow$ `MSSV`, hỗ trợ đầy đủ bảng chữ cái và dấu tiếng Việt `localeCompare(..., 'vi')`).
@@ -767,7 +818,7 @@
   * Tại `handleTeacherControlSession` (`code3.6.6.text`), đặt `newPresent = nowMs + 5 * 60 * 1000` và `newClose = newPresent`, bỏ hoàn toàn phần cộng nối đuôi `+ cfg.lateMins` (`55–60 phút` Đi trễ).
   * Bổ sung cơ chế khóa trần `reopen5mCapBySession` ngay trên Frontend (`js/teacher.js`): khi bấm `"Mở lại 5 phút"`, đồng hồ chỉ đếm ngược đúng `05:00 -> 00:00` và tự động gửi lệnh đóng phiên (`CLOSE_NOW`) ngay khi hết 5 phút (đảm bảo hoạt động chuẩn ngay cả khi Google Sheet chưa kịp Deploy lại `Code.gs`).
 
-### 🔧 Version `v3.6.5` — *Khắc Phục Triệt Để Lỗi iOS Safari Đã Cấp Quyền Vị Trí Nhưng Không Điểm Danh Được Trong Phòng Kín: Đệm Nối 15 Giây Giữa Nút Kiểm Tra GPS & Điểm Danh, Fallback Wi-Fi/4G Trong Nhà (`enableHighAccuracy: false`), Gộp Luồng GPS Nhập MSSV & Chỉ Dẫn Công Tắc Kép iPhone*
+### Version `v3.6.5` — *Khắc Phục Triệt Để Lỗi iOS Safari Đã Cấp Quyền Vị Trí Nhưng Không Điểm Danh Được Trong Phòng Kín: Đệm Nối 15 Giây Giữa Nút Kiểm Tra GPS & Điểm Danh, Fallback Wi-Fi/4G Trong Nhà (`enableHighAccuracy: false`), Gộp Luồng GPS Nhập MSSV & Chỉ Dẫn Công Tắc Kép iPhone*
 * **Fallback Định vị Wi-Fi/4G Trong Phòng Kín & Nhận Ngay Tọa Độ `<= 100m` (`js/schedule-config.js`)**:
   * Tinh chỉnh `acquireLiveHighAccuracyGps(4500, 2500, 100)`: ngay khi lấy được tọa độ thực tế có sai số `<= 100m` (đủ chuẩn điểm danh), hệ thống trả kết quả ngay lập tức mà không mở thêm `watchPosition` giữ máy chờ thêm `3.5 giây`.
   * Sửa nhánh dự phòng `catch (err1)` trong `getAccuratePosition()` (`dòng 1358`) từ `{ enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }` sang **`{ enableHighAccuracy: false, timeout: 4500, maximumAge: 0 }`**: khi trần bê tông cản sóng vệ tinh, iOS CoreLocation lập tức chuyển sang định vị hỗn hợp Wi-Fi / 4G thời gian thực (`maximumAge: 0`, không lưu tọa độ cũ) lấy tọa độ trong `~0.5 giây` thay vì treo 14 giây rồi báo lỗi.
@@ -778,7 +829,7 @@
   * Khi `code === 2, 3`: báo rõ điện thoại chưa bắt được sóng định vị trong phòng và nhắc bật biểu tượng **Wi-Fi + Dịch vụ định vị**.
   * Sửa điều kiện kiểm tra mã `ERR_LOCATION_OUT_OF_RANGE` tại `js/student.js` để xung Đỏ trên nút Điểm danh hiển thị đúng chữ `"NGOÀI BÁN KÍNH PHÒNG HỌC"`.
 
-### ✨ Version `v3.6.4` — *Tự Động Reset Giao Diện Phiên Điểm Danh Sang Ngày Mới (Cô Lập Buổi Cũ & Giữ Kết Quả Buổi Đã Đóng Trong Ngày), Khóa Cố Định Nút Điểm Danh Sinh Viên Hôm Nay (`P` Xanh / `L` Vàng) & Đồng Bộ Hệ Thống `Pulse to Confirm` (`code3.6.4.text`)*
+### Version `v3.6.4` — *Tự Động Reset Giao Diện Phiên Điểm Danh Sang Ngày Mới (Cô Lập Buổi Cũ & Giữ Kết Quả Buổi Đã Đóng Trong Ngày), Khóa Cố Định Nút Điểm Danh Sinh Viên Hôm Nay (`P` Xanh / `L` Vàng) & Đồng Bộ Hệ Thống `Pulse to Confirm` (`code3.6.4.text`)*
 * **Tự Động Reset Giao Diện Phiên Điểm Danh Khi Sang Ngày Học Mới & Bảo Vệ Dữ Liệu Buổi Cũ (`code3.6.4.text`, `js/teacher.js`)**:
   * **Tự động làm mới khi mở lớp vào ngày mới**: Khi Giảng viên mở giao diện một lớp vào **ngày mới** mà hôm nay chưa mở phiên nào (ví dụ: thứ Sáu `06/11` mở lớp `002` có phiên gần nhất vào thứ Hai `02/11`), cả `handleTeacherGetState` (Backend) và `applyTeacherState` (Frontend) tự động cô lập phiên cũ khỏi bảng điều khiển trực tiếp:
     * Hiển thị nhãn **`CHƯA MỞ PHIÊN HÔM NAY`**, đưa bộ đếm trực tiếp về `0 / N Có mặt` (`P: 0 | L: 0 | A: N | E: 0`), và xóa sạch màu nút `P / L / E`, giờ chấm, khoảng cách của buổi cũ trên danh sách sinh viên để giao diện sẵn sàng cho buổi học mới.
@@ -796,7 +847,7 @@
   * **Phản hồi Đỏ khi Sinh viên điểm danh thất bại**: Phát xung Đỏ (`'danger'` — `PHIÊN ĐÃ ĐÓNG`, `NGOÀI PHẠM VI PHÒNG HỌC`, `KHÔNG THỂ GỬI DỮ LIỆU`) trong `1150ms` khi bị từ chối, sau đó mở khóa lại sau `3 giây` để sinh viên bấm thử lại.
   * **Chuẩn hóa màu xung nhịp theo ngữ nghĩa bên Giảng viên**: Đổi xung của 2 nút `#btn-tea-close` (`Đóng phiên` $\rightarrow$ `ĐÃ ĐÓNG PHIÊN`) và `#btn-tea-cancel-mistaken` (`Hủy phiên nhầm` $\rightarrow$ `ĐÃ HỦY PHIÊN NHẦM`) từ Xanh lá sang **Đỏ (`'danger'`)**; bổ sung xung Xanh lá (`ĐÃ MỞ KHÓA`) cho nút `Mở khóa` thiết bị trên từng dòng sinh viên (`teacherResetStudentDevice`); bổ sung xung Xanh/Vàng cho nút `#btn-reg-gate-toggle` (`ĐK thiết bị: MỞ / KHÓA`); và bổ sung xung phản hồi cho các nút trong hộp thoại Gọi ngẫu nhiên (`Gọi tiếp` / `ĐÃ HỦY ĐIỂM DANH`) & Chia nhóm (`Trộn lại` / `ĐÃ GỬI NHÓM`).
 
-### ✨ Version `v3.6.3` — *Hiệu Ứng `Pulse to Confirm` (Điểm Danh `P` Xanh / `L` Vàng + Mở Phiên & Điểm Danh Thủ Công `P/L/E/-` Của Giảng Viên), Walkthrough Cảnh Báo Gọn Chặn Zalo & Trình Quét Mã Apple + Dọn Dẹp Backend*
+### Version `v3.6.3` — *Hiệu Ứng `Pulse to Confirm` (Điểm Danh `P` Xanh / `L` Vàng + Mở Phiên & Điểm Danh Thủ Công `P/L/E/-` Của Giảng Viên), Walkthrough Cảnh Báo Gọn Chặn Zalo & Trình Quét Mã Apple + Dọn Dẹp Backend*
 * **Hiệu Ứng Xung Nhịp Xác Nhận (`Pulse to Confirm`) Cho Các Nút Quan Trọng Của Sinh Viên & Giảng Viên (`css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`)**:
   * Bổ sung hàm `pulseButtonConfirm` với viền sáng mảnh sát nút (`3px–5px` `@keyframes ccsPulseGreen`, `ccsPulseAmber`, `ccsPulseOrange`, `ccsPulseSlate`) và nét vẽ SVG tự động (`@keyframes ccsCheckDraw`):
     * **Nút Điểm danh Sinh viên (`#btn-start-checkin`)**: Phát xung **Xanh lá (`#16a34a`, `.btn-pulse-success` + dấu tích SVG)** khi điểm danh **Có mặt đúng giờ (`P` — `ĐÃ ĐIỂM DANH CÓ MẶT`)**, và phát xung **Màu Vàng (`#eab308`, `.btn-pulse-warn` + đồng hồ SVG)** khi điểm danh **Đi trễ (`L` — `ĐÃ GHI NHẬN ĐI TRỄ`)**.
@@ -809,7 +860,7 @@
 * **Dọn Dẹp & Tối Ưu Mã Nguồn Backend Giữ Nguyên 100% Hành Vi (`code3.6.0.text` & `sync.txt`)**:
   * Rút gọn header, xóa các khóa cache dư thừa (`ROSTER_MAP_`, `SES_OPEN_`, biến `gpsAcc`), đồng bộ khóa cache `CLASS_ATT_STATS_V36_`, và gộp các đoạn code lặp thành hàm dùng chung trong `code3.6.0.text` (`invalidateSessionCaches_`, `ensureSheetWithHeaders_`, `normalizeDashboardBaseUrl_`, `resetFailedAuthCounterIfNeeded_`, `getEnrolledStudentsMap_`) và `sync.txt` (`collectMasterClassStudentIds_`, `partitionAndRewriteSheetByClassCol_`, `extractRowStudentIdAndName_`, `isStudentRowHighlightedRed_`, `buildAttendanceUndoEntry_`, `scanSheetDateColumns_`, `mergeAndSaveClassSessionDates_`).
 
-### ✨ Version `v3.6.2` — *Tinh Gọn Thanh Tiến Độ Học Phần, Chọn Buổi Thuần Bằng Lịch Tháng & Đổi Vị Trí Nút Đóng Phiên / Hủy Phiên Nhầm*
+### Version `v3.6.2` — *Tinh Gọn Thanh Tiến Độ Học Phần, Chọn Buổi Thuần Bằng Lịch Tháng & Đổi Vị Trí Nút Đóng Phiên / Hủy Phiên Nhầm*
 * **Hoán Đổi Vị Trí 2 Nút `"Hủy phiên nhầm"` và `"Đóng phiên"` (`index.html`)**:
   * Đổi vị trí hiển thị để nút **`"Hủy phiên nhầm"`** (`#btn-tea-cancel-mistaken`) đứng trước và nút **`"Đóng phiên"`** nằm ở ngoài cùng bên phải (`+2 Phút` $\rightarrow$ `Mở lại 5 phút` $\rightarrow$ `Hủy phiên nhầm` $\rightarrow$ `Đóng phiên`). Giữ nguyên 100% chức năng, hàm xử lý (`promptCancelMistakenSession()` / `teacherControlSession('CLOSE_NOW')`), màu sắc và hộp thoại xác nhận của từng nút.
 * **Tinh Gọn Thanh Tiến Độ Học Phần Phía Trên (`js/teacher.js` & `css/styles.css`)**:
@@ -819,11 +870,11 @@
 * **Bổ Sung Quy Tắc Demo Giao Diện Bằng Ảnh Sản Phẩm (`.agent/rules/ui-demo-preview.md` & `RULES.md`)**:
   * Chuẩn hóa quy trình chạy bản sao cô lập `/tmp/ccs-demo` và chụp ảnh sản phẩm độ phân giải cao (`2x Retina` qua Headless Chromium) gửi duyệt trực quan trước khi sửa mã nguồn chính.
 
-### ✨ Version `v3.6.1` — *Lịch Điểm Danh Tháng Trực Quan, Thanh Tiến Độ Học Phần, Xác Nhận Mở Phiên Dạy Bù & Hủy Phiên Mở Nhầm*
+### Version `v3.6.1` — *Lịch Điểm Danh Tháng Trực Quan, Thanh Tiến Độ Học Phần, Xác Nhận Mở Phiên Dạy Bù & Hủy Phiên Mở Nhầm*
 * **Lịch Tháng Điểm Danh Trực Quan & Đồng Bộ Lịch Sử (`js/teacher.js`, `sync.txt`, `code3.6.0.text`)**:
   * Tích hợp lịch tháng trực quan (`renderHistoryCalendarWidget`) trong hộp thoại **`"Lịch sử"`**, thanh tiến độ học phần (`#tea-course-progress-strip`), hộp kiểm xác nhận mở phiên dạy bù ngoài lịch thường kỳ (`#chk-confirm-makeup-session`) và nút **`"Hủy phiên nhầm"`** (`CANCEL_MISTAKEN_SESSION`) giúp xóa phiên vừa mở nhầm trong ngày mà không tính vắng sinh viên.
 
-### ✨ Version `v3.6.0` — *Tính Điểm Chuyên Cần Chuẩn & Cảnh Báo `CẤM THI` Trên Giao Diện Sinh Viên, Gộp Phiên Trùng Ngày & Lọc Phiên Nháp, Tùy Biến `Có Phép (E)` + Nhận Diện Mọi Sắc Cam/Vàng/Đỏ (`sync.txt`), Duyệt Phép Buổi Cũ, Gọi Ngẫu Nhiên Không Lặp & Chia Nhóm Thảo Luận Tức Thì*
+### Version `v3.6.0` — *Tính Điểm Chuyên Cần Chuẩn & Cảnh Báo `CẤM THI` Trên Giao Diện Sinh Viên, Gộp Phiên Trùng Ngày & Lọc Phiên Nháp, Tùy Biến `Có Phép (E)` + Nhận Diện Mọi Sắc Cam/Vàng/Đỏ (`sync.txt`), Duyệt Phép Buổi Cũ, Gọi Ngẫu Nhiên Không Lặp & Chia Nhóm Thảo Luận Tức Thì*
 * **Tính Điểm Chuyên Cần Chính Thức (Thang `10.0`), Cảnh Báo Sát Nút & Hiển Thị `CẤM THI` Trên Giao Diện Sinh Viên (`code3.6.0.text`, `js/student.js`, `css/styles.css`)**:
   * Áp dụng chính thức bộ quy tắc tính điểm chuyên cần và xét cấm thi (chỉ tô màu và hiển thị trên **Giao diện Sinh viên**, giữ nguyên sự gọn gàng cho giao diện Giảng viên):
     * **Điểm gốc ban đầu**: `10.0 điểm`.
@@ -848,7 +899,7 @@
   * **Chia nhóm thảo luận tức thì (`Chia nhóm`)**: Tự động lọc danh sách sinh viên đang có mặt (`P` + `L`, hoặc toàn bộ lớp nếu chưa mở phiên) để chia thành các nhóm `2, 3, 4, 5` người trong `0ms`, hỗ trợ bấm **`"Trộn lại"`** và nút **`"Gửi nhóm về ĐT Sinh viên"`** (`TEACHER_PUBLISH_GROUPS` lưu trên `CacheService`) để mỗi sinh viên nhìn thấy ngay số Nhóm và tên các thành viên cùng nhóm trên điện thoại (`#stu-group-card`).
 * **Xuất File Quy Tắc Hệ Thống Độc Lập (`RULES.md`)**: Tổng hợp đầy đủ toàn bộ quy tắc thời gian, bán kính GPS, chống gian lận, công thức tính điểm chuyên cần & xét cấm thi ra file [`RULES.md`](RULES.md) để dễ dàng kiểm chứng.
 
-### 🔧 Version `v3.5.1` — *Đồng Bộ Tên Kho Lưu Trữ GitHub & Đường Dẫn Web Chính Thức (`tntrung8321/ccs` & `https://tntrung8321.github.io/ccs/`) Kèm Chuyển Hướng Tự Động Từ Link Cũ*
+### Version `v3.5.1` — *Đồng Bộ Tên Kho Lưu Trữ GitHub & Đường Dẫn Web Chính Thức (`tntrung8321/ccs` & `https://tntrung8321.github.io/ccs/`) Kèm Chuyển Hướng Tự Động Từ Link Cũ*
 * **Đồng Bộ Tên Repository GitHub & Đường Dẫn GitHub Pages (`tntrung8321/ccs`)**:
   * Đổi tên kho mã nguồn GitHub chính thức từ `tntrung8321/ClassCheck-GPS` sang **`tntrung8321/ccs`** (`https://github.com/tntrung8321/ccs`) và đồng bộ địa chỉ web điểm danh GitHub Pages thành **`https://tntrung8321.github.io/ccs/`** ngắn gọn, đồng nhất với tên dự án **CCS — ClassCheck System**.
   * Do bộ nhớ `localStorage` của trình duyệt gắn theo tên miền gốc (`https://tntrung8321.github.io`), **100% dữ liệu khóa thiết bị MSSV, lịch sử điểm danh trên điện thoại sinh viên và cấu hình của Giảng viên được giữ nguyên hoàn toàn** khi chuyển sang đường dẫn `/ccs/`.
@@ -856,7 +907,7 @@
   * Nâng cấp `ensureDashboardTab()`, `syncDashboardVersionBadge_()` và `updateDashboardQRs()` trong `code3.5.1.text` để tự động cập nhật đường dẫn mặc định tại ô `B5` (`Frontend Web App URL`) từ `https://tntrung8321.github.io/ClassCheck-GPS/` sang `https://tntrung8321.github.io/ccs/`.
   * Thiết lập kho chuyển hướng chuyên dụng tại địa chỉ cũ `https://tntrung8321.github.io/ClassCheck-GPS/` (`index.html` & `404.html`) tự động chuyển hướng tức thì (`window.location.replace`) sang `https://tntrung8321.github.io/ccs/` và giữ nguyên toàn bộ tham số truy vấn (`?onboard=...`, `?pair=...`), đảm bảo mọi mã QR hoặc dấu trang cũ của sinh viên đều hoạt động trơn tru không bao giờ báo lỗi 404.
 
-### ✨ Version `v3.5.0` — *Thanh Chuyên Cần Chuẩn `taste` Tối Giản (`Có mặt / Đi trễ / Có phép / Vắng`), Ngăn Kéo Xem Lịch Sử Điểm Danh Lưu Trực Tiếp Trên Điện Thoại, Điểm Danh Thủ Công Phản Hồi `0.01s` & Tối Ưu `CacheService` Không Tăng Tải Cloud*
+### Version `v3.5.0` — *Thanh Chuyên Cần Chuẩn `taste` Tối Giản (`Có mặt / Đi trễ / Có phép / Vắng`), Ngăn Kéo Xem Lịch Sử Điểm Danh Lưu Trực Tiếp Trên Điện Thoại, Điểm Danh Thủ Công Phản Hồi `0.01s` & Tối Ưu `CacheService` Không Tăng Tải Cloud*
 * **Thanh Thống Kê Chuyên Cần Chuẩn `taste` Tối Giản & Ngăn Kéo Lịch Sử Điểm Danh Lưu Trên Điện Thoại (`#stu-attendance-summary` + `#stu-att-history-drawer`)**:
   * **Thiết kế `taste` Học thuật Tối giản + Chấm tròn màu `7px` (`.att-dot`)**: Loại bỏ các ô nền đủ màu sặc sỡ để đồng bộ hoàn toàn với khung `#gps-panel` (`background: var(--surface)` `#f8fafc`, `border: 1px solid var(--border)` `#cbd5e1`, `border-radius: 8px`). Hiển thị `Chuyên cần: ● Có mặt: X  ● Đi trễ: Y  ● Có phép: Z  ● Vắng: W` với chữ Slate trung tính, số `tabular-nums` sắc nét và 4 chấm tròn phân biệt trạng thái (đồng bộ cả trên danh sách lớp của Giảng viên):
     * **Có mặt (`P`)**: Chấm Xanh lá (`#16a34a`)
@@ -876,7 +927,7 @@
   * **Bộ nhớ đệm RAM `ALL_LATEST_SES_V35`, `SES_ATT_MAP_V35_` & `CLASS_ATT_STATS_V35_`**: Gom việc tra cứu phiên học của toàn bộ 9 lớp vào 1 bộ đệm RAM duy nhất `getAllLatestSessionsMap` (loại bỏ việc quét đi quét lại `Sessions_Log` cho các lớp chưa mở phiên), lưu đệm danh sách điểm danh của phiên đang mở kèm vị trí dòng `rowIndex` (`SES_ATT_MAP_V35_<sessionId>`) giúp thao tác sửa điểm danh thủ công của Giảng viên ghi thẳng vào dòng đích `O(1)` mà không cần đọc lại bảng `Attendance_Log`, và lưu đệm thống kê chuyên cần cả lớp vào `CLASS_ATT_STATS_V35_<classId>` trong 60 giây.
   * **Ghi Hàng Loạt (`Batch Write`) Trong `sync.txt`**: Nâng cấp `updateMasterClassSheet_` trong `sync.txt` gom toàn bộ cột điểm danh buổi học và cột tổng `Total_Present / Total_Late` thành 2 lệnh `.setValues()` thay vì gọi `.setValue()` từng dòng riêng lẻ.
 
-### ✨ Version `v3.4.9` — *Hướng Dẫn Mở Quyền Vị Trí Web Ngay Trên Thanh Địa Chỉ (`•••` / `2 Thanh Trượt`) Trong 2 Chạm, Kích Hoạt Hộp Thoại Xin Quyền Tức Thì & Tự Động Nhận Lại GPS Không Cần Tải Lại Trang*
+### Version `v3.4.9` — *Hướng Dẫn Mở Quyền Vị Trí Web Ngay Trên Thanh Địa Chỉ (`•••` / `2 Thanh Trượt`) Trong 2 Chạm, Kích Hoạt Hộp Thoại Xin Quyền Tức Thì & Tự Động Nhận Lại GPS Không Cần Tải Lại Trang*
 * **Gọi Xin Quyền Vị Trí Đồng Bộ Ngay Trong Cú Chạm Của Sinh Viên (`Synchronous User-Gesture Prompt`)**:
   * Nâng cấp `acquireLiveHighAccuracyGps()` (`js/schedule-config.js`) và `submitStudentOnboarding()` (`js/student.js`) để gọi `navigator.geolocation.getCurrentPosition()` **đồng bộ ngay lập tức tại thời điểm ngón tay sinh viên vừa chạm nút** (`userActivation.isActive`), trước khi chạy các lệnh `await` mạng (`PING` / `STUDENT_ONBOARD`) hoặc chuỗi làm nóng `watchPosition`. Nhờ đó, trình duyệt `Safari` (iPhone) và `Chrome` (Android) luôn bật ngay bảng hỏi hệ thống **"Cho phép trang web truy cập vị trí? (Allow)"** ngay từ lần bấm đầu tiên mà không bị trình duyệt chặn ngầm.
 * **Hộp Hướng Dẫn Trực Quan 2 Bước Ngay Trên Thanh Địa Chỉ (`#gps-permission-guide-box`) — Không Cần Mò Vào Cài Đặt Sâu Tìm Tên Web**:
@@ -887,7 +938,7 @@
   * Lắng nghe sự kiện thay đổi quyền trực tiếp từ trình duyệt (`permStatus.onchange`): ngay khoảnh khắc sinh viên vừa đổi quyền trên thanh địa chỉ sang **"Cho phép"**, hộp hướng dẫn tự động đóng lại và tự chạy kiểm tra GPS chuyển đèn xanh **mà không cần tải lại trang**.
   * Bổ sung nút `#btn-open-external-browser` (`"Mở ngay trong Safari / Chrome"`) bên trong thanh cảnh báo Zalo/Messenger, tự động gọi giao thức `intent://` (Android Chrome) hoặc `x-safari-https://` (iPhone Safari) để bung thẳng ra trình duyệt chính chỉ với 1 chạm.
 
-### ✨ Version `v3.4.8` — *Mở Cuộn Trang Tự Nhiên, Khóa & Ẩn Vĩnh Viễn Ô Nhập MSSV Sau Lần Đầu, Làm Nóng Chip GPS Độ Chính Xác Cao Tức Thì (Không Lưu Cache GPS, Giữ Chặt Chống Gian Lận `100m` + `50m`)*
+### Version `v3.4.8` — *Mở Cuộn Trang Tự Nhiên, Khóa & Ẩn Vĩnh Viễn Ô Nhập MSSV Sau Lần Đầu, Làm Nóng Chip GPS Độ Chính Xác Cao Tức Thì (Không Lưu Cache GPS, Giữ Chặt Chống Gian Lận `100m` + `50m`)*
 * **Mở Cuộn Trang Tự Nhiên Trên Điện Thoại Sinh Viên (`Enable Natural Scrolling`)**: Gỡ bỏ cơ chế khóa cứng màn hình `body.student-locked-scroll` (`height: 100dvh; overflow: hidden`) trong `css/styles.css` và `js/schedule-config.js`, bật lại cuộn dọc mượt mà (`overflow-y: auto; -webkit-overflow-scrolling: touch`) trên mọi trình duyệt di động để giao diện không bị cắt cụt hoặc trông như bị lỗi đơ màn hình.
 * **Khóa & Ẩn Vĩnh Viễn Ô Nhập MSSV Cùng Nút Nhập Sau Khi Đã Liên Kết Lần Đầu**:
   * Xóa bỏ hoàn toàn nút `"Đổi mã số sinh viên"` trên thanh tiêu đề thẻ Sinh viên (`index.html`).
@@ -897,43 +948,43 @@
   * **Làm nóng phần cứng GPS thời gian thực (`acquireLiveHighAccuracyGps` qua `watchPosition`) & Chống xung đột cảm biến**: Ở bản cũ, lệnh `getCurrentPosition({ enableHighAccuracy: true, maximumAge: 0 })` thường lấy ngay tọa độ thô đầu tiên từ cột sóng di động (`sai số 150m–500m`) trong 0.5 giây đầu khi chip GPS chưa kịp bắt vệ tinh — làm nút `"Kiểm tra GPS"` vẫn báo xanh `"Đã bật GPS"`, nhưng khi gửi lên Server (`bán kính 100m`) thì bị từ chối hoặc bị treo khi 2 nút bấm sát nhau. Bản `v3.4.8` sử dụng `watchPosition` (`enableHighAccuracy: true, maximumAge: 0`) giữ cảm biến thức thêm vài giây để lọc bỏ tọa độ thô ban đầu (`> 65m`) và thu lấy tọa độ vệ tinh chính xác nhất (`10m–45m`) ngay tại thời điểm bấm, đồng thời gộp luồng đang chạy (`window.activeGpsPromise`) để không bị nghẽn cảm biến.
   * **Đồng bộ kiểm tra tại nút `"Kiểm tra GPS"` & Tự động kích hoạt lại khi Giảng viên bấm `"Mở khóa"` (`code3.4.8.text`)**: Nút `"Kiểm tra GPS"` nay kiểm tra luôn lỗi mở trong `Zalo`/`Messenger` và cảnh báo vàng ngay nếu sinh viên tắt mục `"Vị trí chính xác" (Precise Location)` làm sai số `> 100m`; kèm hướng dẫn mở khóa quyền Vị trí cho iPhone (`Safari`) / Android (`Chrome`), tự động chọn lớp đang mở phiên điểm danh, và tự động chuyển thiết bị từ `REVOKED` sang `ACTIVE` ngay khi bấm `"ĐIỂM DANH NGAY"` sau khi được Giảng viên bấm `"Mở khóa"`.
 
-### ✨ Version `v3.4.7` — *Mặc Định Ẩn Mã Số Sinh Viên (`MSSV`) Trên Danh Sách Lớp & Chống Kẹt Cache Trình Duyệt (`?v=3.4.7`)*
+### Version `v3.4.7` — *Mặc Định Ẩn Mã Số Sinh Viên (`MSSV`) Trên Danh Sách Lớp & Chống Kẹt Cache Trình Duyệt (`?v=3.4.7`)*
 * **Mặc định Ẩn `MSSV` trên Danh sách Lớp (`renderTeacherRoster`)**: Ẩn hoàn toàn dãy số MSSV (`(25692791)`) trên từng dòng `.roster-item` để sinh viên ngồi dưới lớp không thể nhìn trộm MSSV của bạn trên màn hình chiếu để điểm danh hộ (chỉ hiện 3 số cuối dạng ẩn `***791` nếu trong lớp có 2 sinh viên trùng khít họ tên; Giảng viên vẫn gõ tìm theo MSSV bình thường ở ô tìm kiếm hoặc di chuột vào tên để xem).
 * **Ép Trình Duyệt Tải Ngay File Mới (`?v=3.4.7` Cache-Buster)**: Gắn tham số phiên bản `?v=3.4.7` vào toàn bộ thẻ `<link rel="stylesheet" href="css/styles.css?v=3.4.7">` và `<script src="js/...?v=3.4.7">` trong `index.html` kèm lệnh tự động xóa bộ nhớ đệm cũ trong `migrateStoredUrls()`, khắc phục triệt để tình trạng trình duyệt lưu cache file `js/teacher.js` cũ làm chưa hiện bộ nút `P | L | E | - | Mở khóa`.
 
-### ✨ Version `v3.4.6` — *Khôi Phục Cụm Nút Điểm Danh Ngắn Gọn (`P / L / E / -`) Trên Cùng 1 Hàng Ngang*
+### Version `v3.4.6` — *Khôi Phục Cụm Nút Điểm Danh Ngắn Gọn (`P / L / E / -`) Trên Cùng 1 Hàng Ngang*
 * **Khôi phục Bộ Nút Điểm danh Ngắn gọn trên Danh sách Lớp (`P`, `L`, `E`, `-`, `Mở khóa` / `Unlock`)**: Đưa các nút thao tác điểm danh thủ công về ký hiệu chuẩn ngắn gọn `P`, `L`, `E`, `-` đi kèm nút `Mở khóa` / `Unlock` (giữ chú thích đầy đủ khi di chuột) và khóa bố cục 1 dòng ngang (`flex-wrap: nowrap`) trong `#tea-roster-container`, giúp mỗi sinh viên luôn nằm gọn trên 1 hàng ngang duy nhất, không bị rớt thành 2 dòng.
 * **Bảo toàn Dòng Thống kê `P: 0 | L: 0 | A: 0 | E: 0` & Toàn bộ Tinh chỉnh `v3.4.5`**: Giữ nguyên dòng thống kê `P: 0 | L: 0 | A: 0 | E: 0`, 1 dòng trạng thái GPS duy nhất trong `#gps-panel`, dòng liên kết chữ *"Chế độ định vị GPS nâng cao"* ngay dưới nút `"Mở phiên điểm danh"`, không viết tắt câu chữ (`SV`, `GV`, `TB 3 SV`), và đồng bộ song ngữ Anh – Việt (`VI / EN`) 100%.
 
-### ✨ Version `v3.4.5` — *Gộp 1 Dòng Trạng Thái GPS, Dòng Chữ Mở Rộng GPS Nâng Cao, Không Viết Tắt & Đồng Bộ Song Ngữ (`VI / EN`) 100%*
+### Version `v3.4.5` — *Gộp 1 Dòng Trạng Thái GPS, Dòng Chữ Mở Rộng GPS Nâng Cao, Không Viết Tắt & Đồng Bộ Song Ngữ (`VI / EN`) 100%*
 * **Loại bỏ Lặp 3 Chỗ Trạng Thái GPS trên Thẻ Điểm Danh Sinh Viên**: Gỡ bỏ nhãn `#gps-live-pill` trên tiêu đề thẻ, hộp `#gps-inline-status` và dòng `#stu-gps-telemetry` bị trùng lặp; gộp toàn bộ phản hồi kiểm tra GPS về **1 dòng trạng thái duy nhất** (`#gps-dot` + `#gps-readout`) bên trong khung `#gps-panel`.
 * **Chuyển Nút `"GPS nâng cao"` thành Dòng Chữ Mở Rộng Nằm Ngay Dưới Nút `"Mở phiên điểm danh"`**: Thay thế nút bấm `"GPS nâng cao"` thô cứng bằng dòng liên kết chữ tinh gọn (`#btn-toggle-adv-gps`: *"Chế độ định vị GPS nâng cao"*) đặt ngay bên dưới nút `"Mở phiên điểm danh"` (đồng bộ hoàn toàn với phong cách *"Cài đặt kết nối nâng cao"* ở giao diện Sinh viên), khi bấm vào mới mở khung tùy chọn `#box-adv-gps-mode` bên dưới.
 * **Rà Soát & Loại Bỏ Hoàn Toàn Từ Viết Tắt**: Thay thế toàn bộ các từ viết tắt (`SV`, `GV`, `TB 3 SV`, `60p`, `5p`, `+2 Phút`, `ĐK thiết bị`) bằng câu chữ đầy đủ, rõ nghĩa (`sinh viên`, `Giảng viên`, `trung bình vị trí 3 sinh viên đầu tiên`, `60 phút`, `5 phút`, `Thêm 2 phút`, `Đăng ký thiết bị mới: Đang mở`), đồng thời giữ gọn dòng thống kê mã điểm danh `P: 0 | L: 0 | A: 0 | E: 0`.
 * **Đồng Bộ Song Ngữ Anh – Việt (`VI / EN`) Tuyệt Đối Không Lẫn Ngôn Ngữ**: Bổ sung đầy đủ khóa dịch `data-i18n`, `data-i18n-placeholder` trong `index.html` và từ điển song ngữ cho toàn bộ chuỗi thông báo động trong `js/schedule-config.js`, `js/student.js`, `js/teacher.js`. Khi bấm chuyển đổi `VI / EN` (`toggleLanguage()`), cả giao diện Sinh viên và Giảng viên đều tự động cập nhật sang tiếng Anh hoặc tiếng Việt 100% ngay lập tức.
 
-### ✨ Version `v3.4.4` — *Tinh Gọn Câu Chữ Giao Diện, Cập Nhật Sĩ Số Nhanh `2.5s` & Tải Lại Trang (`F5`) Không Văng Phiên*
+### Version `v3.4.4` — *Tinh Gọn Câu Chữ Giao Diện, Cập Nhật Sĩ Số Nhanh `2.5s` & Tải Lại Trang (`F5`) Không Văng Phiên*
 * **Tinh gọn Giao diện Giảng viên & Sinh viên**: Gỡ bỏ nút `"Toàn màn hình"` (`#btn-projector-fs`) và `"Làm mới"` (`#btn-refresh-tea`) dư thừa, loại bỏ tiêu đề lớp/phiên bị lặp, rút gọn toàn bộ câu thông báo GPS/trạng thái ở cả 2 chế độ Sinh viên & Giảng viên, và ẩn gọn tùy chọn lấy trung bình 3 sinh viên đầu tiên vào trong nút `"GPS nâng cao"`.
 * **Cập nhật Danh sách Điểm danh Nhanh `2.5s` & Đồng bộ Tức thì Khi Chuyển Tab**: Giảm chu kỳ tự động làm mới danh sách của Giảng viên từ `4.5s` xuống `2.5s` kèm khóa chống chồng chéo request (`isRefreshingTeaState`), tự động cập nhật ngay lập tức khi quay lại tab trình duyệt (`visibilitychange` / `focus`), đồng thời kích hoạt đọc bộ nhớ đệm `CacheService` trong `handleTeacherGetState` (`getClassesMap(ss, false)` và `getClassRosterMap(ss, selectedId, false)`) giúp phản hồi cực nhanh trên mỗi chu kỳ `2.5s`.
 * **Tải lại Trang (`F5`) Giữ Nguyên Màn Hình Giảng Viên & Tự Đăng Xuất Khi Mã 6 Số Đổi/Hết Hạn**: Lưu chế độ Giảng viên đang mở (`cc_active_mode`), lớp đang chọn (`cc_tea_selected_class`) và bộ nhớ đệm trạng thái khi bấm tải lại trang (`F5`) để không bị nhảy về tab Sinh viên; đồng thời giữ nguyên cơ chế bảo mật: ngay khi mã 6 số hết hạn hoặc tự đổi sang số mới lúc đóng phiên (`CLOSE_NOW`), máy đang đăng nhập bằng mã 6 số cũ sẽ tự động đăng xuất ngay.
 
-### 🔧 Version `v3.4.3` — *Chuẩn Hóa Cảnh Báo Nghi Vấn Kỹ Thuật (Không Báo Nhầm Khi Cả Lớp Bấm Cùng Lúc) & Tự Động Cập Nhật Ô `B6`*
+### Version `v3.4.3` — *Chuẩn Hóa Cảnh Báo Nghi Vấn Kỹ Thuật (Không Báo Nhầm Khi Cả Lớp Bấm Cùng Lúc) & Tự Động Cập Nhật Ô `B6`*
 * **Loại bỏ Báo nhầm `"Bấm cùng lúc <= 2 giây"` trong Tab `"Nghi vấn"`**: Gỡ bỏ điều kiện trùng thời gian bấm $\le 2$ giây đơn thuần trong `detectCoCheckInSuspects` (`js/teacher.js`) và `handleStudentCheckIn` (`code3.3.0.text`) để khi cả lớp 50–60 sinh viên cùng bấm điểm danh một lúc không bị báo vàng nhầm. Tab **`Nghi vấn`** giờ chỉ báo khi có **bằng chứng kỹ thuật rõ ràng**: dùng 1 máy mở 2 trình duyệt (`Safari + Chrome` trùng cấu hình phần cứng `deviceFp` trong 20s và $\le 5\text{m}$), trùng tọa độ GPS tuyệt đối đến 6 chữ số thập phân (`sameExactCoords`), hoặc can thiệp định vị (`F12_GEO_OVERRIDE`, `Mock GPS`).
 * **Tự động Cập nhật Phiên bản tại Ô `B6` (`Setup_&_Dashboard`)**: Bổ sung `syncDashboardVersionBadge_(ss)` vào `onOpen` và `handleTeacherAuth` để ô `B6` tự động cập nhật lên `✅ Verified & Ready (v3.4.3)` ngay khi mở Google Sheet hoặc khi Giảng viên đăng nhập.
 
-### ✨ Version `v3.4.2` — *Tinh Gọn Giao Diện Giảng Viên, Mở Khóa Thiết Bị 1 Chạm & Tự Động Ẩn Lại Danh Sách Trên Máy Chiếu*
+### Version `v3.4.2` — *Tinh Gọn Giao Diện Giảng Viên, Mở Khóa Thiết Bị 1 Chạm & Tự Động Ẩn Lại Danh Sách Trên Máy Chiếu*
 * **Gộp Cột Điều khiển Phiên 1 Cột & Loại bỏ Khung Radar Trang trí**: Gỡ bỏ cột phụ `.gps-station-box` (biểu tượng `.radar-circle` và tiêu đề lặp `#poster-class-title`) ở Mục 1 của Giảng viên; tích hợp gọn dòng trạng thái `#tea-gps-anchor-hint` và nút `#btn-toggle-adv-gps` (`"Chế độ GPS nâng cao"`) ngay bên trong khung `#teacher-session-control-box`.
 * **Loại bỏ Nút `"Che MSSV"` Dư thừa & Thư viện Tạo QR Cũ (`qrcode.min.js`)**: Gỡ bỏ nút `#btn-toggle-privacy` (`Che MSSV`) trên thanh tiêu đề Mục 2 để chỉ giữ lại 2 nút cốt lõi (`Gọi ngẫu nhiên 1 SV` và `Ẩn/Hiện danh sách`). Loại bỏ thư viện `qrcode.min.js` không còn sử dụng nhưng giữ nguyên `html5-qrcode.min.js` để sinh viên và giảng viên quét mã QR Khóa học / QR Ghép nối có sẵn trong Google Sheet (`Setup_&_Dashboard`).
 * **Tự động Xóa Ô Tìm kiếm để Ẩn lại Danh sách trên Máy chiếu & Mở khóa Thiết bị 1 Chạm**:
   * Khi Giảng viên đang bật chế độ Ẩn danh sách trên máy chiếu (`showRosterNames === false`) và gõ tìm kiếm sinh viên tại `#inp-roster-search`, ngay sau khi bấm **`P`**, **`L`**, **`E`**, **`-`** hoặc **`Mở khóa`**, hệ thống tự động xóa trắng ô tìm kiếm để màn hình máy chiếu quay về trạng thái ẩn danh sách ngay lập tức.
   * Tối ưu nút **`Mở khóa`** (`teacherResetStudentDevice`) thực thi ngay trong 1 cú chạm (báo kết quả tại `#tea-session-inline-status`, không bật hộp thoại hỏi lại), đồng thời giữ tách biệt với các nút `P` / `L` để Giảng viên linh hoạt bấm `L` nếu sinh viên đổi máy/xóa cache đi học trễ.
 
-### 🔧 Version `v3.4.1` — *Mặc Định Đánh Giá Theo Vị Trí Giảng Viên (`TEACHER_GPS`) & Nút Chế Độ Nâng Cao Lấy Trung Bình 3 Sinh Viên Đầu Tiên (`STUDENT_AVG_3`)*
+### Version `v3.4.1` — *Mặc Định Đánh Giá Theo Vị Trí Giảng Viên (`TEACHER_GPS`) & Nút Chế Độ Nâng Cao Lấy Trung Bình 3 Sinh Viên Đầu Tiên (`STUDENT_AVG_3`)*
 * **Mặc định Đánh giá theo Khoảng cách Gần Giảng viên (`TEACHER_GPS`)**: Khi Giảng viên mở phiên (chế độ mặc định), chỉ cần thiết bị của Giảng viên có tín hiệu GPS hợp lệ, hệ thống luôn khóa cứng tâm phòng học theo **vị trí thực tế của Giảng viên (`TEACHER_GPS`)**. Mọi sinh viên đều được chấm khoảng cách trực tiếp so với Giảng viên (`<= 100m`); sinh viên ngồi ở tòa nhà khác (`320m`) sẽ bị từ chối ngay lập tức (`[NGOÀI PHẠM VI]`).
 * **Nút Chế độ GPS Nâng cao & Dự phòng khi Máy bàn Không có GPS (`STUDENT_AVG_3` — Trung bình 3 Sinh viên đầu tiên)**:
   * Bổ sung nút **`"Chế độ GPS nâng cao"`** (`#btn-toggle-adv-gps`) kèm tùy chọn **`"Sử dụng GPS Sinh viên (Lấy trung bình 3 bạn đầu tiên làm tâm phòng)"`** (`#chk-use-student-avg3`) trên giao diện Giảng viên.
   * **CHỈ KHI** thiết bị của Giảng viên hoàn toàn không có GPS, **HOẶC** khi Giảng viên chủ động bật nút Chế độ nâng cao này, hệ thống mới kích hoạt chế độ **`STUDENT_AVG_3`** (`COLLECTING_AVG_3`): lấy tọa độ trung bình cộng của **3 sinh viên hợp lệ đầu tiên** trong phòng học $\left(\frac{\text{Lat}_1+\text{Lat}_2+\text{Lat}_3}{3}, \frac{\text{Lng}_1+\text{Lng}_2+\text{Lng}_3}{3}\right)$ (bắt buộc cả 3 bạn phải ở trong trường `<= 850m` và ngồi gần nhau `<= 100m`) để khóa làm tâm phòng học.
 
-### 🚀 Version `v3.4.0` — *Giao Diện Sinh Viên Không Cuộn Trang (`Zero-Scroll`), Thông Báo Nội Tuyến Đúng Vị Trí & Khóa Tâm Phòng Học Động Theo Ca*
+### Version `v3.4.0` — *Giao Diện Sinh Viên Không Cuộn Trang (`Zero-Scroll`), Thông Báo Nội Tuyến Đúng Vị Trí & Khóa Tâm Phòng Học Động Theo Ca*
 * **Giao diện Sinh viên Không cuộn trang (`100dvh Zero-Scroll`) & Thông báo Nội tuyến Đúng vị trí**:
   * Khóa khung nhìn điểm danh của Sinh viên trên điện thoại (`body.student-locked-scroll`) vừa khít 1 màn hình `100dvh` (`overflow: hidden`, `overscroll-behavior: none`), loại bỏ hoàn toàn tình trạng trượt tay kéo trang khi bấm điểm danh. Tự động mở cuộn linh hoạt khi bật khung quét QR hoặc cài đặt nâng cao.
   * Thay thế thanh thông báo dưới đáy màn hình bằng các khung phản hồi nội tuyến ngay tại vị trí thao tác (`#gps-inline-status` nằm trong khung `#gps-panel`, `#checkin-inline-status` ngay dưới nút `"ĐIỂM DANH NGAY"`, `#onboard-inline-status` ngay trong khung `#box-add-course`, cùng `#tea-login-inline-status`, `#tea-session-inline-status`, `#tea-admin-inline-status` bên Giảng viên): lỗi hoặc thành công ở đâu thì xuất hiện thông báo ngay tại đó.
@@ -945,13 +996,13 @@
   * Bổ sung `handleRosterSearchKeydown(event)`: khi kết quả lọc khớp duy nhất 1 sinh viên, Giảng viên chỉ cần nhấn phím `Enter` để đánh dấu `P` (`Có mặt`) ngay lập tức và tự xóa ô tìm kiếm.
 * **Tự động Nạp Sinh viên mới Trước Khi Xuất Điểm danh Cuối Ca**: Cập nhật `autoSyncTodayAttendanceAfterClass()` trong `sync.txt` tự động gọi `syncSingleClassRosterFromDrive_` (`onlyIfModified: true`) trước khi xuất dữ liệu điểm danh sang file `.XLSX` / Google Sheet, đảm bảo sinh viên mới thêm vào danh sách lớp giữa kỳ được cập nhật đầy đủ vào sổ điểm danh cuối buổi.
 
-### 🔧 Version `v3.3.1` — *Đồng Bộ Danh Sách Thông Minh Theo Cấu Trúc (`Mã Lớp` + `MSSV` / `Họ Tên`) & Bổ Sung Sinh Viên Giữa Kỳ Không Độ Trễ*
+### Version `v3.3.1` — *Đồng Bộ Danh Sách Thông Minh Theo Cấu Trúc (`Mã Lớp` + `MSSV` / `Họ Tên`) & Bổ Sung Sinh Viên Giữa Kỳ Không Độ Trễ*
 * **Nhận diện File & Tab Điểm danh theo Cấu trúc Chung (`Class_ID` + `MSSV` / `Họ tên`)**: Nâng cấp `resolveClassTargetFile_` và `findBestMatchingSheet_` để phân biệt chính xác file Bảng điểm danh (`.XLSX` / Google Sheet) với file Nhật ký giảng dạy / Đề cương (`CLASS FOLDER`) có cùng Mã lớp dựa trên cấu trúc dữ liệu sinh viên thực tế (`MSSV` + `Họ và tên`), hoàn toàn không phụ thuộc vào hậu tố tên riêng của từng giảng viên. Hỗ trợ giải mã trực tiếp cả lối tắt Google Drive (`Shortcut`).
 * **Phát hiện Sinh viên mới Bổ sung Giữa kỳ Không gây Lag (`ROSTER_SYNC_META_PROP_KEY`)**: Đối chiếu thời gian chỉnh sửa `lastUpdated` của file trên Drive và sĩ số đã đồng bộ; tự động bỏ qua trong `0ms` nếu file `.XLSX` không đổi, và tự động quét lại kèm nhãn **`🔄 +N new`** (tích chọn sẵn) ngay khi giảng viên vừa thêm sinh viên mới vào file `.XLSX` trên Drive. Loại bỏ hoàn toàn lỗi khóa hộp kiểm của các lớp đã đồng bộ trước đó.
 * **Đồng bộ Sinh viên mới Ngay trên Web Giảng viên & Tự động Cứu hộ Tra cứu MSSV**: Kết nối nút `"Đồng bộ vào Google Sheet"` trên Web Giảng viên (`TEACHER_REBUILD_REPORT`) và luồng tra cứu MSSV (`STUDENT_LOOKUP_RESCUE`) với `syncSingleClassRosterFromDrive_` (`onlyIfModified: true`), giúp tự động nạp sinh viên mới từ file `.XLSX` vừa sửa trên Drive vào Master Sheet mà không cần mở máy tính.
 * **Tối ưu Tốc độ Ghi Điểm danh Hàng loạt (`Batch Write`)**: Gom toàn bộ thao tác ghi điểm danh và tô màu nền trong `updateTargetAttendanceFile_` thành 1 lệnh mảng (`setValues` / `setBackgrounds`), tăng tốc độ đồng bộ điểm danh sang file `.XLSX` / Sheet gấp 5–8 lần.
 
-### ✨ Version `v3.3.0` — *Kiến Trúc Đa Module, Giao Diện Học Thuật Tinh Gọn & Nhận Diện Lịch Tự Động*
+### Version `v3.3.0` — *Kiến Trúc Đa Module, Giao Diện Học Thuật Tinh Gọn & Nhận Diện Lịch Tự Động*
 * **Kiến trúc Frontend Đa Module (`Modular Architecture`)**: Tách biệt mã nguồn thành 5 module chuẩn hóa (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`) giúp dễ bảo trì, đồng thời bảo toàn 100% dữ liệu `localStorage` hiện có của sinh viên và giảng viên (`cc_student_profiles`, `cc_active_inst`, `cc_device_cred`).
 * **Giao diện Học thuật Tinh gọn (`taste` Utilitarian UI) & Icon Kỹ thuật Monoline SVG**: Chuẩn hóa bảng màu Slate & Academic Navy độ tương phản cao, hiển thị số liệu tọa độ/bộ đếm bằng font `tabular-nums`, thay thế toàn bộ emoji trang trí bằng bộ 12 icon vector nét đơn (`stroke-width="1.75"`).
 * **Khung Kiểm tra & Kích hoạt GPS trước giờ học (`#gps-panel`)**: Bổ sung thanh kiểm tra phần cứng định vị (`#gps-dot`, `#gps-readout`, `#btn-check-gps`) giúp sinh viên thử quyền truy cập GPS bất cứ lúc nào. Luôn đặt `window.cachedGPS = null` để hàm `executeStudentCheckIn` bắt buộc lấy lại tọa độ GPS thực tế mới nhất (`maximumAge: 0`) ngay tại thời điểm bấm điểm danh, kết hợp khóa chống bấm lặp tức thì `isSubmitting` (`"Đang gửi dữ liệu..."`).
@@ -959,7 +1010,7 @@
 * **Cập nhật Endpoint Master Sheet Mặc định & Tự động Di trú (`INST_KfweyxZcv4`)**: Cập nhật đường dẫn API Master Sheet chính thức (`INST_KfweyxZcv4`) và tự động chuyển đổi ngầm (`auto-migration`) từ các URL thử nghiệm cũ trên `localStorage`, giúp thiết bị của sinh viên và giảng viên kết nối thẳng vào hệ thống mới mà không cần cấu hình lại.
 * **Cụm Điều khiển Phiên biệt lập & Xác nhận Mở lớp 2 bước**: Tách riêng khung điều khiển phiên (`#teacher-session-control-box`) và thay thế nút mở phiên 1 chạm bằng thanh xác nhận nội tuyến 2 bước (`#tea-open-confirm-bar`) gồm 2 nút độc lập `"Hủy"` và `"Xác nhận mở lớp [Mã Lớp]"`, bổ sung bộ lọc sĩ số nhanh (`Tất cả / Có mặt / Vắng / Nghi vấn`) và chế độ Che MSSV trên máy chiếu.
 
-### 🚀 Version `v3.2.0` — *Tối Ưu Chịu Tải Cao & Siết Chặt Chống Gian Lận*
+### Version `v3.2.0` — *Tối Ưu Chịu Tải Cao & Siết Chặt Chống Gian Lận*
 * **Bộ nhớ đệm chịu tải cao (`CacheService` RAM Layer)**: Lưu đệm thông minh cấu hình lớp, danh sách sinh viên và phiên điểm danh theo số dòng thực tế, giảm ~90% thời gian giữ khóa `LockService`, giúp hơn 60 sinh viên bấm điểm danh cùng lúc hoặc nhiều lớp chạy song song không bị nghẽn mạng.
 * **Chống Spam API & Chống bấm đúp trước khóa**: Chặn các vòng lặp spam request tự động và trả kết quả tức thì cho thao tác bấm đúp ngay trên RAM trước khi chạm tới Google Sheet.
 * **Phát hiện mở nhiều trình duyệt (`Safari + Chrome`) & Can thiệp F12**:
@@ -968,27 +1019,27 @@
 * **Khóa điểm danh lại sau khi bị hủy kiểm tra ngẫu nhiên (`Spot-Check Lock`)**: Ngăn sinh viên tự bấm điểm danh lại trong cùng buổi học sau khi đã bị giảng viên gọi kiểm tra ngẫu nhiên và đánh dấu vắng (`-`).
 * **Tương thích Đa Giảng viên & Module Đồng bộ độc lập**: Tự động hiển thị ô chọn Giảng viên khi sinh viên học nhiều thầy cô cùng dùng hệ thống; đồng bộ tức thì với module quản lý sổ sách `.XLSX` riêng biệt.
 
-### 🔧 Version `v3.1.1` — *Chuẩn Hóa Họ Tên & Tinh Chỉnh Đồng Bộ*
+### Version `v3.1.1` — *Chuẩn Hóa Họ Tên & Tinh Chỉnh Đồng Bộ*
 * **Tự động ghép đầy đủ Họ đệm + Tên từ file `.XLSX`**: Xử lý triệt để lỗi mất tên chính khi nhập danh sách từ các bảng điểm danh Excel tách riêng cột Họ đệm và cột Tên.
 * **Chuẩn hóa ánh xạ cột & Nhật ký (`Audit_Log`)**: Tinh chỉnh quy tắc ghi nhận buổi học khi đồng bộ ngược sang sổ gốc và ghi vết chi tiết vào `Audit_Log`.
 
-### ✨ Version `v3.1.0` — *Đồng Bộ Hai Chiều Google Drive `.XLSX` / Sheet & Sao Lưu Hoàn Tác*
+### Version `v3.1.0` — *Đồng Bộ Hai Chiều Google Drive `.XLSX` / Sheet & Sao Lưu Hoàn Tác*
 * **Cập nhật & Tự động sao lưu hai chiều lên Google Drive**: Hỗ trợ nhập danh sách lớp trực tiếp từ file `.XLSX` / Sheet trên Drive và tự động đẩy kết quả điểm danh sang file sổ điểm danh gốc.
 * **Xóa lớp an toàn kèm bộ nhớ đệm Hoàn tác (`_Undo_Backup_Cache`)**: Tự động đóng gói toàn bộ dữ liệu lớp học vào sheet ẩn trước khi xóa, cho phép khôi phục nguyên trạng chỉ với 1 thao tác.
 
-### 🎯 Version `v3.0.0` — *Kiến Trúc Điểm Danh 1 Chạm (1-Tap GPS)*
+### Version `v3.0.0` — *Kiến Trúc Điểm Danh 1 Chạm (1-Tap GPS)*
 * **Điểm danh 1 chạm bằng GPS**: Chuyển từ thao tác mở camera quét QR bắt buộc hàng ngày sang nút bấm 1 chạm bằng tọa độ GPS phòng học (giữ quét QR làm phương án dự phòng).
 * **Mật khẩu phiên 6 số tự động xoay vòng trên Sheet**: Hỗ trợ giảng viên đăng nhập bằng mã 6 số hiển thị trên Sheet (kèm khóa 10 phút nếu nhập sai 5 lần) hoặc Master Key.
 * **Loại bỏ lỗi kẹt bộ nhớ đệm (`No-Cache Web App`)**: Gỡ bỏ `sw.js` giúp trình duyệt di động (đặc biệt trên iOS Safari) luôn nhận bản cập nhật mới nhất ngay lập tức.
 
-### 🌱 Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
+### Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## 📊 Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.9.2`)
+## Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.10.1`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.9.2` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.10.1` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.9.2`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.10.1`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), 100% Centered Floating Confirmation Popups (`#confirm-modal`), Clean Non-AI Utilitarian Buttons, 5-Second Undo Bar (Immediate on Manual Marks), 6-Second Auto-Dismiss Success Notices, `role="dialog"` Focus-Managed Modals, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `+600ms` Lead, `PIN_GRACE_MS = 2500`, `reqArrivalMs` & Instant `0ms` 1-Tap Switch) + `L -> P` Upgrade** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$ + Indoor Wi-Fi/Cell Fallback) + Discreet Fallback GPS Mode (`STUDENT_AVG_3` without stale-coordinate lockout)** |
@@ -997,6 +1048,6 @@
 | **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **Authoritative In-Lock Session Re-Check (no stale-cache check-ins) + Centered Floating Confirmations (`0ms` Busy Lock) + `TEMP_PC_CODE` Preserved on `CLOSE_NOW` + Unified `+2 Phút` (`EXTEND_2M`) + `manualMarkSeqByStudent` Anti-Overwrite** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-RPC Pre-Lock Cache + `LockService` Guards on All Write/Rebuild Handlers (45 Concurrent Students in `< 1.6s`, Zero Double-Click Overwrites)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Global 30-Strike Lecturer Code Lockout + Fail-Closed GPS Validation + Master Key Kept Off Third-Party QR URLs + PING Device-Credential Gate + Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
-| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |
+| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Two-Way Sync Within ~5 Min (`_Sync_Base`, Cell-Level Push, Sheet Wins Conflicts) + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |
 | **Attendance Rules / Quy chế chuyên cần** | Fixed IUH formula / Công thức IUH cố định | **Per-class rules (`CLASS_RULES_V1`) with presets, detailed editor, preview before save, JSON import/export (`presets.json`), `OFF` mode without exam ban; strict validation (`ERR_INVALID_RULES`); Sync reads marks by configured custom symbols/colors incl. Present colour (v3.9.2)** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.9.2`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.10.1`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |

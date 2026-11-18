@@ -1,8 +1,8 @@
 # QUY TẮC HỆ THỐNG CCS (CLASSCHECK SYSTEM RULES)
 
-> **Phiên bản đối chiếu hiện tại:** `v3.9.2` (Frontend UI & Backend Apps Script). Phần Backend (mục 1.2, 1.3, 2, 4, 5) đã đối chiếu với code; các mục 1.1, 3, 6, 7 (Sổ điểm danh, công thức điểm, lịch học) chưa đối chiếu lại với `sync.txt` / `js/schedule-config.js` ở v3.7.5.  
+> **Phiên bản đối chiếu hiện tại:** `v3.9.2` (Frontend UI & Backend Apps Script). Phần Backend (mục 1.2, 1.3, 2, 4, 5) đã đối chiếu với code; các mục 1.1, 3, 6, 7 (Sổ điểm danh, công thức điểm, lịch học) chưa đối chiếu lại với `sync.txt` / `js/schedule-config.js` ở v3.7.5. Riêng phần đồng bộ hai chiều ở mục 2 đã viết theo `sync.txt` v3.10.0.  
 > **Các tệp nguồn đối chiếu:**
-> - Backend Apps Script: [`code3.9.2.text`](code3.9.2.text) (tên file luôn khớp `SYSTEM_VERSION`; tham chiếu theo tên hàm, không theo số dòng vì số dòng đổi theo từng bản)
+> - Backend Apps Script: [`code3.10.1.text`](code3.10.1.text) (tên file luôn khớp `SYSTEM_VERSION`; tham chiếu theo tên hàm, không theo số dòng vì số dòng đổi theo từng bản)
 > - Script Đồng bộ Sổ Điểm danh & Master Sheet: [`sync.txt`](sync.txt)
 > - Frontend Sinh viên / Giảng viên / Lịch học: [`js/student.js`](js/student.js), [`js/teacher.js`](js/teacher.js), [`js/schedule-config.js`](js/schedule-config.js)
 > - Quy tắc Quản lý Phiên bản & Demo Giao diện: [`.agent/rules/changelog-and-versioning.md`](.agent/rules/changelog-and-versioning.md), [`.agent/rules/ui-demo-preview.md`](.agent/rules/ui-demo-preview.md)
@@ -50,11 +50,19 @@ Trên **Master Sheet**, hệ thống lưu trữ thống nhất bằng 4 mã tr�
 1. **Lọc phiên rỗng (Ghost/Test Sessions)**: Ngày nào mà tất cả các phiên mở ra đã đóng và có **`0` sinh viên có mặt/đi trễ/có phép/chấm tay** (`P = 0, L = 0, E = 0, TEACHER_MANUAL = 0`) thì coi là phiên mở nhầm/test $\rightarrow$ **Không tính là 1 buổi học đã diễn ra** và không tính vắng cho sinh viên.
    - Huỷ phiên mở nhầm (`CANCEL_MISTAKEN_SESSION`): huỷ Phiên 2 chỉ xoá đúng Phiên 2 đó và các lượt điểm danh của nó, Phiên 1 được giữ nguyên; huỷ Phiên 1 vẫn xoá cả ngày.
 2. **Gộp phiên trùng ngày (`1 ngày = 1 buổi học = 1 cột trên Sheet`)**:
-   - Trên cả Sổ Điểm danh Lớp ([`sync.txt`](sync.txt)) và Tab Lớp của Master Sheet ([`code3.9.2.text` — `buildGroupedClassDayRecords_`](code3.9.2.text)), các phiên mở cùng ngày của cùng 1 lớp được gộp thành **1 buổi duy nhất trong ngày**.
+   - Trên cả Sổ Điểm danh Lớp ([`sync.txt`](sync.txt)) và Tab Lớp của Master Sheet ([`code3.10.1.text` — `buildGroupedClassDayRecords_`](code3.10.1.text)), các phiên mở cùng ngày của cùng 1 lớp được gộp thành **1 buổi duy nhất trong ngày**.
    - Giữa các phiên trong cùng ngày:
      - Bản ghi do **Giảng viên chỉnh tay (`TEACHER_MANUAL`)** luôn có quyền cao nhất (theo lần chỉnh cuối cùng của Giảng viên, hỗ trợ cả duyệt phép `E` cho buổi học trước).
      - Trạng thái vắng (`-`) ở phiên sau **không bao giờ đè** lên trạng thái `P / E / L` mà sinh viên đã điểm danh hợp lệ ở phiên trước trong cùng ngày (xem bảng sự thật `mergeAttendance` ở mục 3 bên dưới).
    - **Lấy dữ liệu từ Sheet & Lịch sử điểm danh đã gộp theo ngày**: Thống kê hiển thị cho Sinh viên kết hợp dữ liệu từ Sheet và lịch sử thiết bị đã gộp theo `dayKey` (`yyyy-MM-dd`) để luôn khớp 100% với số liệu của Giảng viên. Server thắng theo ngày: ngày nào Sheet đã có bản ghi (trừ `OPEN`) thì dùng số server; lịch sử local chỉ bù các ngày server chưa có.
+   - **Đồng bộ hai chiều Web ⇄ File lớp (Google Sheet / `.XLSX`, từ v3.10.0, `sync.txt`)**:
+     - Trigger chạy mỗi **5 phút**, bỏ khung 23h–6h, chỉ đọc lại file khi `modifiedTime` trên Drive đổi. Trạng thái đã thống nhất của từng ô `(lớp, ngày, MSSV)` lưu ở tab ẩn `_Sync_Base`.
+     - Gộp 3 chiều từng ô so với trạng thái đã thống nhất: web đổi, Sheet không đổi $\rightarrow$ chỉ ghi ô đó sang Sheet (không ghi đè cả cột); Sheet đổi $\rightarrow$ ghi vào web bằng dòng `TEACHER_MANUAL` cho **mọi phiên của ngày** (P1 và P2); cả hai cùng đổi một ô $\rightarrow$ **Sheet thắng**.
+     - Chỉ kéo từ Sheet các ngày đã có trạng thái nền (đã đẩy ít nhất một lần). Ô trống = **`P`** chỉ với MSSV đã có trong trạng thái nền; chữ không nhận ra bị bỏ qua (có ghi Audit); ô nền đỏ (cấm thi) không tính là thông tin và giữ nguyên nền đỏ khi ghi; ký hiệu đọc theo `Attendance Mark Settings`.
+     - Ngày lịch sử chưa có phiên nào mà cột Sheet có ít nhất một dấu thật: tạo phiên giả và ghi marks, ô trống còn lại tính `P`. Ngày nghỉ lễ chỉ điền lác đác vì vậy có thể bị ghi nhầm là có mặt.
+     - Điểm danh của sinh viên xen giữa lúc đồng bộ không bị ghi đè bằng giá trị Sheet cũ (đọc lại trong khóa, lần sau mới xử lý). Ô giảng viên vừa sửa giữa lúc đồng bộ không bị ghi đè.
+     - `Undo Last Attendance Sync` khôi phục các ô đã chạm và **tạm dừng** đồng bộ ngày đó cho tới khi bấm Sync tay. Đổi `Attendance Mark Settings` dừng đồng bộ lớp đó và ghi Audit `SYNC_STYLE_CHANGED`. Hủy cả ngày (`CANCEL_MISTAKEN_SESSION`) xóa trạng thái nền của ngày; hủy riêng Phiên 2 thì giữ.
+     - Chấm tay (`TEACHER_MANUAL_MARK`) chỉ nhận `P / L / E / -`. Chấm tay buổi cũ ghi dòng cho mọi phiên của ngày để `P` không bị gộp thành `L`.
 3. **Điểm danh lần 2 (Phiên 2 / `P2`, từ v3.7.0) và bảng sự thật `mergeAttendance(p1, p2, p2Opened)`**:
    - Nhận diện Phiên 2 qua `sessionId` kết thúc `_R2` hoặc nhãn kết thúc `_P2` (`isRound2Session_`).
    - Nếu Phiên 2 chưa mở trong ngày: kết quả = trạng thái Phiên 1.
@@ -120,7 +128,7 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
 
 ## 4. Quy tắc Định vị GPS & Tâm Phòng Học (`Location_Mode`)
 
-Được quy định tại `handleStudentCheckIn` và `handleTeacherStartSession` trong [`code3.9.2.text`](code3.9.2.text):
+Được quy định tại `handleStudentCheckIn` và `handleTeacherStartSession` trong [`code3.10.1.text`](code3.10.1.text):
 
 1. **Bán kính phòng học chuẩn (`Radius_Meters`)**: Mặc định **`100m`** (cấu hình trong `Classes_Config`).
 2. **Bù trừ sai số GPS trong nhà (`accuracyAllowance`)**:
@@ -138,7 +146,7 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
 
 ## 5. Quy tắc Khóa Thiết Bị 1-1 & Chống Gian Lận (`Anti-Cheat`)
 
-Được quy định tại `handleStudentCheckIn`, `handleTeacherResetDevice` và phần liên kết thiết bị (tab `Device_Registry`) trong [`code3.9.2.text`](code3.9.2.text). Từ v3.7.2, phía thiết bị lưu thêm Device Vault 3 lớp (`localStorage` + Cookie 365 ngày + `IndexedDB`) và chặn tab ẩn danh/Private:
+Được quy định tại `handleStudentCheckIn`, `handleTeacherResetDevice` và phần liên kết thiết bị (tab `Device_Registry`) trong [`code3.10.1.text`](code3.10.1.text). Từ v3.7.2, phía thiết bị lưu thêm Device Vault 3 lớp (`localStorage` + Cookie 365 ngày + `IndexedDB`) và chặn tab ẩn danh/Private:
 
 1. **Khóa Thiết bị 1-1 (`Devices` sheet)**:
    - Mỗi `Student_ID` chỉ được gắn với **1 `Device_ID` (`ACTIVE`)** và mỗi `Device_ID` chỉ được gắn với **1 `Student_ID`**.
@@ -186,7 +194,7 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
    - Lưu bản chụp trạng thái ô cũ (`previousCells`) để hỗ trợ hoàn tác 1 chạm (`↩️ 3. Undo Last Action`).
 3. **Quy tắc Mã số sinh viên (MSSV) khi đọc roster (v3.9.0)**:
    - `sync.txt` (`normalizeStudentId_`, `getStudentIdRule_`) đọc Script Property `STUDENT_ID_RULE_V1`, mặc định `{"minLen":3,"maxLen":20,"minDigits":2}`. Có thể đặt `minDigits: 0` cho MSSV chỉ có chữ.
-   - `code3.9.2.text` (`normalizeId`) bỏ hậu tố `.0` (do Google Sheets đổi số thành dạng thập phân) giống `sync.txt`, để hai bên so khớp cùng một MSSV.
+   - `code3.10.1.text` (`normalizeId`) bỏ hậu tố `.0` (do Google Sheets đổi số thành dạng thập phân) giống `sync.txt`, để hai bên so khớp cùng một MSSV.
 4. **Đọc ngược ô điểm danh (Sync -> Master Sheet, v3.9.1)**:
    - `sync.txt` đọc ô điểm danh theo bộ ký hiệu và màu đã cấu hình trong `Attendance Mark Settings` (chế độ `CUSTOM`) trước tiên. Ví dụ ký hiệu tự đặt `KP` cho vắng được nhận là `-`, không còn bị hiểu nhầm là có mặt.
    - Sau đó mới tới nhận diện màu vàng `#ffff00` / cam `#ff9900` và ký hiệu mặc định `X` / `A` / `P` / `L` / `E` (giữ làm dự phòng).
@@ -200,7 +208,7 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
    - Sử dụng Typography rõ ràng (`Be Vietnam Pro` + `JetBrains Mono` cho số liệu/MSSV/đồng hồ) và chấm tròn màu `7px` cho trạng thái `P / L / E / A`.
    - Chấm tay `P / L / E / -` hiện thanh "Hoàn tác" 5 giây (không hộp xác nhận); modal có `role="dialog"` và đưa focus vào; có thanh báo khi mất mạng (offline).
 2. **Quy tắc Đánh số Phiên bản & Đồng bộ (`changelog-and-versioning.md`)**:
-   - Mỗi lần cập nhật tính năng hoặc sửa lỗi: tăng `SYSTEM_VERSION` (`X.Y.Z`), đổi tên file [`code<X.Y.Z>.text`](code3.9.2.text) ở cả thư mục máy và trên Google Drive (`14mEoxJJ1_USzlYorIvnZBHJwzzK1KDOj`) khi có thay đổi backend, cập nhật [`sync.txt`](sync.txt) (`1TA3scTqHwz8btQYJbzDSPiP6K3QCsxyA`), [`changelog.md`](changelog.md) (`18y2_402KSn4KfRZ0LExDlnCmB6UsqGPz`) song ngữ Anh–Việt, và query string `?v=<X.Y.Z>` ở các file frontend.
+   - Mỗi lần cập nhật tính năng hoặc sửa lỗi: tăng `SYSTEM_VERSION` (`X.Y.Z`), đổi tên file [`code<X.Y.Z>.text`](code3.10.1.text) ở cả thư mục máy và trên Google Drive (`14mEoxJJ1_USzlYorIvnZBHJwzzK1KDOj`) khi có thay đổi backend, cập nhật [`sync.txt`](sync.txt) (`1TA3scTqHwz8btQYJbzDSPiP6K3QCsxyA`), [`changelog.md`](changelog.md) (`18y2_402KSn4KfRZ0LExDlnCmB6UsqGPz`) song ngữ Anh–Việt, và query string `?v=<X.Y.Z>` ở các file frontend.
 3. **Quy tắc Sửa Code Tối Thiểu & Kiểm Thử Thực Tế (`ui-demo-preview.md`)**:
    - **Chỉ sửa đúng chỗ cần sửa**: Can thiệp đúng dòng/hàm cần thay đổi, hạn chế viết lại toàn bộ hàm/file; tuyệt đối không tự ý thêm các dòng comment giới thiệu đầu file/hàm hoặc chèn thêm chữ lên giao diện ngoài yêu cầu.
    - **Phân tách Preview Giao diện & Test Chức năng**:

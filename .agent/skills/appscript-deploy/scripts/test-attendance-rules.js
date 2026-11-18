@@ -101,7 +101,10 @@ ok(fe.mergeRulePresetList([{ id: 'iuh', label: { vi: 'x' } }, { id: 'abc', label
 }
 
 // 10. Backend parity (only once the backend copy exists).
-const codeFile = fs.readdirSync(root).filter(f => /^code\d+\.\d+\.\d+\.text$/.test(f)).sort().pop();
+const codeFile = fs.readdirSync(root).filter(f => /^code\d+\.\d+\.\d+\.text$/.test(f)).sort((a, b) => {
+  const pa = a.match(/\d+/g).map(Number), pb = b.match(/\d+/g).map(Number);
+  return pa[0] - pb[0] || pa[1] - pb[1] || pa[2] - pb[2];
+}).pop();
 const codeSrc = fs.readFileSync(path.join(root, codeFile), 'utf8');
 if (/function evaluateAttendanceRules_\(/.test(codeSrc)) {
   const grab = name => {

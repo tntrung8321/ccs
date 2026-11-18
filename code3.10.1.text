@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.9.2)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.10.1)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.9.2';
+const SYSTEM_VERSION = '3.10.1';
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
@@ -814,6 +814,7 @@ function handleStudentOnboard(ss, body) {
   const rateKey = 'RL_ONB_' + credHash.slice(0, 16);
   const recentAttempts = Number(cache.get(rateKey) || '0');
   if (recentAttempts >= 10) {
+    auditOnboardReject_(ss, 'ERR_SERVER_BUSY', studentId, 'AUD_ONB_BUSY_RL');
     return jsonResponse({
       ok: false,
       code: 'ERR_SERVER_BUSY',
@@ -854,6 +855,7 @@ function handleStudentOnboard(ss, body) {
   const anyRegOpen = match.anyRegOpen;
 
   if (enrolledClasses.length === 0) {
+    auditOnboardReject_(ss, 'ERR_NOT_ON_ROSTER', studentId);
     return jsonResponse({
       ok: false,
       code: 'ERR_NOT_ON_ROSTER',
@@ -863,6 +865,7 @@ function handleStudentOnboard(ss, body) {
 
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) {
+    auditOnboardReject_(ss, 'ERR_SERVER_BUSY', studentId);
     return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY', message: 'Server is busy. Please tap retry in 2 seconds.' });
   }
 
@@ -881,6 +884,7 @@ function handleStudentOnboard(ss, body) {
 
       // Rule A: Has this browser credential already been bound to ANOTHER student?
       if (rowStatus === 'ACTIVE' && rowHash === credHash && rowSid !== studentId) {
+        auditOnboardReject_(ss, 'ERR_DEVICE_BOUND_OTHER', studentId);
         return jsonResponse({
           ok: false,
           code: 'ERR_DEVICE_BOUND_OTHER'
@@ -910,6 +914,7 @@ function handleStudentOnboard(ss, body) {
           });
         } else {
           // Per-Student First-Come Lock: Once registered, no 2nd browser can overwrite without Lecturer Reset
+          auditOnboardReject_(ss, 'ERR_CREDENTIAL_MISMATCH', studentId);
           return jsonResponse({
             ok: false,
             code: 'ERR_CREDENTIAL_MISMATCH',
@@ -931,6 +936,7 @@ function handleStudentOnboard(ss, body) {
     }
 
     if (!anyRegOpen && !isAnySessionOpenForClasses(ss, enrolledClasses.map(c => c.classId))) {
+      auditOnboardReject_(ss, 'ERR_REG_LOCKED', studentId);
       return jsonResponse({
         ok: false,
         code: 'ERR_REG_LOCKED'
@@ -2039,6 +2045,7 @@ function handleTeacherControlSessionLocked_(ss, body) {
 
     if (sesDayKey && !cancelOnlyR2) {
       removeMakeUpDateFromScheduleMeta_(classId, sesDayKey);
+      try { if (typeof removeSyncBaseRows_ === 'function') removeSyncBaseRows_(ss, classId, [sesDayKey]); } catch (e) {}
     }
     SpreadsheetApp.flush();
     invalidateClassCache(classId);
@@ -2228,6 +2235,9 @@ function handleTeacherManualMarkLocked_(ss, body) {
   const classId        = String(body.classId || '').trim();
   const studentId       = normalizeId(body.studentId);
   const status          = String(body.status || 'P').toUpperCase(); // P | L | E | -
+  if (['P', 'L', 'E', '-'].indexOf(status) === -1) {
+    return jsonResponse({ ok: false, code: 'ERR_INVALID_INPUT', message: 'Invalid status.' });
+  }
   const targetSessionId = String(body.targetSessionId || '').trim();
   const targetDayKey    = String(body.targetDayKey || '').trim();
 
@@ -2235,65 +2245,16 @@ function handleTeacherManualMarkLocked_(ss, body) {
   if (!lock.tryLock(10000)) return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
 
   try {
+    const isPastSessionOverride = Boolean(targetSessionId || targetDayKey);
+    if (isPastSessionOverride) {
+      const pastMarks = {}; pastMarks[studentId] = status;
+      const pastRes = writeManualMarksForDay_(ss, classId, targetDayKey, pastMarks, { lockHeld: true, actor: 'TEACHER_APP', targetSessionId: targetSessionId });
+      if (!pastRes.ok) return jsonResponse(pastRes);
+      return { __defer: true, rebuild: true, rebuildSafe: true, classId: classId, stateBody: { classId: classId } };
+    }
     let targetSessionIds = [];
     let primarySessionId = '';
-    const isPastSessionOverride = Boolean(targetSessionId || targetDayKey);
-
-    if (isPastSessionOverride) {
-      const sesSheet = ss.getSheetByName(TAB_SESSIONS);
-      const sesData = (sesSheet && sesSheet.getLastRow() > 1)
-        ? sesSheet.getRange(2, 1, sesSheet.getLastRow() - 1, 4).getValues()
-        : [];
-      sesData.forEach(r => {
-        if (String(r[1]).trim() !== classId) return;
-        const sid = String(r[0]).trim();
-        const label = String(r[2] || '').trim();
-        const openedMs = parseSheetTimeMs(r[3]);
-        let dKey = '';
-        if (openedMs > 0) {
-          dKey = Utilities.formatDate(new Date(openedMs), TIMEZONE, 'yyyy-MM-dd');
-        } else if (label) {
-          dKey = label.split('_')[0] || sid;
-        }
-        if ((targetDayKey && dKey === targetDayKey) || (targetSessionId && sid === targetSessionId)) {
-          targetSessionIds.push(sid);
-          primarySessionId = sid;
-        }
-      });
-      if (!primarySessionId && targetDayKey && /^\d{4}-\d{2}-\d{2}$/.test(targetDayKey)) {
-        const ymdCompact = targetDayKey.replace(/-/g, '');
-        const dtParts = targetDayKey.split('-');
-        const dtObj = new Date(Number(dtParts[0]), Number(dtParts[1]) - 1, Number(dtParts[2]), 15, 0, 0);
-        const dtIso = formatIso(dtObj.getTime());
-        const dtLabel = Utilities.formatDate(dtObj, TIMEZONE, 'ddMMM') + '_HIST';
-        primarySessionId = 'SES_' + classId + '_' + ymdCompact + '_150000';
-        targetSessionIds.push(primarySessionId);
-        const classes = getClassesMap(ss, false);
-        const cfg = classes[classId] || { roomLat: 0, roomLng: 0, radiusMeters: 100 };
-        if (sesSheet) {
-          sesSheet.appendRow([
-            primarySessionId,
-            classId,
-            dtLabel,
-            dtIso,
-            dtIso,
-            dtIso,
-            dtIso,
-            cfg.roomLat || 0,
-            cfg.roomLng || 0,
-            cfg.radiusMeters || 100,
-            'STATIC'
-          ]);
-        }
-      }
-      if (!primarySessionId && targetSessionId) {
-        primarySessionId = targetSessionId;
-        targetSessionIds.push(targetSessionId);
-      }
-      if (!primarySessionId) {
-        return jsonResponse({ ok: false, code: 'ERR_NO_SESSION', message: 'Past session not found for the selected date.' });
-      }
-    } else {
+    {
       const todayDayKey = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
       const todayBundle = getTodayClassSessionsBundle_(ss, classId, todayDayKey);
       const targetRound = String(body.targetRound || '').trim().toUpperCase();
@@ -2335,6 +2296,7 @@ function handleTeacherManualMarkLocked_(ss, body) {
     const nowIso = formatIsoNow();
     const timeStr = nowIso.slice(11, 19);
     let foundRow = -1;
+    const rowSessionsDone = {};
 
     if (!isPastSessionOverride) {
       const sesMap = getSessionAttendanceMap(ss, primarySessionId, false);
@@ -2358,18 +2320,23 @@ function handleTeacherManualMarkLocked_(ss, body) {
         const rowSesId = String(data[i][2]).trim();
         if (targetSet[rowSesId] && normalizeId(data[i][4]) === studentId) {
           attSheet.getRange(i + 2, 6, 1, 5).setValues([[status, nowIso, 0, 0, 'TEACHER_MANUAL']]);
+          rowSessionsDone[rowSesId] = true;
           if (foundRow === -1) foundRow = i + 2;
         }
       }
     } else if (foundRow !== -1) {
       attSheet.getRange(foundRow, 6, 1, 5).setValues([[status, nowIso, 0, 0, 'TEACHER_MANUAL']]);
+      rowSessionsDone[primarySessionId] = true;
     }
 
-    if (foundRow === -1) {
+    // Past-day override: a day may have both P1 and P2; write a row for EVERY session of that day,
+    // otherwise a lone P2 row merges with an empty P1 into 'L'.
+    (isPastSessionOverride ? targetSessionIds : [primarySessionId]).forEach(sid => {
+      if (rowSessionsDone[sid]) return;
       attSheet.appendRow([
         'ATT_M_' + generateRandomToken(8),
         'MANUAL_' + Date.now(),
-        primarySessionId,
+        sid,
         classId,
         studentId,
         status,
@@ -2378,8 +2345,9 @@ function handleTeacherManualMarkLocked_(ss, body) {
         0,
         'TEACHER_MANUAL'
       ]);
-      foundRow = attSheet.getLastRow();
-    }
+      rowSessionsDone[sid] = true;
+      if (foundRow === -1) foundRow = attSheet.getLastRow();
+    });
 
     const cache = CacheService.getScriptCache();
     const recPayload = {
@@ -2411,6 +2379,148 @@ function handleTeacherManualMarkLocked_(ss, body) {
     return { __defer: true, rebuild: true, rebuildSafe: true, classId: classId, stateBody: { classId: classId } };
   } finally {
     lock.releaseLock();
+  }
+}
+
+function writeManualMarksForDay_(ss, classId, dayKey, marksBySid, opts) {
+  opts = opts || {};
+  const marks = {};
+  Object.keys(marksBySid || {}).forEach(k => {
+    const id = normalizeId(k);
+    const stv = String(marksBySid[k] || 'P').toUpperCase();
+    if (id && ['P', 'L', 'E', '-'].indexOf(stv) !== -1) marks[id] = stv;
+  });
+  const ids = Object.keys(marks);
+  if (!ids.length) return { ok: true, written: 0, sessionIds: [], sheetWrites: 0 };
+
+  const lock = opts.lockHeld ? null : LockService.getScriptLock();
+  if (lock && !lock.tryLock(10000)) return { ok: false, code: 'ERR_SERVER_BUSY' };
+  try {
+    const targetSessionId = String(opts.targetSessionId || '').trim();
+    const targetSessionIds = [];
+    let primarySessionId = '';
+    const sesSheet = ss.getSheetByName(TAB_SESSIONS);
+    const sesData = (sesSheet && sesSheet.getLastRow() > 1)
+      ? sesSheet.getRange(2, 1, sesSheet.getLastRow() - 1, 4).getValues()
+      : [];
+    sesData.forEach(r => {
+      if (String(r[1]).trim() !== classId) return;
+      const sid = String(r[0]).trim();
+      const label = String(r[2] || '').trim();
+      const openedMs = parseSheetTimeMs(r[3]);
+      let dKey = '';
+      if (openedMs > 0) {
+        dKey = Utilities.formatDate(new Date(openedMs), TIMEZONE, 'yyyy-MM-dd');
+      } else if (label) {
+        dKey = label.split('_')[0] || sid;
+      }
+      if ((dayKey && dKey === dayKey) || (targetSessionId && sid === targetSessionId)) {
+        targetSessionIds.push(sid);
+        primarySessionId = sid;
+      }
+    });
+    if (!primarySessionId && dayKey && /^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+      const ymdCompact = dayKey.replace(/-/g, '');
+      const dtParts = dayKey.split('-');
+      const dtObj = new Date(Number(dtParts[0]), Number(dtParts[1]) - 1, Number(dtParts[2]), 15, 0, 0);
+      const dtIso = formatIso(dtObj.getTime());
+      const dtLabel = Utilities.formatDate(dtObj, TIMEZONE, 'ddMMM') + '_HIST';
+      primarySessionId = 'SES_' + classId + '_' + ymdCompact + '_150000';
+      targetSessionIds.push(primarySessionId);
+      const classes = getClassesMap(ss, false);
+      const cfg = classes[classId] || { roomLat: 0, roomLng: 0, radiusMeters: 100 };
+      if (sesSheet) {
+        sesSheet.appendRow([
+          primarySessionId, classId, dtLabel, dtIso, dtIso, dtIso, dtIso,
+          cfg.roomLat || 0, cfg.roomLng || 0, cfg.radiusMeters || 100, 'STATIC'
+        ]);
+      }
+    }
+    if (!primarySessionId && targetSessionId) {
+      primarySessionId = targetSessionId;
+      targetSessionIds.push(targetSessionId);
+    }
+    if (!primarySessionId) {
+      return { ok: false, code: 'ERR_NO_SESSION', message: 'Past session not found for the selected date.' };
+    }
+
+    const attSheet = ss.getSheetByName(TAB_ATTEND);
+    const nowIso = formatIsoNow();
+    const timeStr = nowIso.slice(11, 19);
+    const targetSet = {};
+    targetSessionIds.forEach(id => { targetSet[id] = true; });
+    const foundRow = {};
+    const done = {};
+    const updIdx = [];
+    let sheetWrites = 0;
+
+    const lastRow0 = attSheet.getLastRow();
+    const data = lastRow0 > 1 ? attSheet.getRange(2, 1, lastRow0 - 1, 10).getValues() : [];
+    for (let i = data.length - 1; i >= 0; i--) {
+      const rowSesId = String(data[i][2]).trim();
+      const st = normalizeId(data[i][4]);
+      if (!targetSet[rowSesId] || !Object.prototype.hasOwnProperty.call(marks, st)) continue;
+      data[i][5] = marks[st]; data[i][6] = nowIso; data[i][7] = 0; data[i][8] = 0; data[i][9] = 'TEACHER_MANUAL';
+      updIdx.push(i);
+      done[rowSesId + '|' + st] = true;
+      if (foundRow[st] === undefined) foundRow[st] = i + 2;
+    }
+    if (updIdx.length === 1) {
+      attSheet.getRange(updIdx[0] + 2, 6, 1, 5).setValues([data[updIdx[0]].slice(5, 10)]);
+      sheetWrites++;
+    } else if (updIdx.length > 1) {
+      const lo = Math.min.apply(null, updIdx), hi = Math.max.apply(null, updIdx);
+      attSheet.getRange(lo + 2, 6, hi - lo + 1, 5).setValues(data.slice(lo, hi + 1).map(r => r.slice(5, 10)));
+      sheetWrites++;
+    }
+
+    const newRows = [];
+    ids.forEach(id => {
+      targetSessionIds.forEach(sid => {
+        if (done[sid + '|' + id]) return;
+        newRows.push([
+          'ATT_M_' + generateRandomToken(8), 'MANUAL_' + Date.now(), sid, classId, id,
+          marks[id], nowIso, 0, 0, 'TEACHER_MANUAL'
+        ]);
+        done[sid + '|' + id] = true;
+        if (foundRow[id] === undefined) foundRow[id] = lastRow0 + newRows.length;
+      });
+    });
+    if (newRows.length === 1) {
+      attSheet.appendRow(newRows[0]);
+      sheetWrites++;
+    } else if (newRows.length > 1) {
+      attSheet.getRange(lastRow0 + 1, 1, newRows.length, 10).setValues(newRows);
+      sheetWrites++;
+    }
+
+    const cache = CacheService.getScriptCache();
+    ids.forEach(id => {
+      const recPayload = {
+        rowIndex: foundRow[id] === undefined ? -1 : foundRow[id],
+        attendanceId: 'ATT_M', requestId: 'MANUAL', sessionId: primarySessionId,
+        classId: classId, studentId: id, status: marks[id], time: timeStr,
+        distance: 0, distanceMeters: 0, accuracy: 0, source: 'TEACHER_MANUAL'
+      };
+      targetSessionIds.forEach(sid => {
+        const payloadForSid = Object.assign({}, recPayload, { sessionId: sid });
+        try {
+          cache.put('SES_ATT_' + sid + '_' + id, JSON.stringify(payloadForSid), 1800);
+        } catch (e) {}
+        updateSessionAttendanceMapCache_(sid, id, payloadForSid);
+      });
+    });
+    invalidateClassAttendanceStatsCache_(classId);
+
+    const actor = opts.actor || 'TEACHER_APP';
+    if (ids.length === 1) {
+      logAudit(ss, actor, 'MANUAL_MARK', ids[0], classId + ' [' + (dayKey || primarySessionId) + '] -> ' + marks[ids[0]]);
+    } else {
+      logAudit(ss, actor, 'MANUAL_MARK_BATCH', classId, ids.length + ' students [' + (dayKey || primarySessionId) + '] sessions=' + targetSessionIds.length + (opts.requestTag ? ' ' + opts.requestTag : ''));
+    }
+    return { ok: true, written: ids.length, sessionIds: targetSessionIds, sheetWrites: sheetWrites };
+  } finally {
+    if (lock) lock.releaseLock();
   }
 }
 
@@ -4025,6 +4135,18 @@ function refreshTempPcCode(ss, forceNew) {
     }
   }
   return code;
+}
+
+function auditOnboardReject_(ss, code, studentId, limiterKey) {
+  try {
+    const cache = CacheService.getScriptCache();
+    let sid = String(studentId || '').slice(0, 20);
+    const key = limiterKey || ('AUD_ONB_' + code + '_' + sid);
+    if (cache.get(key)) return;
+    cache.put(key, '1', limiterKey ? 60 : 600);
+    if (/^[=+@-]/.test(sid)) sid = "'" + sid;
+    logAudit(ss, 'STUDENT_APP', 'ONBOARD_REJECTED', sid, code);
+  } catch (e) {}
 }
 
 function logAudit(ss, actor, action, target, details) {
