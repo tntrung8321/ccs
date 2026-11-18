@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.11.0)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.11.1)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.11.0';
+const SYSTEM_VERSION = '3.11.1';
 const TIMEZONE = (function () {
   const candidates = [];
   try { candidates.push(PropertiesService.getScriptProperties().getProperty('QR_TIMEZONE')); } catch (e) {}
@@ -1838,6 +1838,7 @@ function handleTeacherGetState(ss, body) {
     calendarEvents: getTodayCalendarEventsCached(),
     classSchedules: scheduleMetaMap,
     selectedClassId: selectedId,
+    classCenter: (selectedId && isCenterKnown_(classes[selectedId])) ? { lat: classes[selectedId].roomLat, lng: classes[selectedId].roomLng } : null,
     round2OpenedToday: round2OpenedToday,
     activeSession: sessionInfo,
     activeGroupSplit: selectedId ? getActiveGroupSplitForClass_(selectedId) : null,
@@ -2097,7 +2098,6 @@ function handleTeacherControlSessionLocked_(ss, body) {
     if (targetSesId) deletedSesIds[targetSesId] = true;
     const cancelOnlyR2 = isRound2Session_(targetSesId, rowVals[2]);
 
-    let prevLat = 0, prevLng = 0;
     for (let i = data.length - 1; i >= 0; i--) {
       if (String(data[i][1]).trim() !== classId) continue;
       const rSesId = String(data[i][0] || '').trim();
@@ -2108,16 +2108,8 @@ function handleTeacherControlSessionLocked_(ss, body) {
       if (cancelOnlyR2 ? (i === targetRow - 2) : (rSesId === targetSesId || (sesDayKey && rDayKey === sesDayKey))) {
         if (rSesId) deletedSesIds[rSesId] = true;
         sesSheet.deleteRow(i + 2);
-      } else if (!prevLat && Number(data[i][7]) && Number(data[i][8])) {
-        prevLat = Number(data[i][7]);
-        prevLng = Number(data[i][8]);
       }
     }
-    if (!cancelOnlyR2 && prevLat && prevLng) {
-      const cfg = getClassesMap(ss, true)[classId];
-      if (cfg && cfg.rowIndex) ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[prevLat, prevLng]]);
-    }
-
     const attSheet = ss.getSheetByName(TAB_ATTEND);
     if (attSheet && attSheet.getLastRow() >= 2) {
       const attVals = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 4).getValues();

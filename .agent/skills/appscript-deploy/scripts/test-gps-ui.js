@@ -201,6 +201,10 @@ check('inspectGpsForSpoofing: soft flag, never hardBlock, real device untouched'
     const fn = extractFn(teaSrc, 'confirmCenterModal');
     ['calibrateOnly: true', 'TEACHER_START_SESSION', 'timeZone', 'confirmTimeZone', 'chk-center-tz', 'source'].forEach(k => assert.ok(fn.includes(k), k));
   });
+  check('center modal opens on the saved class centre (teacherState.classCenter)', () => {
+    const fn = extractFn(teaSrc, 'openCenterModal');
+    ['classCenter', 'centerModalState.lat', 'inp.value'].forEach(k => assert.ok(fn.includes(k), k));
+  });
   check('student.js handles ANCHOR_OUTLIER_REVERTED and passes trail to inspectGpsForSpoofing', () => {
     assert.ok(stSrc.includes('ANCHOR_OUTLIER_REVERTED'));
     assert.ok(/inspectGpsForSpoofing\(pos, trailReadings\)/.test(stSrc));

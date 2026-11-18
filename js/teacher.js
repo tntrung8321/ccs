@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.11.0)
+ * LECTURER CONTROLLER (js/teacher.js — v3.11.1)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -1185,6 +1185,13 @@ function openCenterModal(opts) {
   document.getElementById('btn-center-confirm').textContent = isEn ? 'Confirm' : 'Xác nhận';
   const inp = document.getElementById('inp-center-coords');
   inp.value = '';
+  const savedCenter = (teacherState && teacherState.classCenter && String(teacherState.selectedClassId) === String(opts.classId)) ? teacherState.classCenter : null;
+  if (savedCenter && Number.isFinite(Number(savedCenter.lat)) && Number.isFinite(Number(savedCenter.lng))) {
+    centerModalState.lat = Number(savedCenter.lat);
+    centerModalState.lng = Number(savedCenter.lng);
+    centerModalState.source = 'MAP';
+    inp.value = `${centerModalState.lat.toFixed(6)}, ${centerModalState.lng.toFixed(6)}`;
+  }
   inp.placeholder = isEn ? 'Paste coordinates or Google Maps link' : 'Dán tọa độ hoặc link Google Maps';
   const tzEl = document.getElementById('center-modal-tz');
   let tz = '';
@@ -1631,8 +1638,8 @@ async function teacherControlSession(subAction, extra = {}) {
         await applyTeacherState(res, false);
         showStatus(
           isEn
-            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.11.0.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
-            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.11.0.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.11.1.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.11.1.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
           'warn',
           'tea-session-inline-status'
         );

@@ -40,6 +40,7 @@ function grid(rows) {
     getLastRow: () => rows.length + 1,
     getLastColumn: () => 11,
     appendRow: r => { rows.push(r.slice()); },
+    deleteRow: n => { rows.splice(n - 2, 1); },
     getRange: (r, c, nr, nc) => ({
       getValues: () => { const out = []; for (let i = 0; i < nr; i++) { const row = rows[r - 2 + i] || []; const o = []; for (let j = 0; j < nc; j++) o.push(row[c - 1 + j] === undefined ? '' : row[c - 1 + j]); out.push(o); } return out; },
       setValues: vals => { for (let i = 0; i < nr; i++) { if (!rows[r - 2 + i]) rows[r - 2 + i] = []; for (let j = 0; j < nc; j++) rows[r - 2 + i][c - 1 + j] = vals[i][j]; } },
@@ -361,6 +362,24 @@ console.log('--- 15. open session lost its anchor (H/I empty, cache expired) ---
     ok(r.code !== 'ERR_LOCATION_OUT_OF_RANGE' && r.ok === true, JSON.stringify(r));
     const a = anchor(env); eq(a.mode, 'COLLECTING_AVG_3'); eq(a.campusLat, C.lat);
   });
+});
+
+console.log('--- 16. saved centre survives opening, calibrating and cancelling a session ---');
+check('open session far from saved centre, then calibrate, then CANCEL_MISTAKEN_SESSION keeps the new centre', () => {
+  const env = buildEnv();
+  const home = off(20000, 0);
+  start(env, { usePhoneGps: true, lat: home.lat, lng: home.lng, anchorMode: 'TEACHER_GPS' });
+  eq(env.sheets.Classes_Config.rows[0][3], C.lat);
+  start(env, { calibrateOnly: true, lat: home.lat, lng: home.lng, source: 'MAP' });
+  eq(env.sheets.Classes_Config.rows[0][3], home.lat);
+  eq(state(env).classCenter.lat, home.lat);
+  env.ctx.handleTeacherControlSession(env.ss, { classId: 'C1', subAction: 'CANCEL_MISTAKEN_SESSION' });
+  eq(env.sheets.Classes_Config.rows[0][3], home.lat);
+  eq(env.sheets.Classes_Config.rows[0][4], home.lng);
+  eq(state(env).classCenter.lng, home.lng);
+});
+check('class without a centre -> state.classCenter is null', () => {
+  eq(state(buildEnv({ center: null })).classCenter, null);
 });
 
 console.log('--- D1/D9 helpers ---');

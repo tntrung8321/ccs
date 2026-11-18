@@ -2,6 +2,13 @@
 
 ## ENGLISH VERSION
 
+### Version `v3.11.1` — *Fixes: Abandoned Session No Longer Resets Class Centre & Centre Picker Opens at Saved Centre*
+* **Fix: Abandoned session no longer resets the class centre**: closing a session opened by mistake no longer resets the class centre to the coordinates of the previous session, so the centre the lecturer just set is kept.
+* **Fix: Centre picker opens at the saved centre**: the server now returns `classCenter` in the lecturer state, and the "Set class centre" box opens at the saved centre of the class instead of always at the device GPS.
+* **Tests**: regression tests added in `test-gps-anchor.js` and `test-gps-ui.js`.
+* **Version Bump (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.11.1.text`)**:
+  * Version set to `3.11.1` (cache busters `?v=3.11.1`). Backend file renamed from `code3.11.0.text`.
+
 ### Version `v3.11.0` — *Classroom Centre Picker (Map / Coordinates), Fallback Cluster Anchor & GPS Anti-Spoof Flags*
 * **Feature: Classroom Centre Picker**: the lecturer sets the classroom centre on a map (Leaflet / OpenStreetMap), from GPS, or by pasting coordinates or a Google Maps link. A class without a centre must have one set before its first session. The hard-coded IUH coordinates on class creation are removed; the optional Script Property `QR_DEFAULT_CAMPUS_LATLNG` sets a default.
 * **Feature: Lecturer GPS Guard**: lecturer GPS more than `QR_CAMPUS_MAX_M` (default 850 m) from the saved centre no longer overwrites the centre. The system falls back automatically and raises a warning.
@@ -540,6 +547,13 @@
 
 ## PHIÊN BẢN TIẾNG VIỆT
 
+### Version `v3.11.1` — *Sửa Lỗi: Hủy Phiên Không Còn Đặt Lại Tâm Lớp & Hộp Đặt Tâm Mở Đúng Tâm Đã Lưu*
+* **Sửa lỗi: Hủy phiên mở nhầm không còn đặt lại tâm lớp**: hủy phiên mở nhầm không còn tự trả tâm lớp về tọa độ của phiên trước, nên tâm giảng viên vừa đặt được giữ nguyên.
+* **Sửa lỗi: Hộp đặt tâm mở đúng tâm đã lưu**: server trả thêm `classCenter` trong trạng thái giảng viên; hộp "Đặt tâm lớp" mở ngay tại tâm đã lưu của lớp thay vì luôn mở ở GPS máy.
+* **Kiểm thử**: thêm test hồi quy trong `test-gps-anchor.js` và `test-gps-ui.js`.
+* **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.11.1.text`)**:
+  * Phiên bản đặt thành `3.11.1` (cache buster `?v=3.11.1`). File backend đổi tên từ `code3.11.0.text`.
+
 ### Version `v3.11.0` — *Chọn Tâm Lớp Trên Bản Đồ, Khóa Tâm Dự Phòng Theo Cụm & Cờ Chống Giả GPS*
 * **Tính năng: Chọn Tâm Phòng Học**: giảng viên đặt tâm phòng học trên bản đồ (Leaflet / OpenStreetMap), bằng GPS, hoặc dán tọa độ / link Google Maps. Lớp chưa có tâm phải đặt tâm trước phiên đầu tiên. Đã bỏ tọa độ IUH cài cứng khi tạo lớp; Script Property tùy chọn `QR_DEFAULT_CAMPUS_LATLNG` đặt giá trị mặc định.
 * **Tính năng: Chặn GPS Giảng Viên Sai**: GPS giảng viên cách tâm đã lưu quá `QR_CAMPUS_MAX_M` (mặc định 850 m) không còn ghi đè tâm lớp. Hệ thống tự chuyển sang dự phòng và hiện cảnh báo.
@@ -1059,11 +1073,11 @@
 ### Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.11.0`)
+## Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.11.1`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.11.0` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.11.1` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.11.0`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.11.1`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), 100% Centered Floating Confirmation Popups (`#confirm-modal`), Clean Non-AI Utilitarian Buttons, 5-Second Undo Bar (Immediate on Manual Marks), 6-Second Auto-Dismiss Success Notices, `role="dialog"` Focus-Managed Modals, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `+600ms` Lead, `PIN_GRACE_MS = 2500`, `reqArrivalMs` & Instant `0ms` 1-Tap Switch) + `L -> P` Upgrade** |
 | **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Map / GPS / Coordinate Centre Picker (required before first session) + Lecturer GPS Guard (`QR_CAMPUS_MAX_M`, no overwrite beyond 850 m) + Fallback Cluster Anchor (`STUDENT_AVG_3`: at least 3 students within `QR_FALLBACK_MAX_M` = 200 m, outliers reverted)** |
@@ -1074,4 +1088,4 @@
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Global 30-Strike Lecturer Code Lockout + Fail-Closed GPS Validation + Master Key Kept Off Third-Party QR URLs + PING Device-Credential Gate + Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Two-Way Sync Within ~5 Min (`_Sync_Base`, Cell-Level Push, Sheet Wins Conflicts) + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |
 | **Attendance Rules / Quy chế chuyên cần** | Fixed IUH formula / Công thức IUH cố định | **Per-class rules (`CLASS_RULES_V1`) with presets, detailed editor, preview before save, JSON import/export (`presets.json`), `OFF` mode without exam ban; strict validation (`ERR_INVALID_RULES`); Sync reads marks by configured custom symbols/colors incl. Present colour (v3.9.2)** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.11.0`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.11.1`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
