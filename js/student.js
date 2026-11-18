@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * STUDENT CONTROLLER (js/student.js — v3.10.1)
+ * STUDENT CONTROLLER (js/student.js — v3.11.0)
  *  - Course & Lecturer Selector with Real-Time Period / Calendar Auto-Select
  *  - Official Attendance Score (Base 10.0), Same-Day Session Merging, Near-Limit Warning & Exam Ban (CẤM THI)
  *  - Live Classroom Group Assignment Card (#stu-group-card)
@@ -119,6 +119,7 @@ async function syncStudentLiveScheduleFromServer() {
     if (pingRes && pingRes.ok) {
       studentAnySessionOpen = Array.isArray(pingRes.classes) ? pingRes.classes.some(c => c && c.sessionOpenNow) : true;
       ingestServerScheduleData(pingRes);
+      notifyAnchorRevertedIfAny(pingRes);
       let enrolledChanged = false;
       // Merge any updated class metadata (such as scheduleInfo / sessionOpenNow / attendanceStats) into stored enrolledClasses
       if (activeProfile && Array.isArray(pingRes.classes) && Array.isArray(activeProfile.enrolledClasses)) {
@@ -175,6 +176,21 @@ async function syncStudentLiveScheduleFromServer() {
       }
     }
   } catch (e) {}
+}
+
+let anchorRevertShownKey_ = '';
+
+function notifyAnchorRevertedIfAny(res) {
+  if (!res) return;
+  const CODE = 'ANCHOR_OUTLIER_REVERTED';
+  let hitKey = '';
+  if (res.code === CODE) hitKey = 'top';
+  const stats = res.studentStats && typeof res.studentStats === 'object' ? res.studentStats : {};
+  Object.keys(stats).forEach(cid => { if (!hitKey && stats[cid] && stats[cid].code === CODE) hitKey = cid + ':' + (stats[cid].sessionId || ''); });
+  (Array.isArray(res.classes) ? res.classes : []).forEach(c => { if (!hitKey && c && c.code === CODE) hitKey = c.classId + ':' + (c.activeSessionId || ''); });
+  if (!hitKey || hitKey === anchorRevertShownKey_) return;
+  anchorRevertShownKey_ = hitKey;
+  showStatus(formatServerMessage(CODE), 'warn', 'checkin-inline-status');
 }
 
 function renderStudentCourseSelectors() {
@@ -1208,7 +1224,9 @@ async function handleOneTapGpsCheckIn() {
         try { ensureDeviceVaultReady(); } catch (e) {}
       }
       const pos = await getAccuratePosition();
-      const spoofCheck = inspectGpsForSpoofing(pos);
+      const trailReadings = await sampleGpsReadings(pos);
+      window.lockedRound2TrailReadings = trailReadings;
+      const spoofCheck = inspectGpsForSpoofing(pos, trailReadings);
       if (spoofCheck.hardBlock) {
         if (dot) dot.className = 'status-dot dot-err';
         showStatus(currentLang === 'en' ? 'Invalid GPS signal.' : 'Tín hiệu định vị GPS không hợp lệ.', 'err', 'checkin-inline-status');
@@ -1357,6 +1375,7 @@ async function executeStudentCheckIn(qrString, preLockedGpsPos = null, pinTiming
   try {
     // Always acquire fresh live GPS on check-in (or use the just-locked Round 2 GPS fix during 10s PIN entry)
     let pos =(preLockedGpsPos && isValidGpsPos(preLockedGpsPos) && (Date.now() - Number(preLockedGpsPos.timestamp)) <= 60000) ? preLockedGpsPos : null;
+    const isFreshGpsFix = !pos;
     try {
       if (!pos) {
         pos = await getAccuratePosition();
@@ -1389,7 +1408,9 @@ async function executeStudentCheckIn(qrString, preLockedGpsPos = null, pinTiming
       return;
     }
 
-    const spoofCheck = inspectGpsForSpoofing(pos);
+    const trailReadings = isFreshGpsFix ? await sampleGpsReadings(pos) : (window.lockedRound2TrailReadings || null);
+    window.lockedRound2TrailReadings = null;
+    const spoofCheck = inspectGpsForSpoofing(pos, trailReadings);
     if (spoofCheck.hardBlock) {
       if (dot) dot.className = 'status-dot dot-err';
       showStatus(currentLang === 'en' ? 'Invalid GPS signal.' : 'Tín hiệu định vị GPS không hợp lệ.', 'err', 'checkin-inline-status');

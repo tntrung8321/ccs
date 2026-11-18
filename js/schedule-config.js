@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.10.1)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.11.0)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -370,6 +370,11 @@ function doesClassMatchIdentifier(classObj, targetIdOrAlias) {
  */
 function ingestServerScheduleData(res) {
   if (!res) return;
+  if (typeof res.todayKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(res.todayKey)) {
+    const lp = formatLocalDateKey_(new Date()).split('-').map(Number);
+    const sp = res.todayKey.split('-').map(Number);
+    window.serverDayOffsetDays_ = Math.round((Date.UTC(sp[0], sp[1] - 1, sp[2]) - Date.UTC(lp[0], lp[1] - 1, lp[2])) / 86400000);
+  }
   if (Array.isArray(res.calendarEvents)) {
     window.liveServerSchedule.calendarEvents = res.calendarEvents;
     window.liveServerSchedule.updatedAt = Date.now();
@@ -649,6 +654,7 @@ const I18N = {
     tea_confirm_open_btn: "Xác nhận mở phiên",
     tea_cancel_open_btn: "Hủy",
     tea_adv_gps_link: "Chế độ định vị GPS dự phòng",
+    tea_set_center_btn: "Đặt tâm lớp",
     tea_adv_gps_label: "Bật chế độ định vị GPS dự phòng (Khi thiết bị giảng viên không có GPS)",
     tea_extend_btn: "+2 Phút",
     tea_reopen_btn: "Mở lại 5 phút",
@@ -708,6 +714,8 @@ const I18N = {
     PIN_EXPIRED: "[MÃ PIN HẾT HẠN] Mã PIN 10 giây vừa đổi. Vui lòng nhìn bảng chiếu và nhập lại 4 số mới.",
     PIN_WRONG: "[SAI MÃ PIN] Mã PIN 4 số không khớp với bảng chiếu. Vui lòng nhập lại.",
     PIN_LOCKED: "[TẠM KHÓA MÃ PIN] Bạn đã nhập sai mã PIN quá nhiều lần. Vui lòng chờ {seconds} giây rồi nhìn bảng chiếu nhập lại.",
+    ANCHOR_OUTLIER_REVERTED: "Vị trí không khớp lớp, hãy quét lại.",
+    ERR_INVALID_COORDS: "Tọa độ không hợp lệ.",
     ERR_PIN_REQUIRED: "[YÊU CẦU MÃ PIN] Phiên điểm danh Phiên 2 đang bật Mã PIN 10 giây. Vui lòng nhập 4 số trên bảng chiếu.",
     ERR_P1_STILL_OPEN: "[CHƯA ĐÓNG PHIÊN 1] Vui lòng đóng Phiên 1 trước khi mở điểm danh Phiên 2.",
     ERR_ROUND2_ALREADY_USED: "[ĐÃ DÙNG PHIÊN 2] Mỗi buổi học chỉ mở tối đa 1 lần điểm danh Phiên 2.",
@@ -769,6 +777,7 @@ const I18N = {
     tea_confirm_open_btn: "Confirm Open",
     tea_cancel_open_btn: "Cancel",
     tea_adv_gps_link: "Fallback GPS Location Mode",
+    tea_set_center_btn: "Set class center",
     tea_adv_gps_label: "Enable fallback GPS location mode (When lecturer device has no GPS)",
     tea_extend_btn: "+2 Mins",
     tea_reopen_btn: "Reopen 5 Mins",
@@ -828,6 +837,8 @@ const I18N = {
     PIN_EXPIRED: "[PIN EXPIRED] The 10-second PIN just rotated. Please check the projector and enter the new 4 digits.",
     PIN_WRONG: "[WRONG PIN] The 4-digit PIN does not match the projector. Please re-enter.",
     PIN_LOCKED: "[PIN TEMPORARILY LOCKED] Too many incorrect PIN attempts. Please wait {seconds}s and check the projector.",
+    ANCHOR_OUTLIER_REVERTED: "Your location does not match the class, please scan again.",
+    ERR_INVALID_COORDS: "Invalid coordinates.",
     ERR_PIN_REQUIRED: "[PIN REQUIRED] Round 2 check-in requires the 10-second PIN shown on the projector.",
     ERR_P1_STILL_OPEN: "[ROUND 1 OPEN] Please close Round 1 before opening Round 2.",
     ERR_ROUND2_ALREADY_USED: "[ROUND 2 USED] Maximum 1 Round 2 session per class day.",
@@ -1341,7 +1352,58 @@ function evaluateStudentAntiCheat() {
   };
 }
 
-function inspectGpsForSpoofing(pos) {
+function analyzeGpsReadingTrail(readings) {
+  const r = (Array.isArray(readings) ? readings : []).filter(
+    x => x && isFinite(x.lat) && isFinite(x.lng) && isFinite(x.acc)
+  );
+  if (r.length < 3) return '';
+  const same = (k) => r.every(x => x[k] === r[0][k]);
+  if (same('lat') && same('lng') && same('acc')) return 'FROZEN_GPS';
+  if (same('acc') && Number.isInteger(r[0].acc) && r[0].acc > 0 && r[0].acc % 5 === 0) return 'ROUND_ACCURACY';
+  return '';
+}
+
+function sampleGpsReadings(pos, windowMs = 3000) {
+  const toReading = (p) => (p && p.coords)
+    ? { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }
+    : null;
+  const first = toReading(pos);
+  const out = first ? [first] : [];
+  return new Promise((resolve) => {
+    if (!first || !navigator.geolocation || typeof navigator.geolocation.watchPosition !== 'function') {
+      return resolve(out);
+    }
+    let done = false;
+    let watchId = null;
+    let timer = null;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      if (watchId !== null) { try { navigator.geolocation.clearWatch(watchId); } catch (e) {} }
+      resolve(out);
+    };
+    timer = setTimeout(finish, windowMs);
+    try {
+      watchId = navigator.geolocation.watchPosition(
+        (p) => {
+          const rd = toReading(p);
+          if (!rd) return;
+          out.push(rd);
+          // Natural jitter in both coordinates and accuracy means a real receiver: stop waiting
+          if (out.length >= 3 || (rd.acc !== first.acc && (rd.lat !== first.lat || rd.lng !== first.lng))) finish();
+        },
+        finish,
+        { enableHighAccuracy: true, maximumAge: 0, timeout: windowMs }
+      );
+      if (done) { try { navigator.geolocation.clearWatch(watchId); } catch (e) {} }
+    } catch (e) {
+      finish();
+    }
+  });
+}
+
+function inspectGpsForSpoofing(pos, readings) {
   if (!pos || !pos.coords) return { suspicious: true, hardBlock: true, reason: 'No GPS' };
   const c = pos.coords;
   if (
@@ -1371,6 +1433,11 @@ function inspectGpsForSpoofing(pos) {
   // Flag unnatural mock accuracy (e.g. exact 1m or 0.5m with null altitudeAccuracy on mobile)
   if (c.accuracy <= 1.2 && c.altitude === null && c.altitudeAccuracy === null) {
     return { suspicious: true, hardBlock: false, reason: 'MOCK_ACCURACY_PATTERN' };
+  }
+
+  const trailFlag = analyzeGpsReadingTrail(readings);
+  if (trailFlag) {
+    return { suspicious: true, hardBlock: false, reason: trailFlag };
   }
 
   return { suspicious: false, hardBlock: false, reason: '' };
@@ -2356,9 +2423,15 @@ function escapeJsArg(s) {
   return escapeHtml(String(s === null || s === undefined ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
 }
 
+function formatLocalDateKey_(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function getTodayDateKey() {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const off = Number(typeof window !== 'undefined' ? window.serverDayOffsetDays_ : 0);
+  if (off && isFinite(off)) d.setDate(d.getDate() + off);
+  return formatLocalDateKey_(d);
 }
 
 /* v3.8.0 offline indicator and undo toast */

@@ -12,7 +12,7 @@
   <title>ClassCheck — Hệ Thống Điểm Danh Định Vị</title>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.10.1" />
+  <link rel="stylesheet" href="css/styles.css?v=3.11.0" />
 </head>
 <body>
 
@@ -424,6 +424,7 @@
                   <div id="tea-gps-anchor-hint" style="font-size:0.72rem; color:var(--muted); margin-top:4px; line-height:1.35;">
                     Mặc định: Đánh giá khoảng cách theo vị trí của Giảng viên (Tự động chuyển sang chế độ dự phòng nếu thiết bị Giảng viên không có định vị GPS).
                   </div>
+                  <button type="button" id="btn-open-center-modal" class="btn btn-outline btn-sm" style="margin-top:6px;" onclick="openCenterModalForSelectedClass()" data-i18n="tea_set_center_btn">Đặt tâm lớp</button>
                 </div>
 
                 <div class="btn-row" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border-subtle); flex-wrap:wrap;">
@@ -432,6 +433,7 @@
                   <button type="button" id="btn-tea-close" class="btn btn-danger btn-sm" onclick="promptCloseSessionConfirm()" data-i18n="tea_close_btn">Đóng phiên</button>
                 </div>
 
+                <div id="tea-anchor-alert" class="anchor-alert hidden no-print" role="status" aria-live="polite"></div>
                 <div id="tea-session-inline-status" class="inline-feedback hidden" role="status" aria-live="polite"></div>
               </div>
             </div>
@@ -462,6 +464,15 @@
           </div>
 
           <div id="tea-suspect-banner" class="alert alert-warn hidden" style="font-size:0.82rem;"></div>
+
+          <div id="tea-headcount-box" class="headcount-box hidden no-print">
+            <strong id="tea-headcount-marked"></strong>
+            <label class="headcount-field" for="inp-headcount">
+              <span id="lbl-headcount"></span>
+              <input type="number" id="inp-headcount" min="0" step="1" inputmode="numeric" oninput="renderTeacherRoster()" />
+            </label>
+            <strong id="tea-headcount-warn" class="headcount-warn hidden"></strong>
+          </div>
 
           <div class="roster-toolbar">
             <div class="roster-filter-bar">
@@ -531,6 +542,28 @@
     </div>
   </div>
 
+  <!-- CLASS CENTER PICKER (LEAFLET + OPENSTREETMAP, LOADED ON DEMAND) -->
+  <div id="center-modal" class="modal-backdrop hidden no-print" onclick="if(event.target===this)closeCenterModal()">
+    <div class="modal-card modal-wide center-modal-card" role="dialog" aria-modal="true" aria-labelledby="center-modal-title" tabindex="-1">
+      <div id="center-modal-title" class="modal-title">Đặt tâm lớp</div>
+      <div class="modal-body">
+        <div id="center-map" class="center-map"></div>
+        <div class="center-info">
+          <span id="center-modal-coords">--</span>
+          <span id="center-modal-dist" class="hidden"></span>
+          <label id="center-modal-tz" class="hidden" style="margin:0; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="chk-center-tz" /><span id="lbl-center-tz"></span></label>
+        </div>
+        <input type="text" id="inp-center-coords" autocomplete="off" oninput="onCenterCoordsInput(this.value, false)" onchange="onCenterCoordsInput(this.value, true)" />
+        <div id="center-modal-msg" class="alert alert-warn hidden" role="status"></div>
+      </div>
+      <div class="btn-row">
+        <button type="button" id="btn-center-mylocation" class="btn btn-outline" onclick="onCenterMyLocationClick()">Vị trí của tôi</button>
+        <button type="button" id="btn-center-cancel" class="btn btn-outline" onclick="closeCenterModal()">Hủy</button>
+        <button type="button" id="btn-center-confirm" class="btn btn-primary" onclick="confirmCenterModal()" disabled>Xác nhận</button>
+      </div>
+    </div>
+  </div>
+
   <!-- CENTERED FLOATING CONFIRMATION POPUP (STACKS ABOVE ALL VIEWS & MODALS) -->
   <div id="confirm-modal" class="modal-backdrop modal-backdrop-confirm hidden no-print" onclick="if(event.target===this)closeConfirmModal()">
     <div class="modal-card modal-card-confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" tabindex="-1">
@@ -544,9 +577,9 @@
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/attendance-rules.js?v=3.10.1"></script>
-  <script src="js/schedule-config.js?v=3.10.1"></script>
-  <script src="js/student.js?v=3.10.1"></script>
-  <script src="js/teacher.js?v=3.10.1"></script>
+  <script src="js/attendance-rules.js?v=3.11.0"></script>
+  <script src="js/schedule-config.js?v=3.11.0"></script>
+  <script src="js/student.js?v=3.11.0"></script>
+  <script src="js/teacher.js?v=3.11.0"></script>
 </body>
 </html>

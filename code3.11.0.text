@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.10.1)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.11.0)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,8 +8,18 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.10.1';
-const TIMEZONE = 'Asia/Ho_Chi_Minh';
+const SYSTEM_VERSION = '3.11.0';
+const TIMEZONE = (function () {
+  const candidates = [];
+  try { candidates.push(PropertiesService.getScriptProperties().getProperty('QR_TIMEZONE')); } catch (e) {}
+  try { candidates.push(Session.getScriptTimeZone()); } catch (e) {}
+  for (let i = 0; i < candidates.length; i++) {
+    const tz = String(candidates[i] || '').trim();
+    if (!tz) continue;
+    try { Utilities.formatDate(new Date(0), tz, 'yyyy'); return tz; } catch (e) {}
+  }
+  return 'Asia/Ho_Chi_Minh';
+})();
 
 // Tab Names (Shared across Code.gs and external Sync.gs)
 const TAB_DASHBOARD = 'Setup_&_Dashboard';
@@ -334,7 +344,8 @@ function showAddClassWizard() {
 
   const classesSheet = ss.getSheetByName(TAB_CLASSES);
   const newSecret = 'QR_' + classId.toUpperCase() + '_' + generateRandomToken(6).toUpperCase();
-  classesSheet.appendRow([classId, className, newSecret, 10.8221, 106.6868, 100, 3, 15, 'YES']);
+  const defaultCenter = getDefaultCampusLatLng_();
+  classesSheet.appendRow([classId, className, newSecret, defaultCenter ? defaultCenter.lat : '', defaultCenter ? defaultCenter.lng : '', 100, 3, 15, 'YES']);
 
   createFormattedRosterTab(ss, classId, false);
   invalidateSystemCache();
@@ -495,7 +506,8 @@ function doGet(e) {
     version: SYSTEM_VERSION,
     installationId: props.getProperty('INSTALLATION_ID') || 'UNINITIALIZED',
     serverTime: new Date().toISOString(),
-    serverNowMs: Date.now()
+    serverNowMs: Date.now(),
+    todayKey: Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd')
   });
 }
 
@@ -745,7 +757,8 @@ function handlePing(ss, body) {
     classSchedules: scheduleMetaMap,
     serverTimeMs: nowPingMs,
     serverNowMs: nowPingMs,
-    serverTime: new Date(nowPingMs).toISOString()
+    serverTime: new Date(nowPingMs).toISOString(),
+    todayKey: Utilities.formatDate(new Date(nowPingMs), TIMEZONE, 'yyyy-MM-dd')
   };
   if (authed) {
     const rulesMap = getClassRulesMap_();
@@ -754,6 +767,17 @@ function handlePing(ss, body) {
       statsOut[cid] = Object.assign({}, statsOut[cid], { rules: normalizeAttendanceRules_(rulesMap[cid]) });
     });
     resp.studentStats = statsOut;
+    const anchorNotices = [];
+    Object.keys(classes).forEach(cid => {
+      const ses = allLatestSes[cid];
+      if (ses && ses.isOpen && cache.get('ANCHOR_REV_' + ses.sessionId + '_' + studentId)) {
+        anchorNotices.push({ code: 'ANCHOR_OUTLIER_REVERTED', classId: cid, sessionId: ses.sessionId });
+        if (resp.studentStats[cid]) { resp.studentStats[cid].code = 'ANCHOR_OUTLIER_REVERTED'; resp.studentStats[cid].sessionId = ses.sessionId; }
+        const pc = publicClasses.find(c => c.classId === cid);
+        if (pc) pc.code = 'ANCHOR_OUTLIER_REVERTED';
+      }
+    });
+    if (anchorNotices.length) resp.anchorNotices = anchorNotices;
   }
   return jsonResponse(resp);
 }
@@ -1138,6 +1162,11 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
     if (rawAnchor) anchorState = JSON.parse(rawAnchor);
   } catch (e) {}
 
+  if (!anchorState && !isValidLatLng_(Number(activeSession.roomLat), Number(activeSession.roomLng)) && isCenterKnown_(classConfig)) {
+    anchorState = buildFallbackAnchor_(classConfig);
+    try { cache.put(anchorKey, JSON.stringify(anchorState), 7200); } catch (e) {}
+  }
+
   if (anchorState && anchorState.lat && anchorState.lng) {
     activeSession.roomLat = Number(anchorState.lat);
     activeSession.roomLng = Number(anchorState.lng);
@@ -1149,38 +1178,27 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
 
   const campusReject = st => {
     let cLat = Number(st && st.campusLat), cLng = Number(st && st.campusLng);
-    if (!Number.isFinite(cLat) || !Number.isFinite(cLng) || (cLat === 0 && cLng === 0)) {
+    if (!isValidLatLng_(cLat, cLng)) {
       cLat = Number(classConfig && classConfig.roomLat);
       cLng = Number(classConfig && classConfig.roomLng);
     }
-    const maxM = Number(st && st.maxCampusMeters) > 0 ? Number(st.maxCampusMeters) : 850;
-    const usable = Number.isFinite(cLat) && Number.isFinite(cLng) && !(cLat === 0 && cLng === 0);
-    const d = usable ? Math.round(calculateHaversineMeters(lat, lng, cLat, cLng)) : NaN;
+    if (!isValidLatLng_(cLat, cLng)) return null;
+    const maxM = Number(st && st.fallbackMaxM) > 0 ? Number(st.fallbackMaxM)
+      : (Number(st && st.maxCampusMeters) > 0 ? Number(st.maxCampusMeters) : getCampusMaxM_());
+    const d = Math.round(calculateHaversineMeters(lat, lng, cLat, cLng));
     if (safeEffectiveDist_(d, accuracyAllowance) <= maxM) return null;
-    return { ok: false, code: 'ERR_LOCATION_OUT_OF_RANGE', params: { dist: Number.isFinite(d) ? d : null, max: maxM, acc: Math.round(accuracy) } };
+    return { ok: false, code: 'ERR_LOCATION_OUT_OF_RANGE', params: { dist: d, max: maxM, acc: Math.round(accuracy) } };
   };
 
   if (anchorState && anchorState.mode === 'COLLECTING_AVG_3') {
-    const preCampus = (!Array.isArray(anchorState.samples) || anchorState.samples.length === 0) ? campusReject(anchorState) : null;
+    const preCampus = campusReject(anchorState);
     if (preCampus) {
       cache.remove(spamKey);
       return jsonResponse(preCampus);
     }
-    // Once at least 1 student has anchored the provisional average, subsequent students must be within radiusMeters of the running average
-    if (Array.isArray(anchorState.samples) && anchorState.samples.length > 0 && effectiveDist > activeSession.radiusMeters) {
-      cache.remove(spamKey);
-      return jsonResponse({
-        ok: false,
-        code: 'ERR_LOCATION_OUT_OF_RANGE',
-        params: {
-          dist: rawDist,
-          max: activeSession.radiusMeters,
-          acc: Math.round(accuracy)
-        }
-      });
-    }
   } else if (effectiveDist > activeSession.radiusMeters) {
     cache.remove(spamKey);
+    recordRejectedSample_(ss, cache, anchorState, activeSession, studentId, clientCred, lat, lng, accuracy, clientMeta);
     return jsonResponse({
       ok: false,
       code: 'ERR_LOCATION_OUT_OF_RANGE',
@@ -1212,7 +1230,73 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
       return jsonResponse({ ok: false, code: credCheck.code, params: { id: studentId } });
     }
 
-    // Re-check dynamic session anchor inside lock: if in COLLECTING_AVG_3 mode, average the first 3 verified students
+    // Suspect evaluation runs before the anchor logic: suspects must never become anchor samples
+    const nowMs = Date.now();
+    let sourceLabel = 'STUDENT_APP';
+    const suspectReasons = [];
+    const isRound2CheckIn = isRound2Session_(activeSession.sessionId, activeSession.sessionLabel);
+    if (clientMeta && clientMeta.mockGpsSuspect) {
+      suspectReasons.push('SUSPECT_WITH_DEVTOOLS|Can thiệp định vị (' + (clientMeta.mockReason || 'Mock') + ')');
+    }
+    if (isRound2CheckIn && activeSession.qrMode === 'PIN_10S' && activeSession._lastPinEval && clientMeta) {
+      const firstKeyIdleMs = Number(clientMeta.firstKeyIdleMs || 0);
+      const pinAgeMs = Number(activeSession._lastPinEval.pinAgeMs || 0);
+      if (firstKeyIdleMs >= 5000 && pinAgeMs >= 6500) {
+        suspectReasons.push(
+          'SUSPECT_PIN_RELAY|Nghi vấn nhận PIN qua tin nhắn (Chờ ' +
+          (firstKeyIdleMs / 1000).toFixed(1) +
+          's, nộp cuối chu kỳ ' +
+          (pinAgeMs / 1000).toFixed(1) +
+          's)'
+        );
+      }
+    }
+
+    const coordsKey = 'SES_COORDS_' + activeSession.sessionId;
+    const coordsToken = lat.toFixed(6) + ',' + lng.toFixed(6);
+    let coordsRegistry = {};
+    try {
+      const rawCoords = cache.get(coordsKey);
+      if (rawCoords) coordsRegistry = JSON.parse(rawCoords);
+    } catch (e) {
+      coordsRegistry = {};
+    }
+    const dupEntry = coordsRegistry[coordsToken];
+    const dupWith = (dupEntry && dupEntry.studentId !== studentId) ? dupEntry.studentId : '';
+    if (dupWith) {
+      suspectReasons.push('SUSPECT_WITH_' + dupWith + '|Trùng tọa độ 6 số thập phân với ' + dupWith + ' (DUPLICATE_COORDS)');
+    }
+
+    const recentKey = 'RECENT_CHK_' + activeSession.sessionId;
+    let recentList = [];
+    try {
+      const rawRecent = cache.get(recentKey);
+      if (rawRecent) recentList = JSON.parse(rawRecent);
+    } catch (e) {
+      recentList = [];
+    }
+
+    recentList = recentList.filter(item => (nowMs - item.timeMs) <= 45000 && item.studentId !== studentId);
+
+    if (!dupWith) {
+      for (let i = 0; i < recentList.length; i++) {
+        const prev = recentList[i];
+        const diffSec = Math.max(0, Math.round((nowMs - prev.timeMs) / 1000));
+        const sameExactCoords = Math.abs(prev.lat - lat) < 0.000001 && Math.abs(prev.lng - lng) < 0.000001;
+        const sameHardwareFp  = Boolean(deviceFp && prev.deviceFp && deviceFp === prev.deviceFp && deviceFp !== 'FP_DEFAULT');
+        const pairDist        = calculateHaversineMeters(lat, lng, prev.lat, prev.lng);
+
+        if (sameExactCoords) {
+          suspectReasons.push('SUSPECT_WITH_' + prev.studentId + '|Trùng tọa độ tuyệt đối với ' + prev.studentId);
+          break;
+        } else if (sameHardwareFp && diffSec <= 20 && pairDist <= 5) {
+          suspectReasons.push('SUSPECT_WITH_' + prev.studentId + '|Cùng cấu hình máy (' + diffSec + 's) với ' + prev.studentId);
+          break;
+        }
+      }
+    }
+
+    // Re-check dynamic session anchor inside lock (fallback mode: cluster of >=3 consistent student samples)
     try {
       const freshAnchorRaw = cache.get(anchorKey);
       if (freshAnchorRaw) anchorState = JSON.parse(freshAnchorRaw);
@@ -1220,69 +1304,63 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
 
     if (anchorState && anchorState.mode === 'COLLECTING_AVG_3') {
       if (!Array.isArray(anchorState.samples)) anchorState.samples = [];
-      if (anchorState.samples.length > 0 && anchorState.lat && anchorState.lng) {
-        activeSession.roomLat = Number(anchorState.lat);
-        activeSession.roomLng = Number(anchorState.lng);
-        rawDist = Math.round(calculateHaversineMeters(lat, lng, activeSession.roomLat, activeSession.roomLng));
-        effectiveDist = safeEffectiveDist_(rawDist, accuracyAllowance);
-        if (effectiveDist > activeSession.radiusMeters) {
-          return jsonResponse({
-            ok: false,
-            code: 'ERR_LOCATION_OUT_OF_RANGE',
-            params: {
-              dist: rawDist,
-              max: activeSession.radiusMeters,
-              acc: Math.round(accuracy)
-            }
-          });
-        }
-      }
-
-      if (accuracy <= 100 && !(clientMeta && clientMeta.mockGpsSuspect)) {
-        const alreadySampled = anchorState.samples.some(s => s.studentId === studentId);
-        if (!alreadySampled && anchorState.samples.length < 3) {
-          const lockCampus = campusReject(anchorState);
-          if (lockCampus) return jsonResponse(lockCampus);
-          anchorState.samples.push({ studentId: studentId, lat: lat, lng: lng });
-        }
-        const n = anchorState.samples.length;
-        if (n > 0) {
-          const sumLat = anchorState.samples.reduce((acc, item) => acc + Number(item.lat), 0);
-          const sumLng = anchorState.samples.reduce((acc, item) => acc + Number(item.lng), 0);
-          const avgLat = Number((sumLat / n).toFixed(6));
-          const avgLng = Number((sumLng / n).toFixed(6));
-          anchorState.lat = avgLat;
-          anchorState.lng = avgLng;
-          if (n >= 3) {
-            anchorState.mode = 'LOCKED';
-            anchorState.source = 'STUDENT_AVG_3';
-          }
-          try { cache.put(anchorKey, JSON.stringify(anchorState), 7200); } catch (e) {}
-          activeSession.roomLat = avgLat;
-          activeSession.roomLng = avgLng;
-          rawDist = Math.round(calculateHaversineMeters(lat, lng, avgLat, avgLng));
-          effectiveDist = safeEffectiveDist_(rawDist, accuracyAllowance);
-          try {
-            if (activeSession.rowIndex) {
-              ss.getSheetByName(TAB_SESSIONS).getRange(activeSession.rowIndex, 8, 1, 2).setValues([[avgLat, avgLng]]);
-            }
-            const allNearAvg = anchorState.samples.every(s => calculateHaversineMeters(Number(s.lat), Number(s.lng), avgLat, avgLng) <= activeSession.radiusMeters);
-            if (n >= 3 && allNearAvg && classConfig && classConfig.rowIndex) {
-              ss.getSheetByName(TAB_CLASSES).getRange(classConfig.rowIndex, 4, 1, 2).setValues([[avgLat, avgLng]]);
-            }
-            cache.removeAll(['ALL_LATEST_SES_V373', 'ALL_LATEST_SES_V35']);
-          } catch (e) {}
-        }
-      } else if (!anchorState.samples.length || effectiveDist > activeSession.radiusMeters) {
+      if (!Array.isArray(anchorState.provisional)) anchorState.provisional = [];
+      const isSample = accuracy <= 100 && !(clientMeta && clientMeta.mockGpsSuspect) && suspectReasons.length === 0;
+      if (!isSample && anchorState.samples.length === 0) {
         return jsonResponse({
           ok: false,
           code: 'ERR_LOCATION_OUT_OF_RANGE',
-          params: {
-            dist: rawDist,
-            max: activeSession.radiusMeters,
-            acc: Math.round(accuracy)
-          }
+          params: { dist: rawDist, max: activeSession.radiusMeters, acc: Math.round(accuracy) }
         });
+      }
+      const lockCampus = campusReject(anchorState);
+      if (lockCampus) return jsonResponse(lockCampus);
+
+      const alreadySampled = anchorState.samples.some(s => s.studentId === studentId);
+      if (isSample && !alreadySampled && anchorState.samples.length < 8) {
+        anchorState.samples.push({ studentId: studentId, lat: lat, lng: lng });
+        let cluster = findAnchorCluster_(anchorState.samples, activeSession.radiusMeters, 3, { lat: anchorState.campusLat, lng: anchorState.campusLng });
+        if (cluster && isCenterKnown_({ roomLat: anchorState.campusLat, roomLng: anchorState.campusLng })) {
+          const fbMax = Number(anchorState.fallbackMaxM) > 0 ? Number(anchorState.fallbackMaxM) : getFallbackMaxM_();
+          if (calculateHaversineMeters(cluster.lat, cluster.lng, Number(anchorState.campusLat), Number(anchorState.campusLng)) > fbMax) cluster = null;
+        }
+        if (cluster) {
+          anchorState.mode = 'LOCKED';
+          anchorState.source = 'STUDENT_CLUSTER';
+          anchorState.lat = cluster.lat;
+          anchorState.lng = cluster.lng;
+          anchorState.clusterSize = cluster.size;
+          anchorState.noCluster = false;
+          const toRevert = anchorState.provisional.filter(p => {
+            const d = calculateHaversineMeters(p.lat, p.lng, cluster.lat, cluster.lng);
+            return safeEffectiveDist_(d, Math.min(Math.max(0, Number(p.accuracy) || 0), 50)) > activeSession.radiusMeters;
+          });
+          anchorState.provisional = [];
+          anchorState.samples = [];
+          anchorState.revertedCount = Number(anchorState.revertedCount || 0) + toRevert.length;
+          try { cache.put(anchorKey, JSON.stringify(anchorState), 7200); } catch (e) {}
+          activeSession.roomLat = cluster.lat;
+          activeSession.roomLng = cluster.lng;
+          try {
+            if (activeSession.rowIndex) {
+              ss.getSheetByName(TAB_SESSIONS).getRange(activeSession.rowIndex, 8, 1, 2).setValues([[cluster.lat, cluster.lng]]);
+            }
+            cache.removeAll(['ALL_LATEST_SES_V373', 'ALL_LATEST_SES_V35']);
+          } catch (e) {}
+          revertProvisionalCheckins_(ss, cache, activeSession, classId, toRevert, cluster);
+          rawDist = Math.round(calculateHaversineMeters(lat, lng, cluster.lat, cluster.lng));
+          effectiveDist = safeEffectiveDist_(rawDist, accuracyAllowance);
+          if (effectiveDist > activeSession.radiusMeters) {
+            return jsonResponse({
+              ok: false,
+              code: 'ERR_LOCATION_OUT_OF_RANGE',
+              params: { dist: rawDist, max: activeSession.radiusMeters, acc: Math.round(accuracy) }
+            });
+          }
+        } else {
+          if (anchorState.samples.length >= 8) anchorState.noCluster = true;
+          try { cache.put(anchorKey, JSON.stringify(anchorState), 7200); } catch (e) {}
+        }
       }
     } else if (anchorState && anchorState.mode === 'LOCKED' && anchorState.lat && anchorState.lng) {
       activeSession.roomLat = Number(anchorState.lat);
@@ -1290,6 +1368,7 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
       rawDist = Math.round(calculateHaversineMeters(lat, lng, activeSession.roomLat, activeSession.roomLng));
       effectiveDist = safeEffectiveDist_(rawDist, accuracyAllowance);
       if (effectiveDist > activeSession.radiusMeters) {
+        recordRejectedSample_(ss, cache, anchorState, activeSession, studentId, clientCred, lat, lng, accuracy, clientMeta);
         return jsonResponse({
           ok: false,
           code: 'ERR_LOCATION_OUT_OF_RANGE',
@@ -1328,56 +1407,7 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
       }
     }
 
-    // 6. Server-Side Anti-Cheat & Multi-Browser (Safari + Chrome) Soft-Flag Evaluation
-    const nowMs = Date.now();
-    let sourceLabel = 'STUDENT_APP';
-    const suspectReasons = [];
-
-    const isRound2CheckIn = isRound2Session_(activeSession.sessionId, activeSession.sessionLabel);
-    if (clientMeta && clientMeta.mockGpsSuspect) {
-      suspectReasons.push('SUSPECT_WITH_DEVTOOLS|Can thiệp định vị (' + (clientMeta.mockReason || 'Mock') + ')');
-    }
-    if (isRound2CheckIn && activeSession.qrMode === 'PIN_10S' && activeSession._lastPinEval && clientMeta) {
-      const firstKeyIdleMs = Number(clientMeta.firstKeyIdleMs || 0);
-      const pinAgeMs = Number(activeSession._lastPinEval.pinAgeMs || 0);
-      if (firstKeyIdleMs >= 5000 && pinAgeMs >= 6500) {
-        suspectReasons.push(
-          'SUSPECT_PIN_RELAY|Nghi vấn nhận PIN qua tin nhắn (Chờ ' +
-          (firstKeyIdleMs / 1000).toFixed(1) +
-          's, nộp cuối chu kỳ ' +
-          (pinAgeMs / 1000).toFixed(1) +
-          's)'
-        );
-      }
-    }
-
-    const recentKey = 'RECENT_CHK_' + activeSession.sessionId;
-    let recentList = [];
-    try {
-      const rawRecent = cache.get(recentKey);
-      if (rawRecent) recentList = JSON.parse(rawRecent);
-    } catch (e) {
-      recentList = [];
-    }
-
-    recentList = recentList.filter(item => (nowMs - item.timeMs) <= 45000 && item.studentId !== studentId);
-
-    for (let i = 0; i < recentList.length; i++) {
-      const prev = recentList[i];
-      const diffSec = Math.max(0, Math.round((nowMs - prev.timeMs) / 1000));
-      const sameExactCoords = Math.abs(prev.lat - lat) < 0.000001 && Math.abs(prev.lng - lng) < 0.000001;
-      const sameHardwareFp  = Boolean(deviceFp && prev.deviceFp && deviceFp === prev.deviceFp && deviceFp !== 'FP_DEFAULT');
-      const pairDist        = calculateHaversineMeters(lat, lng, prev.lat, prev.lng);
-
-      if (sameExactCoords) {
-        suspectReasons.push('SUSPECT_WITH_' + prev.studentId + '|Trùng tọa độ tuyệt đối với ' + prev.studentId);
-        break;
-      } else if (sameHardwareFp && diffSec <= 20 && pairDist <= 5) {
-        suspectReasons.push('SUSPECT_WITH_' + prev.studentId + '|Cùng cấu hình máy (' + diffSec + 's) với ' + prev.studentId);
-        break;
-      }
-    }
-
+    // 6. Soft-flag labelling (suspects were evaluated before the anchor logic)
     if (suspectReasons.length > 0) {
       sourceLabel = suspectReasons[0];
     }
@@ -1411,6 +1441,28 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
       Math.round(accuracy),
       sourceLabel
     ]);
+
+    try {
+      if (!coordsRegistry[coordsToken]) coordsRegistry[coordsToken] = { studentId: studentId };
+      if (dupWith && !coordsRegistry[coordsToken].flagged) {
+        coordsRegistry[coordsToken].flagged = true;
+        flagDuplicateCoordsRow_(ss, cache, activeSession.sessionId, classId, dupWith, studentId);
+        if (anchorState && anchorState.mode === 'COLLECTING_AVG_3') {
+          anchorState.samples = (anchorState.samples || []).filter(s => s.studentId !== dupWith);
+        }
+      }
+      if (Object.keys(coordsRegistry).length <= 300) cache.put(coordsKey, JSON.stringify(coordsRegistry), 7200);
+      cache.remove('ANCHOR_REV_' + activeSession.sessionId + '_' + studentId);
+      if (anchorState && anchorState.mode === 'COLLECTING_AVG_3') {
+        if (!Array.isArray(anchorState.provisional)) anchorState.provisional = [];
+        anchorState.provisional.push({
+          studentId: studentId, attendanceId: attendanceId, requestId: requestId, status: status,
+          source: sourceLabel, lat: lat, lng: lng, accuracy: Math.round(accuracy)
+        });
+        if (anchorState.provisional.length > 150) anchorState.provisional = anchorState.provisional.slice(-150);
+        cache.put(anchorKey, JSON.stringify(anchorState), 7200);
+      }
+    } catch (e) {}
 
     updateSessionAttendanceMapCache_(activeSession.sessionId, studentId, {
       rowIndex: 0,
@@ -1495,6 +1547,9 @@ function handleCheckReceipt(ss, body) {
   const data = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 10).getValues();
   for (let i = data.length - 1; i >= 0; i--) {
     if (String(data[i][1]) === requestId && normalizeId(data[i][4]) === studentId) {
+      if (String(data[i][9] || '') === 'ANCHOR_REVERTED') {
+        return jsonResponse({ ok: false, code: 'ANCHOR_OUTLIER_REVERTED', receipt: { sessionId: data[i][2], classId: data[i][3], studentId: data[i][4], status: '-' } });
+      }
       return jsonResponse({
         ok: true,
         code: 'RECEIPT_FOUND',
@@ -1680,6 +1735,8 @@ function handleTeacherGetState(ss, body) {
   let sessionInfo = null;
   let rosterSummary = [];
   let round2OpenedToday = false;
+  let anchorStateForRoster = null;
+  const provisionalSet = {};
 
   if (selectedId) {
     const rosterMap = getClassRosterMap(ss, selectedId, false);
@@ -1715,6 +1772,13 @@ function handleTeacherGetState(ss, body) {
       sessionInfo.round2OpenedToday = round2OpenedToday;
       if (sessionInfo.round === 2 && classes[selectedId]) {
         sessionInfo.pin10sSeed = getRound2PinSeed_(classes[selectedId].activeQrSecret, sessionInfo.sessionId); sessionInfo.pinSeed = sessionInfo.pin10sSeed;
+      }
+      if (sessionInfo.isOpen) {
+        anchorStateForRoster = getSessionAnchorState_(sessionInfo.sessionId);
+        sessionInfo.anchorInfo = buildAnchorInfo_(sessionInfo, anchorStateForRoster);
+        if (anchorStateForRoster && anchorStateForRoster.mode === 'COLLECTING_AVG_3' && Array.isArray(anchorStateForRoster.provisional)) {
+          anchorStateForRoster.provisional.forEach(pv => { provisionalSet[pv.studentId] = true; });
+        }
       }
     }
 
@@ -1755,6 +1819,10 @@ function handleTeacherGetState(ss, body) {
         distance: activeRec && activeRec.distance !== undefined ? activeRec.distance : '',
         accuracy: activeRec && activeRec.accuracy !== undefined ? activeRec.accuracy : '',
         source: activeRec ? activeRec.source : '',
+        distM: activeRec && activeRec.distance !== undefined && activeRec.distance !== '' ? Number(activeRec.distance) : '',
+        provisional: Boolean(provisionalSet[st.studentId]),
+        suspectReasons: parseSuspectReasonCodes_(activeRec ? activeRec.source : ''),
+        code: (activeRec && activeRec.source === 'ANCHOR_REVERTED') ? 'ANCHOR_OUTLIER_REVERTED' : undefined,
         attendanceStats: stStats
       };
     }).sort(compareStudentsVietnameseAZ_);
@@ -1765,6 +1833,7 @@ function handleTeacherGetState(ss, body) {
     code: 'TEACHER_STATE',
     serverTimeMs: Date.now(),
     serverNowMs: Date.now(),
+    todayKey: Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd'),
     classes: classList,
     calendarEvents: getTodayCalendarEventsCached(),
     classSchedules: scheduleMetaMap,
@@ -1789,6 +1858,7 @@ function handleTeacherStartSessionLocked_(ss, body) {
   const phoneLat      = Number(body.lat);
   const phoneLng      = Number(body.lng);
   const anchorMode    = String(body.anchorMode || '').toUpperCase();
+  const centerSource  = String(body.source || '').trim().toUpperCase();
 
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) return jsonResponse({ ok: false, code: 'ERR_SERVER_BUSY' });
@@ -1803,26 +1873,53 @@ function handleTeacherStartSessionLocked_(ss, body) {
     if (!cfg) return jsonResponse({ ok: false, code: 'ERR_INVALID_CLASS' });
 
     const existingOpen = getLatestOpenSession(ss, classId);
-    const hasTeacherGps = usePhoneGps && !isNaN(phoneLat) && !isNaN(phoneLng) && phoneLat !== 0 && anchorMode !== 'STUDENT_AVG_3' && anchorMode !== 'CAMPUS_CLUSTER';
 
-    // If lecturer clicked legacy calibrate without opening a new session
-    if (calibrateOnly && !existingOpen) {
-      if (!isNaN(phoneLat) && !isNaN(phoneLng) && phoneLat !== 0) {
-        ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[phoneLat, phoneLng]]);
-        const latestSes = getLatestSessionForDashboard(ss, classId, true);
-        if (latestSes && latestSes.rowIndex) {
-          ss.getSheetByName(TAB_SESSIONS).getRange(latestSes.rowIndex, 8, 1, 2).setValues([[phoneLat, phoneLng]]);
-        }
-        invalidateClassCache(classId);
-        markTeacherReqDone_(body);
+    if (calibrateOnly) {
+      if (!isValidLatLng_(phoneLat, phoneLng)) return jsonResponse({ ok: false, code: 'ERR_INVALID_COORDS' });
+      const calSource = centerSource === 'MAP' || centerSource === 'TEACHER_GPS' || centerSource === 'MANUAL'
+        ? centerSource : (centerSource ? 'MANUAL' : 'TEACHER_GPS');
+      ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[phoneLat, phoneLng]]);
+      const latestSes = getLatestSessionForDashboard(ss, classId, true);
+      if (latestSes && latestSes.rowIndex) {
+        ss.getSheetByName(TAB_SESSIONS).getRange(latestSes.rowIndex, 8, 1, 2).setValues([[phoneLat, phoneLng]]);
       }
+      if (existingOpen) {
+        try {
+          cache.put('SES_ANCHOR_' + existingOpen.sessionId, JSON.stringify({
+            mode: 'LOCKED',
+            lat: phoneLat,
+            lng: phoneLng,
+            source: 'TEACHER_GPS',
+            centerSource: calSource
+          }), 7200);
+          cache.remove('SES_REJ_' + existingOpen.sessionId);
+        } catch (e) {}
+      }
+      if (body.confirmTimeZone === true) saveTimeZoneIfMissing_(body.timeZone, ss);
+      logAudit(ss, 'TEACHER_APP', 'CLASS_CENTER_SET', classId, calSource + ' ' + phoneLat.toFixed(6) + ',' + phoneLng.toFixed(6) + (isCenterKnown_(cfg) ? ' (cách tâm cũ ' + Math.round(calculateHaversineMeters(phoneLat, phoneLng, cfg.roomLat, cfg.roomLng)) + 'm)' : ' (tâm đầu tiên)'));
+      invalidateClassCache(classId);
+      markTeacherReqDone_(body);
       return { __defer: true, rebuild: false, classId: classId, stateBody: { classId: classId } };
+    }
+
+    if (!isCenterKnown_(cfg)) return jsonResponse({ ok: false, code: 'ERR_CENTER_REQUIRED' });
+
+    let hasTeacherGps = usePhoneGps && isValidLatLng_(phoneLat, phoneLng) && anchorMode !== 'STUDENT_AVG_3' && anchorMode !== 'CAMPUS_CLUSTER';
+    let farWarning = null;
+    if (hasTeacherGps) {
+      const teacherToCenterM = Math.round(calculateHaversineMeters(phoneLat, phoneLng, cfg.roomLat, cfg.roomLng));
+      if (teacherToCenterM > getCampusMaxM_()) {
+        hasTeacherGps = false;
+        farWarning = { code: 'TEACHER_GPS_FAR', distM: teacherToCenterM };
+      }
     }
 
     if (existingOpen) {
       if (hasTeacherGps) {
         ss.getSheetByName(TAB_SESSIONS).getRange(existingOpen.rowIndex, 8, 1, 2).setValues([[phoneLat, phoneLng]]);
-        ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[phoneLat, phoneLng]]);
+        if (calculateHaversineMeters(phoneLat, phoneLng, cfg.roomLat, cfg.roomLng) <= getFallbackMaxM_()) {
+          ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[phoneLat, phoneLng]]);
+        }
         try {
           cache.put('SES_ANCHOR_' + existingOpen.sessionId, JSON.stringify({
             mode: 'LOCKED',
@@ -1830,20 +1927,24 @@ function handleTeacherStartSessionLocked_(ss, body) {
             lng: phoneLng,
             source: 'TEACHER_GPS'
           }), 7200);
+          cache.remove('SES_REJ_' + existingOpen.sessionId);
         } catch (e) {}
         invalidateClassCache(classId);
       } else if (anchorMode === 'STUDENT_AVG_3') {
+        ss.getSheetByName(TAB_SESSIONS).getRange(existingOpen.rowIndex, 8, 1, 2).setValues([[cfg.roomLat, cfg.roomLng]]);
         try {
-          cache.put('SES_ANCHOR_' + existingOpen.sessionId, JSON.stringify({
-            mode: 'COLLECTING_AVG_3',
-            campusLat: cfg.roomLat,
-            campusLng: cfg.roomLng,
-            maxCampusMeters: 850,
-            samples: []
-          }), 7200);
+          cache.put('SES_ANCHOR_' + existingOpen.sessionId, JSON.stringify(buildFallbackAnchor_(cfg)), 7200);
+          cache.remove('SES_REJ_' + existingOpen.sessionId);
+          cache.removeAll(['ALL_LATEST_SES_V373', 'ALL_LATEST_SES_V35']);
+        } catch (e) {}
+      } else if (farWarning) {
+        try {
+          const curAnchor = getSessionAnchorState_(existingOpen.sessionId) || buildFallbackAnchor_(cfg);
+          curAnchor.warning = farWarning;
+          cache.put('SES_ANCHOR_' + existingOpen.sessionId, JSON.stringify(curAnchor), 7200);
         } catch (e) {}
       }
-      if (hasTeacherGps || anchorMode === 'STUDENT_AVG_3') markTeacherReqDone_(body);
+      if (hasTeacherGps || farWarning || anchorMode === 'STUDENT_AVG_3') markTeacherReqDone_(body);
       return { __defer: true, rebuild: false, classId: classId, stateBody: { classId: classId } };
     }
 
@@ -1853,8 +1954,10 @@ function handleTeacherStartSessionLocked_(ss, body) {
     if (hasTeacherGps) {
       roomLat = phoneLat;
       roomLng = phoneLng;
-      const clSheet = ss.getSheetByName(TAB_CLASSES);
-      clSheet.getRange(cfg.rowIndex, 4, 1, 2).setValues([[roomLat, roomLng]]);
+      if (calculateHaversineMeters(phoneLat, phoneLng, cfg.roomLat, cfg.roomLng) <= getFallbackMaxM_()) {
+        const clSheet = ss.getSheetByName(TAB_CLASSES);
+        clSheet.getRange(cfg.rowIndex, 4, 1, 2).setValues([[roomLat, roomLng]]);
+      }
     }
 
     const nowMs = Date.now();
@@ -1909,13 +2012,7 @@ function handleTeacherStartSessionLocked_(ss, body) {
           source: 'TEACHER_GPS'
         }), 7200);
       } else {
-        cache.put('SES_ANCHOR_' + sessionId, JSON.stringify({
-          mode: 'COLLECTING_AVG_3',
-          campusLat: cfg.roomLat,
-          campusLng: cfg.roomLng,
-          maxCampusMeters: 850,
-          samples: []
-        }), 7200);
+        cache.put('SES_ANCHOR_' + sessionId, JSON.stringify(buildFallbackAnchor_(cfg, farWarning ? { warning: farWarning } : null)), 7200);
       }
     } catch (e) {}
 
@@ -2095,6 +2192,9 @@ function handleTeacherControlSessionLocked_(ss, body) {
     const p1Ses = todayBundle.p1Session;
     const roomLat = Number(p1Ses.roomLat || cfg.roomLat || 0);
     const roomLng = Number(p1Ses.roomLng || cfg.roomLng || 0);
+    if (!(roomLat && roomLng) && !isCenterKnown_(cfg)) {
+      return jsonResponse({ ok: false, code: 'ERR_CENTER_REQUIRED' });
+    }
     const radiusMeters = Number(p1Ses.radiusMeters || cfg.radiusMeters || 100);
     const round2Mins = Math.min(30, Math.max(1, Number(body.durationMinutes || body.round2Mins || 5)));
     const reqQrMode = String(body.qrMode || 'STATIC').toUpperCase();
@@ -2121,8 +2221,12 @@ function handleTeacherControlSessionLocked_(ss, body) {
     try {
       const cache = CacheService.getScriptCache();
       const p1AnchorRaw = cache.get('SES_ANCHOR_' + p1Ses.sessionId);
-      if (p1AnchorRaw) {
+      let p1AnchorMode = '';
+      try { p1AnchorMode = p1AnchorRaw ? String(JSON.parse(p1AnchorRaw).mode || '') : ''; } catch (e) {}
+      if (p1AnchorRaw && p1AnchorMode === 'LOCKED') {
         cache.put('SES_ANCHOR_' + p2SessionId, p1AnchorRaw, 7200);
+      } else if (p1AnchorRaw && isCenterKnown_(cfg)) {
+        cache.put('SES_ANCHOR_' + p2SessionId, JSON.stringify(buildFallbackAnchor_(cfg)), 7200);
       } else if (roomLat && roomLng) {
         cache.put('SES_ANCHOR_' + p2SessionId, JSON.stringify({
           mode: 'LOCKED',
@@ -2131,13 +2235,7 @@ function handleTeacherControlSessionLocked_(ss, body) {
           source: 'P1_INHERITED'
         }), 7200);
       } else {
-        cache.put('SES_ANCHOR_' + p2SessionId, JSON.stringify({
-          mode: 'COLLECTING_AVG_3',
-          campusLat: cfg.roomLat,
-          campusLng: cfg.roomLng,
-          maxCampusMeters: 850,
-          samples: []
-        }), 7200);
+        cache.put('SES_ANCHOR_' + p2SessionId, JSON.stringify(buildFallbackAnchor_(cfg)), 7200);
       }
     } catch (e) {}
 
@@ -4113,6 +4211,231 @@ function calculateHaversineMeters(lat1, lon1, lat2, lon2) {
 function safeEffectiveDist_(rawDist, accuracyAllowance) {
   const d = Math.max(0, rawDist - accuracyAllowance);
   return Number.isFinite(d) ? d : Infinity;
+}
+
+function readPositiveNumberProp_(key, fallback) {
+  try {
+    const v = Number(PropertiesService.getScriptProperties().getProperty(key));
+    if (Number.isFinite(v) && v > 0) return v;
+  } catch (e) {}
+  return fallback;
+}
+
+function getCampusMaxM_() {
+  return readPositiveNumberProp_('QR_CAMPUS_MAX_M', 850);
+}
+
+function getFallbackMaxM_() {
+  return readPositiveNumberProp_('QR_FALLBACK_MAX_M', 200);
+}
+
+function isValidLatLng_(lat, lng) {
+  return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0);
+}
+
+function isCenterKnown_(cfg) {
+  return Boolean(cfg) && isValidLatLng_(Number(cfg.roomLat), Number(cfg.roomLng));
+}
+
+function getDefaultCampusLatLng_() {
+  try {
+    const raw = String(PropertiesService.getScriptProperties().getProperty('QR_DEFAULT_CAMPUS_LATLNG') || '');
+    const m = raw.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if (m && isValidLatLng_(Number(m[1]), Number(m[2]))) return { lat: Number(m[1]), lng: Number(m[2]) };
+  } catch (e) {}
+  return null;
+}
+
+function buildFallbackAnchor_(cfg, extra) {
+  return Object.assign({
+    mode: 'COLLECTING_AVG_3',
+    source: 'STUDENT_CLUSTER',
+    campusLat: Number(cfg && cfg.roomLat),
+    campusLng: Number(cfg && cfg.roomLng),
+    maxCampusMeters: getCampusMaxM_(),
+    fallbackMaxM: getFallbackMaxM_(),
+    samples: [],
+    provisional: []
+  }, extra || {});
+}
+
+function findAnchorCluster_(samples, radiusM, minSize, prefer) {
+  const min = minSize > 0 ? minSize : 3;
+  const pts = (samples || []).filter(s => s && Number.isFinite(Number(s.lat)) && Number.isFinite(Number(s.lng)))
+    .map(s => ({ studentId: s.studentId, lat: Number(s.lat), lng: Number(s.lng) }));
+  const centroid = list => ({
+    lat: list.reduce((a, p) => a + p.lat, 0) / list.length,
+    lng: list.reduce((a, p) => a + p.lng, 0) / list.length
+  });
+  let best = null;
+  pts.forEach(seed => {
+    let members = pts.filter(p => calculateHaversineMeters(seed.lat, seed.lng, p.lat, p.lng) <= radiusM);
+    for (let iter = 0; iter < 6 && members.length >= min; iter++) {
+      const c = centroid(members);
+      const kept = members.filter(p => calculateHaversineMeters(c.lat, c.lng, p.lat, p.lng) <= radiusM);
+      if (kept.length === members.length) break;
+      members = kept;
+    }
+    if (members.length < min) return;
+    const c = centroid(members);
+    if (!members.every(p => calculateHaversineMeters(c.lat, c.lng, p.lat, p.lng) <= radiusM)) return;
+    const prefDist = (prefer && isValidLatLng_(Number(prefer.lat), Number(prefer.lng)))
+      ? calculateHaversineMeters(c.lat, c.lng, Number(prefer.lat), Number(prefer.lng)) : 0;
+    if (!best || members.length > best.size || (members.length === best.size && prefDist < best.prefDist)) {
+      best = {
+        lat: Number(c.lat.toFixed(6)),
+        lng: Number(c.lng.toFixed(6)),
+        size: members.length,
+        members: members.map(p => p.studentId),
+        prefDist: prefDist
+      };
+    }
+  });
+  if (best) delete best.prefDist;
+  return best;
+}
+
+function parseSuspectReasonCodes_(source) {
+  const s = String(source || '');
+  const out = [];
+  if (/DUPLICATE_COORDS/.test(s)) out.push('DUPLICATE_COORDS');
+  if (/^SUSPECT_WITH_DEVTOOLS/.test(s)) out.push('MOCK_GPS');
+  if (/^SUSPECT_PIN_RELAY/.test(s)) out.push('PIN_RELAY');
+  if (/^SUSPECT_WITH_/.test(s) && out.length === 0) out.push('SAME_DEVICE_OR_COORDS');
+  if (s === 'ANCHOR_REVERTED') out.push('ANCHOR_OUTLIER_REVERTED');
+  return out;
+}
+
+function getSessionAnchorState_(sessionId) {
+  try {
+    const raw = CacheService.getScriptCache().get('SES_ANCHOR_' + sessionId);
+    const st = raw ? JSON.parse(raw) : null;
+    return (st && typeof st === 'object') ? st : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function buildAnchorInfo_(session, st) {
+  if (!session || !st) return null;
+  const locked = st.mode === 'LOCKED';
+  const info = {
+    source: st.source === 'STUDENT_CLUSTER' ? 'STUDENT_CLUSTER' : 'TEACHER_GPS',
+    locked: locked,
+    provisionalCount: locked ? 0 : (Array.isArray(st.provisional) ? new Set(st.provisional.map(p => p.studentId)).size : 0),
+    sampleCount: Array.isArray(st.samples) ? st.samples.length : 0,
+    revertedCount: Number(st.revertedCount || 0)
+  };
+  if (st.centerSource) info.centerSource = st.centerSource;
+  if (locked && Number.isFinite(Number(st.lat)) && Number.isFinite(Number(st.lng))) {
+    info.lat = Number(st.lat);
+    info.lng = Number(st.lng);
+  }
+  let warning = st.warning && st.warning.code ? st.warning : null;
+  if (!locked && st.noCluster) warning = { code: 'ANCHOR_NO_CLUSTER' };
+  if (locked && st.source === 'TEACHER_GPS' && !warning) {
+    try {
+      const rejRaw = CacheService.getScriptCache().get('SES_REJ_' + session.sessionId);
+      const rejected = rejRaw ? JSON.parse(rejRaw) : [];
+      const radius = Number(session.radiusMeters) > 0 ? Number(session.radiusMeters) : 100;
+      const cl = findAnchorCluster_(rejected, radius, 3);
+      if (cl) {
+        const distM = Math.round(calculateHaversineMeters(cl.lat, cl.lng, Number(st.lat), Number(st.lng)));
+        if (distM <= getCampusMaxM_()) warning = { code: 'TEACHER_GPS_SUSPECT', distM: distM };
+      }
+    } catch (e) {}
+  }
+  if (warning) info.warning = warning;
+  return info;
+}
+
+function recordRejectedSample_(ss, cache, anchorState, activeSession, studentId, clientCred, lat, lng, accuracy, clientMeta) {
+  try {
+    if (!anchorState || anchorState.mode !== 'LOCKED' || anchorState.source !== 'TEACHER_GPS') return;
+    if (accuracy > 100 || (clientMeta && clientMeta.mockGpsSuspect)) return;
+    const aLat = Number(anchorState.lat), aLng = Number(anchorState.lng);
+    if (calculateHaversineMeters(lat, lng, aLat, aLng) > getCampusMaxM_()) return;
+    if (!isStudentCredentialVerified_(ss, studentId, clientCred)) return;
+    const key = 'SES_REJ_' + activeSession.sessionId;
+    const raw = cache.get(key);
+    let list = raw ? JSON.parse(raw) : [];
+    list = list.filter(r => r.studentId !== studentId);
+    list.push({ studentId: studentId, lat: lat, lng: lng });
+    if (list.length > 30) list = list.slice(-30);
+    cache.put(key, JSON.stringify(list), 7200);
+  } catch (e) {}
+}
+
+function saveTimeZoneIfMissing_(tzName, ss) {
+  const tz = String(tzName || '').trim();
+  if (!tz || tz.length > 64) return false;
+  try {
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty('QR_TIMEZONE')) return false;
+    const sesTab = ss ? ss.getSheetByName(TAB_SESSIONS) : null;
+    if (sesTab && sesTab.getLastRow() > 1) return false;
+    Utilities.formatDate(new Date(0), tz, 'yyyy');
+    props.setProperty('QR_TIMEZONE', tz);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function revertProvisionalCheckins_(ss, cache, session, classId, revertList, center) {
+  if (!revertList || revertList.length === 0) return 0;
+  let reverted = 0;
+  try {
+    const attSheet = ss.getSheetByName(TAB_ATTEND);
+    if (!attSheet || attSheet.getLastRow() < 2) return 0;
+    const data = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 10).getValues();
+    const byId = {};
+    data.forEach((r, idx) => { byId[String(r[0])] = idx; });
+    const nowIso = formatIsoNow();
+    revertList.forEach(p => {
+      const idx = byId[String(p.attendanceId)];
+      if (idx === undefined) return;
+      const row = data[idx];
+      if (String(row[2]) !== session.sessionId || normalizeId(row[4]) !== p.studentId) return;
+      if (String(row[9] || '') !== String(p.source || '') || String(row[5] || '') !== String(p.status || '')) return;
+      const dist = Math.round(calculateHaversineMeters(p.lat, p.lng, center.lat, center.lng));
+      attSheet.getRange(idx + 2, 6, 1, 5).setValues([['-', nowIso, row[7], row[8], 'ANCHOR_REVERTED']]);
+      reverted++;
+      try {
+        cache.remove('SES_ATT_' + session.sessionId + '_' + p.studentId);
+        if (p.requestId) cache.remove('REQ_REC_' + p.requestId);
+        cache.put('ANCHOR_REV_' + session.sessionId + '_' + p.studentId, '1', 7200);
+      } catch (e) {}
+      try { logAudit(ss, 'SYSTEM', 'ANCHOR_OUTLIER_REVERTED', p.studentId, classId + ' ' + session.sessionId + ' dist=' + dist + 'm'); } catch (e) {}
+    });
+    if (reverted > 0) {
+      invalidateSessionAttendanceMaps_([session.sessionId]);
+      invalidateClassAttendanceStatsCache_(classId);
+    }
+  } catch (e) {}
+  return reverted;
+}
+
+function flagDuplicateCoordsRow_(ss, cache, sessionId, classId, studentId, otherId) {
+  try {
+    const attSheet = ss.getSheetByName(TAB_ATTEND);
+    if (!attSheet || attSheet.getLastRow() < 2) return;
+    const data = attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 10).getValues();
+    for (let i = data.length - 1; i >= 0; i--) {
+      const r = data[i];
+      if (String(r[2]) !== sessionId || normalizeId(r[4]) !== studentId) continue;
+      const src = String(r[9] || '');
+      if (src === 'TEACHER_MANUAL' || src === 'ANCHOR_REVERTED' || /DUPLICATE_COORDS/.test(src)) return;
+      const label = 'SUSPECT_WITH_' + otherId + '|Trùng tọa độ 6 số thập phân với ' + otherId + ' (DUPLICATE_COORDS)';
+      attSheet.getRange(i + 2, 10, 1, 1).setValues([[label]]);
+      updateSessionAttendanceMapCache_(sessionId, studentId, {
+        rowIndex: i + 2, attendanceId: String(r[0]), requestId: String(r[1]), sessionId: sessionId, classId: classId,
+        studentId: studentId, status: String(r[5]), time: formatAttendanceTimeStr_(r[6]), distance: r[7], accuracy: r[8], source: label
+      });
+      try { cache.remove('SES_ATT_' + sessionId + '_' + studentId); } catch (e) {}
+      return;
+    }
+  } catch (e) {}
 }
 
 function refreshTempPcCode(ss, forceNew) {

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.10.1)
+ * LECTURER CONTROLLER (js/teacher.js — v3.11.0)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -581,6 +581,7 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
   setupTeacherCountdown(ses, Boolean(activeCfg));
   syncRosterVisibilityButtonUI();
   renderTeacherRoster();
+  renderAnchorAlert();
   renderTeacherCourseProgressStrip(activeCfg, ses);
   if (document.getElementById('hist-modal-rows')) {
     refreshHistoryModalDateOptionsIfNeeded();
@@ -904,6 +905,388 @@ function probeLecturerDeviceGpsFast() {
   });
 }
 
+function parseCoordinateInput(text) {
+  let raw = String(text || '').trim();
+  if (!raw) return null;
+  try { raw = decodeURIComponent(raw); } catch (e) {}
+  const NUM = '(-?\\d{1,3}(?:\\.\\d+)?)';
+  const patterns = [
+    new RegExp('@' + NUM + ',\\s*' + NUM),
+    new RegExp('[?&](?:q|ll|query|center)=\\s*' + NUM + '\\s*[,+ ]\\s*' + NUM, 'i'),
+    new RegExp('^\\s*' + NUM + '\\s*[,;\\s]\\s*' + NUM + '\\s*$')
+  ];
+  for (let i = 0; i < patterns.length; i++) {
+    const m = raw.match(patterns[i]);
+    if (!m) continue;
+    const lat = parseFloat(m[1]);
+    const lng = parseFloat(m[2]);
+    if (!isFinite(lat) || !isFinite(lng)) continue;
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) continue;
+    if (lat === 0 && lng === 0) continue;
+    return { lat: lat, lng: lng };
+  }
+  return null;
+}
+
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (d) => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatMetersLabel(m) {
+  const v = Number(m);
+  if (!isFinite(v)) return '';
+  return v < 1000 ? `${Math.round(v)} m` : `${(v / 1000).toFixed(1)} km`;
+}
+
+function computeHeadcountExcess(markedCount, countedRaw) {
+  const raw = String(countedRaw === null || countedRaw === undefined ? '' : countedRaw).trim();
+  if (!/^\d+$/.test(raw)) return 0;
+  const counted = parseInt(raw, 10);
+  return counted < markedCount ? markedCount - counted : 0;
+}
+
+function headcountSuspectKey(st) {
+  const rs = Array.isArray(st && st.suspectReasons) ? st.suspectReasons : (st && st.suspectReasons ? [st.suspectReasons] : []);
+  const flagged = rs.some(r => /MOCK|SPOOF|FROZEN|ROUND_ACCURACY|GEO_OVERRIDE|DUPLICATE_COORDS/i.test(String(r)));
+  const dist = Number(st && st.distM);
+  return [flagged ? 1 : 0, st && st.provisional ? 1 : 0, isFinite(dist) ? dist : 0];
+}
+
+function rankHeadcountSuspects(roster, isMarked) {
+  const marked = [];
+  const rest = [];
+  (roster || []).forEach((st, i) => { (isMarked(st) ? marked : rest).push({ st: st, i: i, k: headcountSuspectKey(st) }); });
+  marked.sort((a, b) => {
+    for (let j = 0; j < 3; j++) if (b.k[j] !== a.k[j]) return b.k[j] - a.k[j];
+    return a.i - b.i;
+  });
+  return marked.concat(rest).map(x => x.st);
+}
+
+function getTeacherAnchorInfo() {
+  if (!teacherState) return null;
+  const ses = teacherState.activeSession;
+  const ai = teacherState.anchorInfo || (ses && ses.anchorInfo) || null;
+  return ai && typeof ai === 'object' ? ai : null;
+}
+
+function isFallbackHeadcountActive() {
+  const ai = getTeacherAnchorInfo();
+  return Boolean(ai && ai.source === 'STUDENT_CLUSTER' && teacherState && teacherState.activeSession);
+}
+
+function updateHeadcountBox(markedCount) {
+  const box = document.getElementById('tea-headcount-box');
+  if (!box) return 0;
+  const on = isFallbackHeadcountActive() && Boolean(selectedTeacherClassId);
+  box.classList.toggle('hidden', !on);
+  if (!on) return 0;
+  const isEn = currentLang === 'en';
+  const inp = document.getElementById('inp-headcount');
+  const excess = computeHeadcountExcess(markedCount, inp ? inp.value : '');
+  document.getElementById('tea-headcount-marked').textContent = isEn ? `Checked in: ${markedCount}` : `Đã điểm danh: ${markedCount}`;
+  document.getElementById('lbl-headcount').textContent = isEn ? 'People counted' : 'Số người đếm được';
+  const warn = document.getElementById('tea-headcount-warn');
+  warn.textContent = excess > 0 ? (isEn ? `${excess} extra` : `Dư ${excess} người`) : '';
+  warn.classList.toggle('hidden', excess <= 0);
+  return excess;
+}
+
+function renderAnchorAlert() {
+  const box = document.getElementById('tea-anchor-alert');
+  if (!box) return;
+  const ai = getTeacherAnchorInfo();
+  const ses = teacherState && teacherState.activeSession;
+  box.textContent = '';
+  if (!ai || !ses || !selectedTeacherClassId) { box.classList.add('hidden'); return; }
+  const isEn = currentLang === 'en';
+  const w = ai.warning && ai.warning.code ? ai.warning : null;
+  const lines = [];
+  const actions = [];
+  const rosterList = (teacherState && teacherState.roster) || [];
+  if (w && w.code === 'TEACHER_GPS_FAR') {
+    const d = w.distM !== undefined && w.distM !== null ? formatMetersLabel(w.distM) : '';
+    lines.push(isEn
+      ? `Lecturer GPS is ${d ? '~' + d + ' ' : ''}away from the saved class center. Switched to fallback location around the saved center.`
+      : `GPS giảng viên cách tâm lớp đã lưu${d ? ' khoảng ' + d : ''}. Đã chuyển sang định vị dự phòng quanh tâm đã lưu.`);
+    actions.push({ label: isEn ? 'Set class center' : 'Đặt tâm lớp', fn: () => openCenterModalForSelectedClass() });
+  } else if (w && w.code === 'TEACHER_GPS_SUSPECT') {
+    const d = w.distM !== undefined && w.distM !== null ? formatMetersLabel(w.distM) : '';
+    lines.push(isEn
+      ? `Several students were rejected at the same spot${d ? ' (~' + d + ')' : ''}. Lecturer GPS may be off.`
+      : `Nhiều sinh viên bị từ chối cùng một chỗ${d ? ' (~' + d + ')' : ''}. GPS giảng viên có thể bị lệch.`);
+    actions.push({ label: isEn ? 'Switch to fallback location' : 'Chuyển sang định vị dự phòng', fn: () => switchToFallbackFromAlert() });
+  } else if (w && w.code === 'ANCHOR_NO_CLUSTER') {
+    lines.push(isEn
+      ? 'No common student location cluster found yet.'
+      : 'Chưa tìm được cụm vị trí chung của sinh viên.');
+    actions.push({ label: isEn ? 'Set class center' : 'Đặt tâm lớp', fn: () => openCenterModalForSelectedClass() });
+  }
+  const prov = Number(ai.provisionalCount);
+  if (isFinite(prov) && prov > 0) {
+    lines.push(isEn ? `Provisionally recorded: ${prov}` : `Ghi nhận tạm: ${prov} sinh viên`);
+  }
+  let reverted = Number(ai.revertedCount);
+  if (!isFinite(reverted)) {
+    reverted = rosterList.filter(s => s && (s.code === 'ANCHOR_OUTLIER_REVERTED' ||
+      (Array.isArray(s.suspectReasons) && s.suspectReasons.indexOf('ANCHOR_OUTLIER_REVERTED') >= 0))).length;
+  }
+  if (reverted > 0) {
+    lines.push(isEn ? `Returned to absent: ${reverted}` : `Đã trả về vắng: ${reverted} sinh viên`);
+  }
+  if (lines.length === 0) { box.classList.add('hidden'); return; }
+  const span = document.createElement('span');
+  span.textContent = stripRemainingEmojis(lines.join(' '));
+  box.appendChild(span);
+  actions.forEach(a => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-outline btn-sm';
+    b.textContent = a.label;
+    b.onclick = a.fn;
+    box.appendChild(b);
+  });
+  box.classList.remove('hidden');
+}
+
+function switchToFallbackFromAlert() {
+  const box = document.getElementById('box-adv-gps-mode');
+  if (box) box.classList.remove('hidden');
+  const chk = document.getElementById('chk-use-student-avg3');
+  if (chk) {
+    chk.checked = true;
+    onAdvStudentGpsToggle();
+    chk.focus();
+  }
+}
+
+let leafletLoadPromise_ = null;
+let centerModalState = null;
+
+function loadLeafletLazy() {
+  if (window.L && window.L.map) return Promise.resolve(window.L);
+  if (leafletLoadPromise_) return leafletLoadPromise_;
+  leafletLoadPromise_ = new Promise((resolve, reject) => {
+    const base = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/';
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link');
+      link.id = 'leaflet-css';
+      link.rel = 'stylesheet';
+      link.href = base + 'leaflet.css';
+      document.head.appendChild(link);
+    }
+    const s = document.createElement('script');
+    s.src = base + 'leaflet.js';
+    s.onload = () => (window.L && window.L.map) ? resolve(window.L) : (leafletLoadPromise_ = null, reject(new Error('leaflet')));
+    s.onerror = () => { leafletLoadPromise_ = null; s.remove(); reject(new Error('leaflet')); };
+    document.head.appendChild(s);
+  });
+  return leafletLoadPromise_;
+}
+
+function showCenterMsg(text) {
+  const el = document.getElementById('center-modal-msg');
+  if (!el) return;
+  el.textContent = stripRemainingEmojis(text || '');
+  el.classList.toggle('hidden', !text);
+}
+
+function updateCenterModalUi() {
+  const st = centerModalState;
+  if (!st) return;
+  const isEn = currentLang === 'en';
+  const coordsEl = document.getElementById('center-modal-coords');
+  const distEl = document.getElementById('center-modal-dist');
+  const okBtn = document.getElementById('btn-center-confirm');
+  const has = st.lat !== null && st.lng !== null;
+  if (coordsEl) coordsEl.textContent = has ? `${st.lat.toFixed(5)}, ${st.lng.toFixed(5)}` : '--';
+  if (distEl) {
+    if (has && st.gps) {
+      distEl.textContent = (isEn ? 'Distance to device GPS: ' : 'Cách GPS máy: ') + formatMetersLabel(haversineMeters(st.lat, st.lng, st.gps.lat, st.gps.lng));
+      distEl.classList.remove('hidden');
+    } else {
+      distEl.textContent = '';
+      distEl.classList.add('hidden');
+    }
+  }
+  if (okBtn) okBtn.disabled = !has || st.busy;
+}
+
+function placeCenterPin(lat, lng, source, zoom) {
+  const st = centerModalState;
+  if (!st) return;
+  st.lat = lat;
+  st.lng = lng;
+  st.source = source;
+  const L = window.L;
+  if (st.map && L) {
+    if (!st.marker) {
+      st.marker = L.marker([lat, lng], { draggable: true }).addTo(st.map);
+      st.marker.on('dragend', () => {
+        const p = st.marker.getLatLng();
+        st.lat = p.lat;
+        st.lng = p.lng;
+        st.source = 'MAP';
+        updateCenterModalUi();
+      });
+    } else {
+      st.marker.setLatLng([lat, lng]);
+    }
+    if (zoom) st.map.setView([lat, lng], zoom);
+  }
+  updateCenterModalUi();
+}
+
+function initCenterMap(L) {
+  const st = centerModalState;
+  const mapEl = document.getElementById('center-map');
+  if (!st || !mapEl || st.map) return;
+  const hasPin = st.lat !== null && st.lng !== null;
+  st.map = L.map(mapEl, { zoomControl: true }).setView(hasPin ? [st.lat, st.lng] : [20, 0], hasPin ? 17 : 2);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(st.map);
+  st.map.on('click', (e) => placeCenterPin(e.latlng.lat, e.latlng.lng, 'MAP'));
+  if (hasPin) placeCenterPin(st.lat, st.lng, st.source);
+  setTimeout(() => { if (centerModalState && centerModalState.map) centerModalState.map.invalidateSize(); }, 60);
+}
+
+function openCenterModalForSelectedClass() {
+  const classId = (document.getElementById('sel-tea-class') || {}).value;
+  if (!classId) {
+    showStatus(
+      currentLang === 'en' ? 'Please select a class section first.' : 'Vui lòng chọn lớp học phần trước.',
+      'warn',
+      'tea-session-inline-status'
+    );
+    return;
+  }
+  openCenterModal({ classId: classId, first: false, onDone: null });
+}
+
+function openCenterModal(opts) {
+  const modal = document.getElementById('center-modal');
+  if (!modal) return;
+  const isEn = currentLang === 'en';
+  centerModalState = {
+    classId: opts.classId, first: Boolean(opts.first), onDone: opts.onDone || null,
+    lat: null, lng: null, source: '', gps: null, map: null, marker: null, busy: false
+  };
+  document.getElementById('center-modal-title').textContent = isEn ? 'Set class center' : 'Đặt tâm lớp';
+  document.getElementById('btn-center-mylocation').textContent = isEn ? 'My location' : 'Vị trí của tôi';
+  document.getElementById('btn-center-cancel').textContent = isEn ? 'Cancel' : 'Hủy';
+  document.getElementById('btn-center-confirm').textContent = isEn ? 'Confirm' : 'Xác nhận';
+  const inp = document.getElementById('inp-center-coords');
+  inp.value = '';
+  inp.placeholder = isEn ? 'Paste coordinates or Google Maps link' : 'Dán tọa độ hoặc link Google Maps';
+  const tzEl = document.getElementById('center-modal-tz');
+  let tz = '';
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+  document.getElementById('lbl-center-tz').textContent = isEn ? `Time zone: ${tz}` : `Múi giờ: ${tz}`;
+  document.getElementById('chk-center-tz').checked = false;
+  tzEl.classList.toggle('hidden', !(centerModalState.first && tz));
+  showCenterMsg('');
+  updateCenterModalUi();
+  modal.classList.remove('hidden');
+  loadLeafletLazy().then(L => initCenterMap(L)).catch(() => {
+    const mapEl = document.getElementById('center-map');
+    if (mapEl) mapEl.classList.add('hidden');
+    showCenterMsg(isEn ? 'Map could not be loaded. Coordinates can still be pasted.' : 'Không tải được bản đồ. Vẫn có thể dán tọa độ.');
+  });
+  const mapElShow = document.getElementById('center-map');
+  if (mapElShow) mapElShow.classList.remove('hidden');
+  applyCenterModalGps(false);
+}
+
+async function applyCenterModalGps(forcePin) {
+  const st = centerModalState;
+  if (!st) return;
+  const pos = await probeLecturerDeviceGpsFast();
+  if (centerModalState !== st) return;
+  const c = pos && pos.coords;
+  if (!c || typeof c.latitude !== 'number' || typeof c.longitude !== 'number' || (c.latitude === 0 && c.longitude === 0)) {
+    if (forcePin) showCenterMsg(currentLang === 'en' ? 'Could not get device location.' : 'Không lấy được vị trí của máy.');
+    return;
+  }
+  st.gps = { lat: c.latitude, lng: c.longitude };
+  if (forcePin || st.lat === null) placeCenterPin(c.latitude, c.longitude, 'TEACHER_GPS', 17);
+  else updateCenterModalUi();
+}
+
+function onCenterMyLocationClick() {
+  showCenterMsg('');
+  applyCenterModalGps(true);
+}
+
+function onCenterCoordsInput(value, report) {
+  const p = parseCoordinateInput(value);
+  if (p) {
+    showCenterMsg('');
+    placeCenterPin(p.lat, p.lng, 'MANUAL', 16);
+  } else if (report && String(value || '').trim()) {
+    showCenterMsg(formatServerMessage('ERR_INVALID_COORDS'));
+  }
+}
+
+function closeCenterModal() {
+  const modal = document.getElementById('center-modal');
+  if (modal) modal.classList.add('hidden');
+  const st = centerModalState;
+  centerModalState = null;
+  if (st && st.map) { try { st.map.remove(); } catch (e) {} }
+}
+
+async function confirmCenterModal() {
+  const st = centerModalState;
+  if (!st || st.lat === null || st.busy) return;
+  const auth = getTeacherAuth();
+  if (!auth) return;
+  const isEn = currentLang === 'en';
+  st.busy = true;
+  updateCenterModalUi();
+  const payload = {
+    action: 'TEACHER_START_SESSION',
+    requestId: newTeacherRequestId(),
+    teacherToken: auth.token,
+    classId: st.classId,
+    calibrateOnly: true,
+    lat: st.lat,
+    lng: st.lng,
+    source: st.source || 'MAP'
+  };
+  const tzChk = document.getElementById('chk-center-tz');
+  if (st.first && tzChk && tzChk.checked) {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (tz) { payload.timeZone = tz; payload.confirmTimeZone = true; }
+    } catch (e) {}
+  }
+  const res = await callBackend(auth.apiUrl, payload);
+  if (centerModalState !== st) return;
+  st.busy = false;
+  if (res && res.ok) {
+    const done = st.onDone;
+    closeCenterModal();
+    showStatus(isEn ? 'Class center saved.' : 'Đã lưu tâm lớp.', 'success', 'tea-session-inline-status');
+    if (done) await done();
+    else if (typeof refreshTeacherState === 'function') refreshTeacherState(true);
+  } else {
+    showCenterMsg(formatServerMessage(res && res.code ? res.code : 'ERR_NETWORK', res && res.params, res && res.message));
+    updateCenterModalUi();
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && centerModalState) closeCenterModal();
+});
+
 async function teacherStartSession(isMakeUpConfirmed = false) {
   const auth = getTeacherAuth();
   const classId = document.getElementById('sel-tea-class').value;
@@ -1013,7 +1396,7 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
       );
     }
     showStatus(
-      useGps
+      (useGps && !(res.anchorInfo && res.anchorInfo.source === 'STUDENT_CLUSTER'))
         ? (isEn
             ? `Opened session for ${classId} (Evaluated from Lecturer location ±${gpsAccuracy}m).`
             : `Đã mở phiên lớp ${classId} (Đánh giá theo vị trí Giảng viên ±${gpsAccuracy}m).`)
@@ -1023,6 +1406,13 @@ async function executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAc
       'success',
       'tea-session-inline-status'
     );
+  } else if (res && res.code === 'ERR_CENTER_REQUIRED') {
+    hideStatus('tea-session-inline-status');
+    openCenterModal({
+      classId: classId,
+      first: true,
+      onDone: () => executeStartSessionRequest(auth, classId, useGps, lat, lng, gpsAccuracy, anchorMode, isMakeUpConfirmed)
+    });
   } else {
     showStatus(
       res && (res.code || res.message) ? formatServerMessage(res.code, res.params, res.message) : (isEn ? 'Unable to open attendance session.' : 'Không thể mở phiên điểm danh.'),
@@ -1241,8 +1631,8 @@ async function teacherControlSession(subAction, extra = {}) {
         await applyTeacherState(res, false);
         showStatus(
           isEn
-            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.10.1.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
-            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.10.1.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.11.0.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.11.0.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
           'warn',
           'tea-session-inline-status'
         );
@@ -1452,6 +1842,7 @@ function renderTeacherRoster() {
 
   if (!selectedTeacherClassId) {
     if (suspectBanner) suspectBanner.classList.add('hidden');
+    updateHeadcountBox(0);
     container.innerHTML = `<div style="padding:16px; text-align:center; color:var(--muted);">${isEn ? 'Please select a class section to view the student roster.' : 'Vui lòng chọn một lớp học phần để xem danh sách sinh viên.'}</div>`;
     return;
   }
@@ -1488,6 +1879,11 @@ function renderTeacherRoster() {
   if (tabAbsent) tabAbsent.textContent = isEn ? `Absent (${countAbsent})` : `Vắng (${countAbsent})`;
   if (tabSuspect) tabSuspect.textContent = isEn ? `Suspect (${countSuspect})` : `Nghi vấn (${countSuspect})`;
 
+  const headcountExcess = updateHeadcountBox(countPresent);
+  const orderedList = headcountExcess > 0
+    ? rankHeadcountSuspects(list, s => { const c = getStudentStatusForRoundView(s, viewMode, p2Opened); return c === 'P' || c === 'L'; })
+    : list;
+
   if (!showRosterNames && !query) {
     if (suspectBanner) suspectBanner.classList.add('hidden');
     container.innerHTML = `<div style="padding:16px; text-align:center; color:var(--muted);">${isEn ? 'Student roster is hidden on projector (Type a name or Student ID in the search box above for quick attendance).' : 'Đã ẩn danh sách sinh viên trên màn hình chiếu (Gõ họ tên hoặc mã số sinh viên ở ô tìm kiếm phía trên để điểm danh nhanh).'}</div>`;
@@ -1503,7 +1899,7 @@ function renderTeacherRoster() {
     suspectBanner.classList.add('hidden');
   }
 
-  const filtered = list.filter(s => {
+  const filtered = orderedList.filter(s => {
     const matchesSearch = foldSearchText(s.studentId).includes(query) || foldSearchText(s.fullName).includes(query);
     if (!matchesSearch) return false;
     const stCode = getStudentStatusForRoundView(s, viewMode, p2Opened);

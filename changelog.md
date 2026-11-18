@@ -2,6 +2,18 @@
 
 ## ENGLISH VERSION
 
+### Version `v3.11.0` — *Classroom Centre Picker (Map / Coordinates), Fallback Cluster Anchor & GPS Anti-Spoof Flags*
+* **Feature: Classroom Centre Picker**: the lecturer sets the classroom centre on a map (Leaflet / OpenStreetMap), from GPS, or by pasting coordinates or a Google Maps link. A class without a centre must have one set before its first session. The hard-coded IUH coordinates on class creation are removed; the optional Script Property `QR_DEFAULT_CAMPUS_LATLNG` sets a default.
+* **Feature: Lecturer GPS Guard**: lecturer GPS more than `QR_CAMPUS_MAX_M` (default 850 m) from the saved centre no longer overwrites the centre. The system falls back automatically and raises a warning.
+* **Feature: Fallback Cluster Anchor (no lecturer GPS)**: the centre is locked to a cluster of at least 3 nearby students within `QR_FALLBACK_MAX_M` (default 200 m) of the class centre. Students outside the cluster are returned absent and logged as `ANCHOR_OUTLIER_REVERTED` in `Audit_Log` (manual marks and Sheet values are not overwritten). The cluster centre applies to that session only.
+* **Feature: Headcount on Lecturer Panel**: when the fallback runs, the lecturer panel shows marked students vs. students counted, with suspicious students listed first.
+* **Anti-Spoof GPS Flags**: detects frozen GPS (`FROZEN_GPS`), round accuracy values (`ROUND_ACCURACY`) and identical 6-decimal coordinates across students (`DUPLICATE_COORDS`). Flagged students are never used as centre samples.
+* **Timezone**: read from Script Property `QR_TIMEZONE` (default: script timezone, then Asia/Ho_Chi_Minh). The lecturer timezone is saved automatically only when the system has no session yet.
+* **Audit / Tests**: new entries `CLASS_CENTER_SET` and `ANCHOR_OUTLIER_REVERTED`. New tests `test-gps-anchor.js` and `test-gps-ui.js`.
+* **Version Bump (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.11.0.text`)**:
+  * Version set to `3.11.0` (cache busters `?v=3.11.0`). Backend file renamed from `code3.10.1.text`.
+  * Backend change needs an Apps Script deploy (`New version`) to take effect.
+
 ### Version `v3.10.1` — *Run Gate for the 5-Minute Two-Way Sync Trigger (Quota Protection)*
 * **Fix / Performance: Run Gate for Sync Trigger**: the 5-minute two-way sync trigger now has a cheap run gate. It runs the full sync only when today has an attendance session (open until 3 hours after it closes), or when a class has a schedule today within [start time − 45 min, end time + 3 h]. Outside those windows it exits almost immediately without reading Drive, and runs the full sync only every 30 minutes. If there is no schedule data, it runs within 06:00–23:00.
 * **Purpose**: keeps trigger usage within the ~90 min/day quota of a standard Google account. Manual runs are not affected.
@@ -528,6 +540,18 @@
 
 ## PHIÊN BẢN TIẾNG VIỆT
 
+### Version `v3.11.0` — *Chọn Tâm Lớp Trên Bản Đồ, Khóa Tâm Dự Phòng Theo Cụm & Cờ Chống Giả GPS*
+* **Tính năng: Chọn Tâm Phòng Học**: giảng viên đặt tâm phòng học trên bản đồ (Leaflet / OpenStreetMap), bằng GPS, hoặc dán tọa độ / link Google Maps. Lớp chưa có tâm phải đặt tâm trước phiên đầu tiên. Đã bỏ tọa độ IUH cài cứng khi tạo lớp; Script Property tùy chọn `QR_DEFAULT_CAMPUS_LATLNG` đặt giá trị mặc định.
+* **Tính năng: Chặn GPS Giảng Viên Sai**: GPS giảng viên cách tâm đã lưu quá `QR_CAMPUS_MAX_M` (mặc định 850 m) không còn ghi đè tâm lớp. Hệ thống tự chuyển sang dự phòng và hiện cảnh báo.
+* **Tính năng: Khóa Tâm Dự Phòng Theo Cụm (không có GPS giảng viên)**: tâm được khóa theo cụm ít nhất 3 sinh viên gần nhau, trong `QR_FALLBACK_MAX_M` (mặc định 200 m) quanh tâm lớp. Sinh viên ngoài cụm bị trả về vắng và ghi `ANCHOR_OUTLIER_REVERTED` vào `Audit_Log` (không đè điểm chấm tay hay giá trị trên Sheet). Tâm theo cụm chỉ dùng cho buổi đó.
+* **Tính năng: Đếm Đầu Người Trên Bảng Giảng Viên**: khi chạy dự phòng, bảng giảng viên hiển thị số đã điểm danh so với số đếm được, xếp sinh viên đáng ngờ lên đầu.
+* **Cờ Chống Giả GPS**: phát hiện GPS đứng yên (`FROZEN_GPS`), sai số tròn lặp (`ROUND_ACCURACY`) và trùng tọa độ 6 số lẻ giữa các sinh viên (`DUPLICATE_COORDS`). Sinh viên bị gắn cờ không được dùng làm mẫu tâm.
+* **Múi giờ**: đọc từ Script Property `QR_TIMEZONE` (mặc định múi giờ script, rồi Asia/Ho_Chi_Minh). Chỉ tự lưu múi giờ giảng viên khi hệ thống chưa có phiên nào.
+* **Audit / Kiểm thử**: thêm mục `CLASS_CENTER_SET` và `ANCHOR_OUTLIER_REVERTED`. Thêm test `test-gps-anchor.js` và `test-gps-ui.js`.
+* **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.11.0.text`)**:
+  * Phiên bản đặt thành `3.11.0` (cache buster `?v=3.11.0`). File backend đổi tên từ `code3.10.1.text`.
+  * Thay đổi Backend cần deploy Apps Script (`New version`) mới có hiệu lực.
+
 ### Version `v3.10.1` — *Cổng Chạy Nhanh Cho Trigger Đồng Bộ Hai Chiều 5 Phút (Giữ Hạn Mức)*
 * **Sửa Lỗi / Hiệu Năng: Cổng Chạy Cho Trigger Đồng Bộ**: trigger đồng bộ hai chiều 5 phút nay có cổng chạy nhẹ. Chỉ chạy đầy đủ khi hôm nay có phiên điểm danh (mở đến 3 giờ sau khi phiên đóng), hoặc lớp có lịch hôm nay trong khoảng [giờ bắt đầu − 45 phút, giờ kết thúc + 3 giờ]. Ngoài các khoảng đó, trigger thoát gần như ngay mà không đọc Drive, và chỉ chạy đầy đủ mỗi 30 phút. Nếu không có dữ liệu lịch, trigger chạy trong khung 06:00–23:00.
 * **Mục đích**: giữ mức dùng trigger trong hạn mức ~90 phút/ngày của tài khoản Google thường. Chạy tay không bị ảnh hưởng.
@@ -1035,14 +1059,14 @@
 ### Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.10.1`)
+## Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.11.0`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.10.1` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.11.0` |
 | :--- | :--- | :--- |
-| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.10.1`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
+| **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.11.0`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), 100% Centered Floating Confirmation Popups (`#confirm-modal`), Clean Non-AI Utilitarian Buttons, 5-Second Undo Bar (Immediate on Manual Marks), 6-Second Auto-Dismiss Success Notices, `role="dialog"` Focus-Managed Modals, Official Attendance Score & `CẤM THI`** |
 | **Daily Check-In / Điểm danh** | Camera QR Scan / Quét QR bắt buộc | **Round 1 (`1-Tap GPS`) + Round 2 Spot-Check (`1-Tap GPS` or `10s Rotating PIN` with `+600ms` Lead, `PIN_GRACE_MS = 2500`, `reqArrivalMs` & Instant `0ms` 1-Tap Switch) + `L -> P` Upgrade** |
-| **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Default Lecturer GPS (`TEACHER_GPS` $\le 150\text{m}$ + Indoor Wi-Fi/Cell Fallback) + Discreet Fallback GPS Mode (`STUDENT_AVG_3` without stale-coordinate lockout)** |
+| **Room Center / Tâm phòng học** | Static coordinates / Tọa độ phòng cố định | **Map / GPS / Coordinate Centre Picker (required before first session) + Lecturer GPS Guard (`QR_CAMPUS_MAX_M`, no overwrite beyond 850 m) + Fallback Cluster Anchor (`STUDENT_AVG_3`: at least 3 students within `QR_FALLBACK_MAX_M` = 200 m, outliers reverted)** |
 | **Class Selection / Chọn lớp học** | Manual selection / Chọn lớp thủ công | **Real-Time Auto-Select (`Class_Name` Multi-Day `(10-12 T2&6)` + Backend Open-Session Auto-Fallback)** |
 | **API Endpoint / Kết nối Máy chủ** | Manual URL setup / Dán link thủ công | **Default `INST_KfweyxZcv4` Endpoint + In-Place Automated `clasp` Deployment (`appscript-deploy`)** |
 | **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **Authoritative In-Lock Session Re-Check (no stale-cache check-ins) + Centered Floating Confirmations (`0ms` Busy Lock) + `TEMP_PC_CODE` Preserved on `CLOSE_NOW` + Unified `+2 Phút` (`EXTEND_2M`) + `manualMarkSeqByStudent` Anti-Overwrite** |
@@ -1050,4 +1074,4 @@
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Global 30-Strike Lecturer Code Lockout + Fail-Closed GPS Validation + Master Key Kept Off Third-Party QR URLs + PING Device-Credential Gate + Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
 | **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Two-Way Sync Within ~5 Min (`_Sync_Base`, Cell-Level Push, Sheet Wins Conflicts) + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |
 | **Attendance Rules / Quy chế chuyên cần** | Fixed IUH formula / Công thức IUH cố định | **Per-class rules (`CLASS_RULES_V1`) with presets, detailed editor, preview before save, JSON import/export (`presets.json`), `OFF` mode without exam ban; strict validation (`ERR_INVALID_RULES`); Sync reads marks by configured custom symbols/colors incl. Present colour (v3.9.2)** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.10.1`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.11.0`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
