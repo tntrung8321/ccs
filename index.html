@@ -12,7 +12,7 @@
   <title>ClassCheck — Hệ Thống Điểm Danh Định Vị</title>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.11.1" />
+  <link rel="stylesheet" href="css/styles.css?v=3.12.0" />
 </head>
 <body>
 
@@ -409,6 +409,8 @@
                   </div>
                 </div>
 
+                <div id="slot-center-btn-main" class="no-print" style="text-align:right;"></div>
+
                 <!-- SUBTLE TEXT LINK UNDER OPEN SESSION BUTTON (MATCHING STUDENT ADVANCED SETTINGS STYLE) -->
                 <div style="margin-top:6px; text-align:right;" class="no-print">
                   <a href="javascript:void(0)" id="btn-toggle-adv-gps" style="font-size:0.75rem; color:var(--muted); text-decoration:none;" onclick="toggleTeacherAdvGpsBox()" data-i18n="tea_adv_gps_link">
@@ -424,7 +426,9 @@
                   <div id="tea-gps-anchor-hint" style="font-size:0.72rem; color:var(--muted); margin-top:4px; line-height:1.35;">
                     Mặc định: Đánh giá khoảng cách theo vị trí của Giảng viên (Tự động chuyển sang chế độ dự phòng nếu thiết bị Giảng viên không có định vị GPS).
                   </div>
-                  <button type="button" id="btn-open-center-modal" class="btn btn-outline btn-sm" style="margin-top:6px;" onclick="openCenterModalForSelectedClass()" data-i18n="tea_set_center_btn">Đặt tâm lớp</button>
+                  <div id="slot-center-btn-adv">
+                    <button type="button" id="btn-open-center-modal" class="btn btn-outline btn-sm" style="margin-top:6px;" onclick="openCenterModalForSelectedClass()" data-i18n="tea_set_center_btn">Đặt tâm lớp</button>
+                  </div>
                 </div>
 
                 <div class="btn-row" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border-subtle); flex-wrap:wrap;">
@@ -577,9 +581,9 @@
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/attendance-rules.js?v=3.11.1"></script>
-  <script src="js/schedule-config.js?v=3.11.1"></script>
-  <script src="js/student.js?v=3.11.1"></script>
-  <script src="js/teacher.js?v=3.11.1"></script>
+  <script src="js/attendance-rules.js?v=3.12.0"></script>
+  <script src="js/schedule-config.js?v=3.12.0"></script>
+  <script src="js/student.js?v=3.12.0"></script>
+  <script src="js/teacher.js?v=3.12.0"></script>
 </body>
 </html>

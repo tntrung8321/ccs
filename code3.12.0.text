@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.11.1)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.12.0)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.11.1';
+const SYSTEM_VERSION = '3.12.0';
 const TIMEZONE = (function () {
   const candidates = [];
   try { candidates.push(PropertiesService.getScriptProperties().getProperty('QR_TIMEZONE')); } catch (e) {}
@@ -1163,7 +1163,7 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
   } catch (e) {}
 
   if (!anchorState && !isValidLatLng_(Number(activeSession.roomLat), Number(activeSession.roomLng)) && isCenterKnown_(classConfig)) {
-    anchorState = buildFallbackAnchor_(classConfig);
+    anchorState = buildFallbackAnchor_(classConfig, null, ss);
     try { cache.put(anchorKey, JSON.stringify(anchorState), 7200); } catch (e) {}
   }
 
@@ -1176,16 +1176,22 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
   let rawDist = Math.round(calculateHaversineMeters(lat, lng, activeSession.roomLat, activeSession.roomLng));
   let effectiveDist = safeEffectiveDist_(rawDist, accuracyAllowance);
 
-  const campusReject = st => {
+  const campusPoints = st => {
+    const pts = [];
     let cLat = Number(st && st.campusLat), cLng = Number(st && st.campusLng);
     if (!isValidLatLng_(cLat, cLng)) {
       cLat = Number(classConfig && classConfig.roomLat);
       cLng = Number(classConfig && classConfig.roomLng);
     }
-    if (!isValidLatLng_(cLat, cLng)) return null;
+    if (isValidLatLng_(cLat, cLng)) pts.push({ lat: cLat, lng: cLng });
+    return pts.concat(getAnchorPoints_(null, st && st.places));
+  };
+  const campusReject = st => {
+    const pts = campusPoints(st);
+    if (pts.length === 0) return null;
     const maxM = Number(st && st.fallbackMaxM) > 0 ? Number(st.fallbackMaxM)
       : (Number(st && st.maxCampusMeters) > 0 ? Number(st.maxCampusMeters) : getCampusMaxM_());
-    const d = Math.round(calculateHaversineMeters(lat, lng, cLat, cLng));
+    const d = Math.round(nearestAnchorPoint_(lat, lng, pts).distM);
     if (safeEffectiveDist_(d, accuracyAllowance) <= maxM) return null;
     return { ok: false, code: 'ERR_LOCATION_OUT_OF_RANGE', params: { dist: d, max: maxM, acc: Math.round(accuracy) } };
   };
@@ -1195,6 +1201,16 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
     if (preCampus) {
       cache.remove(spamKey);
       return jsonResponse(preCampus);
+    }
+  } else if (anchorState && anchorState.mode === 'DUAL') {
+    const dn = nearestDualCandidate_(anchorState, lat, lng);
+    if (!dn || safeEffectiveDist_(dn.dist, accuracyAllowance) > activeSession.radiusMeters) {
+      cache.remove(spamKey);
+      return jsonResponse({
+        ok: false,
+        code: 'ERR_LOCATION_OUT_OF_RANGE',
+        params: { dist: dn ? dn.dist : rawDist, max: activeSession.radiusMeters, acc: Math.round(accuracy) }
+      });
     }
   } else if (effectiveDist > activeSession.radiusMeters) {
     cache.remove(spamKey);
@@ -1320,9 +1336,10 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
       if (isSample && !alreadySampled && anchorState.samples.length < 8) {
         anchorState.samples.push({ studentId: studentId, lat: lat, lng: lng });
         let cluster = findAnchorCluster_(anchorState.samples, activeSession.radiusMeters, 3, { lat: anchorState.campusLat, lng: anchorState.campusLng });
-        if (cluster && isCenterKnown_({ roomLat: anchorState.campusLat, roomLng: anchorState.campusLng })) {
+        const clusterPts = campusPoints(anchorState);
+        if (cluster && clusterPts.length > 0) {
           const fbMax = Number(anchorState.fallbackMaxM) > 0 ? Number(anchorState.fallbackMaxM) : getFallbackMaxM_();
-          if (calculateHaversineMeters(cluster.lat, cluster.lng, Number(anchorState.campusLat), Number(anchorState.campusLng)) > fbMax) cluster = null;
+          if (nearestAnchorPoint_(cluster.lat, cluster.lng, clusterPts).distM > fbMax) cluster = null;
         }
         if (cluster) {
           anchorState.mode = 'LOCKED';
@@ -1359,6 +1376,66 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
           }
         } else {
           if (anchorState.samples.length >= 8) anchorState.noCluster = true;
+          try { cache.put(anchorKey, JSON.stringify(anchorState), 7200); } catch (e) {}
+        }
+      }
+    } else if (anchorState && anchorState.mode === 'DUAL') {
+      if (!Array.isArray(anchorState.provisional)) anchorState.provisional = [];
+      if (!anchorState.votes || typeof anchorState.votes !== 'object') anchorState.votes = {};
+      const dn = nearestDualCandidate_(anchorState, lat, lng);
+      rawDist = dn ? dn.dist : rawDist;
+      effectiveDist = safeEffectiveDist_(rawDist, accuracyAllowance);
+      if (!dn || effectiveDist > activeSession.radiusMeters) {
+        return jsonResponse({
+          ok: false,
+          code: 'ERR_LOCATION_OUT_OF_RANGE',
+          params: { dist: rawDist, max: activeSession.radiusMeters, acc: Math.round(accuracy) }
+        });
+      }
+      const isVote = accuracy <= 100 && !(clientMeta && clientMeta.mockGpsSuspect) && suspectReasons.length === 0;
+      if (isVote) {
+        Object.keys(anchorState.votes).forEach(k => {
+          anchorState.votes[k] = (anchorState.votes[k] || []).filter(x => x !== studentId);
+        });
+        if (!Array.isArray(anchorState.votes[dn.idx])) anchorState.votes[dn.idx] = [];
+        anchorState.votes[dn.idx].push(studentId);
+        if (anchorState.votes[dn.idx].length >= 3) {
+          const win = anchorState.candidates[dn.idx];
+          const members = anchorState.votes[dn.idx].slice();
+          const toRevert = anchorState.provisional.filter(p => {
+            const d = calculateHaversineMeters(p.lat, p.lng, win.lat, win.lng);
+            return safeEffectiveDist_(d, Math.min(Math.max(0, Number(p.accuracy) || 0), 50)) > activeSession.radiusMeters;
+          });
+          const isTeacherWin = win.kind === 'TEACHER_GPS';
+          anchorState.mode = 'LOCKED';
+          anchorState.source = isTeacherWin ? 'TEACHER_GPS' : 'STUDENT_CLUSTER';
+          anchorState.centerSource = 'DUAL';
+          anchorState.lat = win.lat;
+          anchorState.lng = win.lng;
+          anchorState.clusterSize = members.length;
+          anchorState.confirmedBy = members;
+          anchorState.pendingPlace = false;
+          anchorState.persisted = false;
+          anchorState.provisional = [];
+          anchorState.votes = {};
+          anchorState.revertedCount = Number(anchorState.revertedCount || 0) + toRevert.length;
+          if (!isCenterKnown_(classConfig) || calculateHaversineMeters(win.lat, win.lng, classConfig.roomLat, classConfig.roomLng) > 1) {
+            anchorState.persisted = persistClassCenter_(ss, cache, classConfig, classId, win.lat, win.lng, 'AUTO_CONFIRMED',
+              '(' + (isTeacherWin ? 'teacher GPS' : 'verified place') + ' confirmed by ' + members.length + ' students)');
+          }
+          try { cache.put(anchorKey, JSON.stringify(anchorState), 7200); } catch (e) {}
+          activeSession.roomLat = win.lat;
+          activeSession.roomLng = win.lng;
+          try {
+            if (activeSession.rowIndex) {
+              ss.getSheetByName(TAB_SESSIONS).getRange(activeSession.rowIndex, 8, 1, 2).setValues([[win.lat, win.lng]]);
+            }
+            cache.removeAll(['ALL_LATEST_SES_V373', 'ALL_LATEST_SES_V35']);
+          } catch (e) {}
+          revertProvisionalCheckins_(ss, cache, activeSession, classId, toRevert, win);
+          rawDist = Math.round(calculateHaversineMeters(lat, lng, win.lat, win.lng));
+          effectiveDist = safeEffectiveDist_(rawDist, accuracyAllowance);
+        } else {
           try { cache.put(anchorKey, JSON.stringify(anchorState), 7200); } catch (e) {}
         }
       }
@@ -1450,10 +1527,26 @@ function handleStudentCheckIn(ss, body, reqArrivalMs) {
         if (anchorState && anchorState.mode === 'COLLECTING_AVG_3') {
           anchorState.samples = (anchorState.samples || []).filter(s => s.studentId !== dupWith);
         }
+        if (anchorState && anchorState.mode === 'DUAL' && anchorState.votes) {
+          Object.keys(anchorState.votes).forEach(k => { anchorState.votes[k] = (anchorState.votes[k] || []).filter(x => x !== dupWith); });
+        }
+        if (anchorState && anchorState.mode === 'LOCKED' && Array.isArray(anchorState.confirmedBy) && !anchorState.persisted) {
+          anchorState.confirmedBy = anchorState.confirmedBy.filter(x => x !== dupWith);
+        }
       }
       if (Object.keys(coordsRegistry).length <= 300) cache.put(coordsKey, JSON.stringify(coordsRegistry), 7200);
       cache.remove('ANCHOR_REV_' + activeSession.sessionId + '_' + studentId);
-      if (anchorState && anchorState.mode === 'COLLECTING_AVG_3') {
+      if (anchorState && anchorState.mode === 'LOCKED' && anchorState.pendingPlace && !anchorState.persisted &&
+          accuracy <= 100 && !(clientMeta && clientMeta.mockGpsSuspect) && suspectReasons.length === 0) {
+        if (!Array.isArray(anchorState.confirmedBy)) anchorState.confirmedBy = [];
+        if (anchorState.confirmedBy.indexOf(studentId) === -1) anchorState.confirmedBy.push(studentId);
+        if (anchorState.confirmedBy.length >= 3) {
+          anchorState.persisted = persistClassCenter_(ss, cache, classConfig, classId, Number(anchorState.lat), Number(anchorState.lng), 'AUTO_CONFIRMED',
+            '(' + (anchorState.centerSource || 'TEACHER_GPS') + ' confirmed by ' + anchorState.confirmedBy.length + ' students)');
+        }
+        cache.put(anchorKey, JSON.stringify(anchorState), 7200);
+      }
+      if (anchorState && (anchorState.mode === 'COLLECTING_AVG_3' || anchorState.mode === 'DUAL')) {
         if (!Array.isArray(anchorState.provisional)) anchorState.provisional = [];
         anchorState.provisional.push({
           studentId: studentId, attendanceId: attendanceId, requestId: requestId, status: status,
@@ -1776,7 +1869,7 @@ function handleTeacherGetState(ss, body) {
       if (sessionInfo.isOpen) {
         anchorStateForRoster = getSessionAnchorState_(sessionInfo.sessionId);
         sessionInfo.anchorInfo = buildAnchorInfo_(sessionInfo, anchorStateForRoster);
-        if (anchorStateForRoster && anchorStateForRoster.mode === 'COLLECTING_AVG_3' && Array.isArray(anchorStateForRoster.provisional)) {
+        if (anchorStateForRoster && (anchorStateForRoster.mode === 'COLLECTING_AVG_3' || anchorStateForRoster.mode === 'DUAL') && Array.isArray(anchorStateForRoster.provisional)) {
           anchorStateForRoster.provisional.forEach(pv => { provisionalSet[pv.studentId] = true; });
         }
       }
@@ -1839,6 +1932,7 @@ function handleTeacherGetState(ss, body) {
     classSchedules: scheduleMetaMap,
     selectedClassId: selectedId,
     classCenter: (selectedId && isCenterKnown_(classes[selectedId])) ? { lat: classes[selectedId].roomLat, lng: classes[selectedId].roomLng } : null,
+    classPlacesCount: selectedId ? (function () { try { return getVerifiedPlaces_(ss, selectedId).length; } catch (e) { return 0; } })() : 0,
     round2OpenedToday: round2OpenedToday,
     activeSession: sessionInfo,
     activeGroupSplit: selectedId ? getActiveGroupSplitForClass_(selectedId) : null,
@@ -1879,25 +1973,35 @@ function handleTeacherStartSessionLocked_(ss, body) {
       if (!isValidLatLng_(phoneLat, phoneLng)) return jsonResponse({ ok: false, code: 'ERR_INVALID_COORDS' });
       const calSource = centerSource === 'MAP' || centerSource === 'TEACHER_GPS' || centerSource === 'MANUAL'
         ? centerSource : (centerSource ? 'MANUAL' : 'TEACHER_GPS');
-      ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[phoneLat, phoneLng]]);
-      const latestSes = getLatestSessionForDashboard(ss, classId, true);
-      if (latestSes && latestSes.rowIndex) {
-        ss.getSheetByName(TAB_SESSIONS).getRange(latestSes.rowIndex, 8, 1, 2).setValues([[phoneLat, phoneLng]]);
+      const hadCenter = isCenterKnown_(cfg);
+      if (hadCenter && !existingOpen) return jsonResponse({ ok: false, code: 'ERR_NO_SESSION' });
+      let pendingNewPlace = false;
+      if (!hadCenter) {
+        ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[phoneLat, phoneLng]]);
+        try { cache.remove('PLACES_' + classId); } catch (e) {}
+      } else {
+        const calNear = nearestAnchorPoint_(phoneLat, phoneLng, getAnchorPoints_(cfg, getVerifiedPlaces_(ss, classId)));
+        pendingNewPlace = !calNear || calNear.distM > getFallbackMaxM_();
       }
       if (existingOpen) {
+        ss.getSheetByName(TAB_SESSIONS).getRange(existingOpen.rowIndex, 8, 1, 2).setValues([[phoneLat, phoneLng]]);
         try {
           cache.put('SES_ANCHOR_' + existingOpen.sessionId, JSON.stringify({
             mode: 'LOCKED',
             lat: phoneLat,
             lng: phoneLng,
             source: 'TEACHER_GPS',
-            centerSource: calSource
+            centerSource: calSource,
+            pendingPlace: pendingNewPlace,
+            confirmedBy: [],
+            persisted: false
           }), 7200);
           cache.remove('SES_REJ_' + existingOpen.sessionId);
+          cache.removeAll(['ALL_LATEST_SES_V373', 'ALL_LATEST_SES_V35']);
         } catch (e) {}
       }
       if (body.confirmTimeZone === true) saveTimeZoneIfMissing_(body.timeZone, ss);
-      logAudit(ss, 'TEACHER_APP', 'CLASS_CENTER_SET', classId, calSource + ' ' + phoneLat.toFixed(6) + ',' + phoneLng.toFixed(6) + (isCenterKnown_(cfg) ? ' (cách tâm cũ ' + Math.round(calculateHaversineMeters(phoneLat, phoneLng, cfg.roomLat, cfg.roomLng)) + 'm)' : ' (tâm đầu tiên)'));
+      logAudit(ss, 'TEACHER_APP', 'CLASS_CENTER_SET', classId, calSource + ' ' + phoneLat.toFixed(6) + ',' + phoneLng.toFixed(6) + (hadCenter ? ' (session-only, cách tâm cũ ' + Math.round(calculateHaversineMeters(phoneLat, phoneLng, cfg.roomLat, cfg.roomLng)) + 'm)' : ' (tâm đầu tiên)'));
       invalidateClassCache(classId);
       markTeacherReqDone_(body);
       return { __defer: true, rebuild: false, classId: classId, stateBody: { classId: classId } };
@@ -1906,59 +2010,67 @@ function handleTeacherStartSessionLocked_(ss, body) {
     if (!isCenterKnown_(cfg)) return jsonResponse({ ok: false, code: 'ERR_CENTER_REQUIRED' });
 
     let hasTeacherGps = usePhoneGps && isValidLatLng_(phoneLat, phoneLng) && anchorMode !== 'STUDENT_AVG_3' && anchorMode !== 'CAMPUS_CLUSTER';
-    let farWarning = null;
+    let teacherPlan = null;
     if (hasTeacherGps) {
-      const teacherToCenterM = Math.round(calculateHaversineMeters(phoneLat, phoneLng, cfg.roomLat, cfg.roomLng));
-      if (teacherToCenterM > getCampusMaxM_()) {
-        hasTeacherGps = false;
-        farWarning = { code: 'TEACHER_GPS_FAR', distM: teacherToCenterM };
-      }
+      teacherPlan = classifyTeacherGps_(cfg, getVerifiedPlaces_(ss, classId), Number(phoneLat), Number(phoneLng), Number(body.gpsAccuracy));
+      if (teacherPlan.zone === 'POOR_FAR') hasTeacherGps = false;
     }
+    const dualMode = hasTeacherGps && teacherPlan.zone === 'FAR';
+    const nearZone = hasTeacherGps && teacherPlan.zone === 'NEAR';
+    const teacherAnchorExtra = { pendingPlace: hasTeacherGps && teacherPlan.zone === 'MID', confirmedBy: [], persisted: false };
+    const applyNearCenter = () => {
+      if (!teacherPlan || !teacherPlan.good) return;
+      const oldCentreM = isCenterKnown_(cfg) ? calculateHaversineMeters(phoneLat, phoneLng, cfg.roomLat, cfg.roomLng) : Infinity;
+      ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[phoneLat, phoneLng]]);
+      if (oldCentreM > getFallbackMaxM_()) {
+        try { logAudit(ss, 'TEACHER_APP', 'CLASS_CENTER_SET', classId, 'TEACHER_GPS ' + phoneLat.toFixed(6) + ',' + phoneLng.toFixed(6) + ' (near verified place, cách tâm cũ ' + Math.round(oldCentreM) + 'm)'); } catch (e) {}
+      }
+      try { cache.remove('PLACES_' + classId); } catch (e) {}
+    };
 
     if (existingOpen) {
-      if (hasTeacherGps) {
-        ss.getSheetByName(TAB_SESSIONS).getRange(existingOpen.rowIndex, 8, 1, 2).setValues([[phoneLat, phoneLng]]);
-        if (calculateHaversineMeters(phoneLat, phoneLng, cfg.roomLat, cfg.roomLng) <= getFallbackMaxM_()) {
-          ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[phoneLat, phoneLng]]);
+      if (dualMode) {
+        const curAnchor = getSessionAnchorState_(existingOpen.sessionId);
+        if (!curAnchor || curAnchor.mode !== 'DUAL') {
+          try {
+            cache.put('SES_ANCHOR_' + existingOpen.sessionId, JSON.stringify(buildDualAnchor_(cfg, getVerifiedPlaces_(ss, classId), phoneLat, phoneLng, {
+              provisional: curAnchor && Array.isArray(curAnchor.provisional) ? curAnchor.provisional : []
+            })), 7200);
+            cache.remove('SES_REJ_' + existingOpen.sessionId);
+          } catch (e) {}
         }
+      } else if (hasTeacherGps) {
+        ss.getSheetByName(TAB_SESSIONS).getRange(existingOpen.rowIndex, 8, 1, 2).setValues([[phoneLat, phoneLng]]);
+        if (nearZone) applyNearCenter();
         try {
-          cache.put('SES_ANCHOR_' + existingOpen.sessionId, JSON.stringify({
+          cache.put('SES_ANCHOR_' + existingOpen.sessionId, JSON.stringify(Object.assign({
             mode: 'LOCKED',
             lat: phoneLat,
             lng: phoneLng,
             source: 'TEACHER_GPS'
-          }), 7200);
+          }, teacherAnchorExtra)), 7200);
           cache.remove('SES_REJ_' + existingOpen.sessionId);
         } catch (e) {}
         invalidateClassCache(classId);
       } else if (anchorMode === 'STUDENT_AVG_3') {
         ss.getSheetByName(TAB_SESSIONS).getRange(existingOpen.rowIndex, 8, 1, 2).setValues([[cfg.roomLat, cfg.roomLng]]);
         try {
-          cache.put('SES_ANCHOR_' + existingOpen.sessionId, JSON.stringify(buildFallbackAnchor_(cfg)), 7200);
+          cache.put('SES_ANCHOR_' + existingOpen.sessionId, JSON.stringify(buildFallbackAnchor_(cfg, null, ss)), 7200);
           cache.remove('SES_REJ_' + existingOpen.sessionId);
           cache.removeAll(['ALL_LATEST_SES_V373', 'ALL_LATEST_SES_V35']);
         } catch (e) {}
-      } else if (farWarning) {
-        try {
-          const curAnchor = getSessionAnchorState_(existingOpen.sessionId) || buildFallbackAnchor_(cfg);
-          curAnchor.warning = farWarning;
-          cache.put('SES_ANCHOR_' + existingOpen.sessionId, JSON.stringify(curAnchor), 7200);
-        } catch (e) {}
       }
-      if (hasTeacherGps || farWarning || anchorMode === 'STUDENT_AVG_3') markTeacherReqDone_(body);
+      if (hasTeacherGps || anchorMode === 'STUDENT_AVG_3') markTeacherReqDone_(body);
       return { __defer: true, rebuild: false, classId: classId, stateBody: { classId: classId } };
     }
 
     let roomLat = cfg.roomLat;
     let roomLng = cfg.roomLng;
 
-    if (hasTeacherGps) {
+    if (hasTeacherGps && !dualMode) {
       roomLat = phoneLat;
       roomLng = phoneLng;
-      if (calculateHaversineMeters(phoneLat, phoneLng, cfg.roomLat, cfg.roomLng) <= getFallbackMaxM_()) {
-        const clSheet = ss.getSheetByName(TAB_CLASSES);
-        clSheet.getRange(cfg.rowIndex, 4, 1, 2).setValues([[roomLat, roomLng]]);
-      }
+      if (nearZone) applyNearCenter();
     }
 
     const nowMs = Date.now();
@@ -2005,15 +2117,17 @@ function handleTeacherStartSessionLocked_(ss, body) {
     ]);
 
     try {
-      if (hasTeacherGps) {
-        cache.put('SES_ANCHOR_' + sessionId, JSON.stringify({
+      if (dualMode) {
+        cache.put('SES_ANCHOR_' + sessionId, JSON.stringify(buildDualAnchor_(cfg, getVerifiedPlaces_(ss, classId), phoneLat, phoneLng)), 7200);
+      } else if (hasTeacherGps) {
+        cache.put('SES_ANCHOR_' + sessionId, JSON.stringify(Object.assign({
           mode: 'LOCKED',
           lat: roomLat,
           lng: roomLng,
           source: 'TEACHER_GPS'
-        }), 7200);
+        }, teacherAnchorExtra)), 7200);
       } else {
-        cache.put('SES_ANCHOR_' + sessionId, JSON.stringify(buildFallbackAnchor_(cfg, farWarning ? { warning: farWarning } : null)), 7200);
+        cache.put('SES_ANCHOR_' + sessionId, JSON.stringify(buildFallbackAnchor_(cfg, null, ss)), 7200);
       }
     } catch (e) {}
 
@@ -2128,6 +2242,7 @@ function handleTeacherControlSessionLocked_(ss, body) {
         cacheKeysToClear.push('SES_ATT_MAP_V36_' + sid);
         cacheKeysToClear.push('SES_ANCHOR_' + sid);
       });
+      cacheKeysToClear.push('PLACES_' + classId);
       if (cacheKeysToClear.length > 0) cache.removeAll(cacheKeysToClear);
     } catch (e) {}
     invalidateSessionAttendanceMaps_(data.map(r => r[0]));
@@ -2218,7 +2333,7 @@ function handleTeacherControlSessionLocked_(ss, body) {
       if (p1AnchorRaw && p1AnchorMode === 'LOCKED') {
         cache.put('SES_ANCHOR_' + p2SessionId, p1AnchorRaw, 7200);
       } else if (p1AnchorRaw && isCenterKnown_(cfg)) {
-        cache.put('SES_ANCHOR_' + p2SessionId, JSON.stringify(buildFallbackAnchor_(cfg)), 7200);
+        cache.put('SES_ANCHOR_' + p2SessionId, JSON.stringify(buildFallbackAnchor_(cfg, null, ss)), 7200);
       } else if (roomLat && roomLng) {
         cache.put('SES_ANCHOR_' + p2SessionId, JSON.stringify({
           mode: 'LOCKED',
@@ -2227,7 +2342,7 @@ function handleTeacherControlSessionLocked_(ss, body) {
           source: 'P1_INHERITED'
         }), 7200);
       } else {
-        cache.put('SES_ANCHOR_' + p2SessionId, JSON.stringify(buildFallbackAnchor_(cfg)), 7200);
+        cache.put('SES_ANCHOR_' + p2SessionId, JSON.stringify(buildFallbackAnchor_(cfg, null, ss)), 7200);
       }
     } catch (e) {}
 
@@ -4238,7 +4353,9 @@ function getDefaultCampusLatLng_() {
   return null;
 }
 
-function buildFallbackAnchor_(cfg, extra) {
+function buildFallbackAnchor_(cfg, extra, ss) {
+  let places = [];
+  try { if (ss && cfg && cfg.classId) places = getVerifiedPlaces_(ss, cfg.classId); } catch (e) {}
   return Object.assign({
     mode: 'COLLECTING_AVG_3',
     source: 'STUDENT_CLUSTER',
@@ -4246,9 +4363,123 @@ function buildFallbackAnchor_(cfg, extra) {
     campusLng: Number(cfg && cfg.roomLng),
     maxCampusMeters: getCampusMaxM_(),
     fallbackMaxM: getFallbackMaxM_(),
+    places: places,
     samples: [],
     provisional: []
   }, extra || {});
+}
+
+function getVerifiedPlaces_(ss, classId, bypassCache) {
+  const cache = CacheService.getScriptCache();
+  const key = 'PLACES_' + classId;
+  if (!bypassCache) {
+    try {
+      const raw = cache.get(key);
+      if (raw) { const cached = JSON.parse(raw); if (Array.isArray(cached)) return cached; }
+    } catch (e) {}
+  }
+  let places = [];
+  try {
+    const sesSheet = ss.getSheetByName(TAB_SESSIONS);
+    const attSheet = ss.getSheetByName(TAB_ATTEND);
+    if (sesSheet && attSheet && sesSheet.getLastRow() >= 2 && attSheet.getLastRow() >= 2) {
+      const sessions = {};
+      sesSheet.getRange(2, 1, sesSheet.getLastRow() - 1, 9).getValues().forEach(r => {
+        if (String(r[1]).trim() !== classId) return;
+        const lat = Number(r[7]), lng = Number(r[8]);
+        if (!isValidLatLng_(lat, lng)) return;
+        sessions[String(r[0]).trim()] = { lat: lat, lng: lng, openedMs: parseSheetTimeMs(r[3]) || 0, students: {}, count: 0 };
+      });
+      attSheet.getRange(2, 1, attSheet.getLastRow() - 1, 10).getValues().forEach(r => {
+        const s = sessions[String(r[2]).trim()];
+        if (!s) return;
+        const st = String(r[5]);
+        if (st !== 'P' && st !== 'L') return;
+        const src = String(r[9] || '');
+        if (src !== 'STUDENT_APP') return;
+        const sid = normalizeId(r[4]);
+        if (sid && !s.students[sid]) { s.students[sid] = true; s.count++; }
+      });
+      const merged = [];
+      Object.keys(sessions).map(k => sessions[k]).filter(s => s.count >= 3)
+        .sort((a, b) => b.openedMs - a.openedMs)
+        .forEach(s => {
+          const hit = merged.find(p => calculateHaversineMeters(p.lat, p.lng, s.lat, s.lng) <= 200);
+          if (hit) { hit.sessions++; } else merged.push({ lat: s.lat, lng: s.lng, sessions: 1, lastMs: s.openedMs });
+        });
+      places = merged.slice(0, 5);
+    }
+  } catch (e) { places = []; }
+  try { cache.put(key, JSON.stringify(places), 600); } catch (e) {}
+  return places;
+}
+
+function getAnchorPoints_(cfg, places) {
+  const pts = [];
+  if (isCenterKnown_(cfg)) pts.push({ lat: Number(cfg.roomLat), lng: Number(cfg.roomLng), isCentre: true });
+  (places || []).forEach(p => { if (isValidLatLng_(Number(p.lat), Number(p.lng))) pts.push({ lat: Number(p.lat), lng: Number(p.lng), isCentre: false }); });
+  return pts;
+}
+
+function nearestAnchorPoint_(lat, lng, pts) {
+  let best = null;
+  (pts || []).forEach(p => {
+    const d = calculateHaversineMeters(lat, lng, p.lat, p.lng);
+    if (!best || d < best.distM) best = { pt: p, distM: d };
+  });
+  return best;
+}
+
+function classifyTeacherGps_(cfg, places, lat, lng, accuracy) {
+  const good = Number.isFinite(accuracy) && accuracy > 0 && accuracy <= 100;
+  const near = nearestAnchorPoint_(lat, lng, getAnchorPoints_(cfg, good ? places : []));
+  if (!near) return { zone: good ? 'FAR' : 'POOR_FAR', nearest: null, nearestM: Infinity, good: good };
+  let zone = near.distM <= getFallbackMaxM_() ? 'NEAR' : (near.distM <= getCampusMaxM_() ? 'MID' : 'FAR');
+  if (zone === 'FAR' && !good) zone = 'POOR_FAR';
+  return { zone: zone, nearest: near.pt, nearestM: near.distM, good: good };
+}
+
+function buildDualAnchor_(cfg, places, lat, lng, extra) {
+  const candidates = [{ kind: 'TEACHER_GPS', lat: lat, lng: lng }];
+  getAnchorPoints_(cfg, places).forEach(p => {
+    if (candidates.length >= 7) return;
+    if (candidates.some(c => c.kind === 'PLACE' && calculateHaversineMeters(c.lat, c.lng, p.lat, p.lng) < 20)) return;
+    candidates.push({ kind: 'PLACE', lat: p.lat, lng: p.lng, isCentre: p.isCentre });
+  });
+  return Object.assign({
+    mode: 'DUAL',
+    source: 'TEACHER_GPS',
+    campusLat: Number(cfg && cfg.roomLat),
+    campusLng: Number(cfg && cfg.roomLng),
+    maxCampusMeters: getCampusMaxM_(),
+    fallbackMaxM: getFallbackMaxM_(),
+    candidates: candidates,
+    votes: {},
+    provisional: []
+  }, extra || {});
+}
+
+function nearestDualCandidate_(st, lat, lng) {
+  let best = null;
+  (st.candidates || []).forEach((c, idx) => {
+    const d = Math.round(calculateHaversineMeters(lat, lng, Number(c.lat), Number(c.lng)));
+    if (!best || d < best.dist) best = { idx: idx, dist: d };
+  });
+  return best;
+}
+
+function persistClassCenter_(ss, cache, cfg, classId, lat, lng, source, detail) {
+  try {
+    const hadCenter = isCenterKnown_(cfg);
+    ss.getSheetByName(TAB_CLASSES).getRange(cfg.rowIndex, 4, 1, 2).setValues([[lat, lng]]);
+    logAudit(ss, 'SYSTEM', 'CLASS_CENTER_SET', classId, source + ' ' + Number(lat).toFixed(6) + ',' + Number(lng).toFixed(6) +
+      (hadCenter ? ' (cách tâm cũ ' + Math.round(calculateHaversineMeters(lat, lng, cfg.roomLat, cfg.roomLng)) + 'm)' : ' (tâm đầu tiên)') + (detail ? ' ' + detail : ''));
+    try { cache.remove('PLACES_' + classId); } catch (e) {}
+    invalidateClassCache(classId);
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 function findAnchorCluster_(samples, radiusM, minSize, prefer) {
@@ -4311,20 +4542,31 @@ function getSessionAnchorState_(sessionId) {
 function buildAnchorInfo_(session, st) {
   if (!session || !st) return null;
   const locked = st.mode === 'LOCKED';
+  const dual = st.mode === 'DUAL';
   const info = {
     source: st.source === 'STUDENT_CLUSTER' ? 'STUDENT_CLUSTER' : 'TEACHER_GPS',
     locked: locked,
+    mode: locked ? 'LOCKED' : (dual ? 'DUAL' : 'COLLECTING'),
     provisionalCount: locked ? 0 : (Array.isArray(st.provisional) ? new Set(st.provisional.map(p => p.studentId)).size : 0),
     sampleCount: Array.isArray(st.samples) ? st.samples.length : 0,
-    revertedCount: Number(st.revertedCount || 0)
+    revertedCount: Number(st.revertedCount || 0),
+    pendingPlace: Boolean(locked && st.pendingPlace && !st.persisted)
   };
+  if (dual) {
+    info.confirmedCount = Object.keys(st.votes || {}).reduce((m, k) => Math.max(m, (st.votes[k] || []).length), 0);
+  } else if (locked) {
+    info.confirmedCount = Array.isArray(st.confirmedBy) ? st.confirmedBy.length : 0;
+  } else {
+    info.confirmedCount = info.sampleCount;
+  }
   if (st.centerSource) info.centerSource = st.centerSource;
   if (locked && Number.isFinite(Number(st.lat)) && Number.isFinite(Number(st.lng))) {
     info.lat = Number(st.lat);
     info.lng = Number(st.lng);
   }
-  let warning = st.warning && st.warning.code ? st.warning : null;
+  let warning = st.warning && st.warning.code && st.warning.code !== 'TEACHER_GPS_FAR' ? st.warning : null;
   if (!locked && st.noCluster) warning = { code: 'ANCHOR_NO_CLUSTER' };
+  if (dual) warning = { code: 'DUAL_PENDING' };
   if (locked && st.source === 'TEACHER_GPS' && !warning) {
     try {
       const rejRaw = CacheService.getScriptCache().get('SES_REJ_' + session.sessionId);
@@ -4337,6 +4579,7 @@ function buildAnchorInfo_(session, st) {
       }
     } catch (e) {}
   }
+  if (!warning && info.pendingPlace) warning = { code: 'NEW_PLACE_PENDING' };
   if (warning) info.warning = warning;
   return info;
 }

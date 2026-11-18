@@ -33,7 +33,7 @@ function extractFn(src, name) {
 
 const teaCtx = vm.createContext({});
 vm.runInContext(
-  ['parseCoordinateInput', 'haversineMeters', 'formatMetersLabel', 'computeHeadcountExcess', 'headcountSuspectKey', 'rankHeadcountSuspects']
+  ['parseCoordinateInput', 'haversineMeters', 'formatMetersLabel', 'computeHeadcountExcess', 'headcountSuspectKey', 'rankHeadcountSuspects', 'anchorPendingLine', 'centerBtnPlacement', 'centerPinFarMeters']
     .map(n => extractFn(teaSrc, n)).join('\n'),
   teaCtx
 );
@@ -204,6 +204,52 @@ check('inspectGpsForSpoofing: soft flag, never hardBlock, real device untouched'
   check('center modal opens on the saved class centre (teacherState.classCenter)', () => {
     const fn = extractFn(teaSrc, 'openCenterModal');
     ['classCenter', 'centerModalState.lat', 'inp.value'].forEach(k => assert.ok(fn.includes(k), k));
+  });
+  console.log('--- v3.12.0 (P6/P7) ---');
+  check('centre button: main only when class has no centre; adv once centre or places exist; tolerant of missing fields', () => {
+    const f = teaCtx.centerBtnPlacement;
+    assert.strictEqual(f(null, 0), 'main');
+    assert.strictEqual(f(undefined, undefined), 'main');
+    assert.strictEqual(f({ lat: 0, lng: 0 }, 0), 'main');
+    assert.strictEqual(f({ lat: 10.8, lng: 106.6 }, 0), 'adv');
+    assert.strictEqual(f({ lat: 10.8, lng: 106.6 }, undefined), 'adv');
+    assert.strictEqual(f(null, 1), 'adv');
+    assert.strictEqual(f({ lat: 10.8, lng: 106.6 }, 3), 'adv');
+  });
+  check('centre button slots exist in index.html and are wired in the state render', () => {
+    assert.ok(html.includes('id="slot-center-btn-main"') && html.includes('id="slot-center-btn-adv"'));
+    assert.ok(/renderAnchorAlert\(\);\s*updateCenterBtnPlacement\(\);/.test(teaSrc));
+  });
+  check('far pin (>850m from saved centre) needs a second Confirm; near/no centre does not', () => {
+    const f = teaCtx.centerPinFarMeters;
+    const c = { lat: 10.8221, lng: 106.6868 };
+    assert.strictEqual(f(null, 10.9, 106.7), null);
+    assert.strictEqual(f(c, 10.8225, 106.6870), null);
+    assert.ok(f(c, 10.9221, 106.6868) > 850);
+    assert.strictEqual(f({ lat: 0, lng: 0 }, 10.9, 106.7), null);
+    const fn = extractFn(teaSrc, 'confirmCenterModal');
+    ['centerPinFarMeters', 'farAck', 'old center', 'Cách tâm cũ', 'bấm Xác nhận lần nữa'].forEach(k => assert.ok(fn.includes(k), k));
+    assert.ok(fn.indexOf('farAck') < fn.indexOf('callBackend'), 'ack gate must precede the request');
+  });
+  check('ERR_NO_SESSION short message and session-only success text (VI/EN)', () => {
+    const fn = extractFn(teaSrc, 'confirmCenterModal');
+    ['ERR_NO_SESSION', 'Hãy mở phiên trước', 'Open a session first', 'Đã áp dụng cho phiên này.', 'Applied to this session.', 'Đã lưu tâm lớp.', 'Class center saved.']
+      .forEach(k => assert.ok(fn.includes(k), k));
+  });
+  check('anchor pending lines VI/EN with optional (x/3); other codes give nothing', () => {
+    const f = teaCtx.anchorPendingLine;
+    assert.strictEqual(f('NEW_PLACE_PENDING', undefined, false), 'Vị trí mới — chờ 3 sinh viên xác nhận');
+    assert.strictEqual(f('NEW_PLACE_PENDING', 2, false), 'Vị trí mới — chờ 3 sinh viên xác nhận (2/3)');
+    assert.strictEqual(f('NEW_PLACE_PENDING', 1, true), 'New location - waiting for 3 students to confirm (1/3)');
+    assert.strictEqual(f('DUAL_PENDING', null, false), 'Đang xác định vị trí lớp — chờ 3 sinh viên điểm danh');
+    assert.strictEqual(f('DUAL_PENDING', 0, true), 'Locating the class - waiting for 3 students to check in (0/3)');
+    assert.strictEqual(f('TEACHER_GPS_FAR', 1, false), '');
+    assert.strictEqual(f(undefined, undefined, false), '');
+  });
+  check('TEACHER_GPS_FAR no longer rendered; SUSPECT / NO_CLUSTER kept', () => {
+    const fn = extractFn(teaSrc, 'renderAnchorAlert');
+    assert.ok(!fn.includes('TEACHER_GPS_FAR'));
+    assert.ok(fn.includes('TEACHER_GPS_SUSPECT') && fn.includes('ANCHOR_NO_CLUSTER') && fn.includes('anchorPendingLine'));
   });
   check('student.js handles ANCHOR_OUTLIER_REVERTED and passes trail to inspectGpsForSpoofing', () => {
     assert.ok(stSrc.includes('ANCHOR_OUTLIER_REVERTED'));

@@ -1,8 +1,8 @@
 # QUY TẮC HỆ THỐNG CCS (CLASSCHECK SYSTEM RULES)
 
-> **Phiên bản đối chiếu hiện tại:** `v3.11.1` (Frontend UI & Backend Apps Script). Phần Backend (mục 1.2, 1.3, 2, 4, 5) đã đối chiếu với code; các mục 1.1, 3, 6, 7 (Sổ điểm danh, công thức điểm, lịch học) chưa đối chiếu lại với `sync.txt` / `js/schedule-config.js` ở v3.7.5. Riêng phần đồng bộ hai chiều ở mục 2 đã viết theo `sync.txt` v3.10.0.  
+> **Phiên bản đối chiếu hiện tại:** `v3.12.0` (Frontend UI & Backend Apps Script). Phần Backend (mục 1.2, 1.3, 2, 4, 5) đã đối chiếu với code; các mục 1.1, 3, 6, 7 (Sổ điểm danh, công thức điểm, lịch học) chưa đối chiếu lại với `sync.txt` / `js/schedule-config.js` ở v3.7.5. Riêng phần đồng bộ hai chiều ở mục 2 đã viết theo `sync.txt` v3.10.0.  
 > **Các tệp nguồn đối chiếu:**
-> - Backend Apps Script: [`code3.11.1.text`](code3.11.1.text) (tên file luôn khớp `SYSTEM_VERSION`; tham chiếu theo tên hàm, không theo số dòng vì số dòng đổi theo từng bản)
+> - Backend Apps Script: [`code3.12.0.text`](code3.12.0.text) (tên file luôn khớp `SYSTEM_VERSION`; tham chiếu theo tên hàm, không theo số dòng vì số dòng đổi theo từng bản)
 > - Script Đồng bộ Sổ Điểm danh & Master Sheet: [`sync.txt`](sync.txt)
 > - Frontend Sinh viên / Giảng viên / Lịch học: [`js/student.js`](js/student.js), [`js/teacher.js`](js/teacher.js), [`js/schedule-config.js`](js/schedule-config.js)
 > - Quy tắc Quản lý Phiên bản & Demo Giao diện: [`.agent/rules/changelog-and-versioning.md`](.agent/rules/changelog-and-versioning.md), [`.agent/rules/ui-demo-preview.md`](.agent/rules/ui-demo-preview.md)
@@ -50,7 +50,7 @@ Trên **Master Sheet**, hệ thống lưu trữ thống nhất bằng 4 mã tr�
 1. **Lọc phiên rỗng (Ghost/Test Sessions)**: Ngày nào mà tất cả các phiên mở ra đã đóng và có **`0` sinh viên có mặt/đi trễ/có phép/chấm tay** (`P = 0, L = 0, E = 0, TEACHER_MANUAL = 0`) thì coi là phiên mở nhầm/test $\rightarrow$ **Không tính là 1 buổi học đã diễn ra** và không tính vắng cho sinh viên.
    - Huỷ phiên mở nhầm (`CANCEL_MISTAKEN_SESSION`): huỷ Phiên 2 chỉ xoá đúng Phiên 2 đó và các lượt điểm danh của nó, Phiên 1 được giữ nguyên; huỷ Phiên 1 vẫn xoá cả ngày.
 2. **Gộp phiên trùng ngày (`1 ngày = 1 buổi học = 1 cột trên Sheet`)**:
-   - Trên cả Sổ Điểm danh Lớp ([`sync.txt`](sync.txt)) và Tab Lớp của Master Sheet ([`code3.11.1.text` — `buildGroupedClassDayRecords_`](code3.11.1.text)), các phiên mở cùng ngày của cùng 1 lớp được gộp thành **1 buổi duy nhất trong ngày**.
+   - Trên cả Sổ Điểm danh Lớp ([`sync.txt`](sync.txt)) và Tab Lớp của Master Sheet ([`code3.12.0.text` — `buildGroupedClassDayRecords_`](code3.12.0.text)), các phiên mở cùng ngày của cùng 1 lớp được gộp thành **1 buổi duy nhất trong ngày**.
    - Giữa các phiên trong cùng ngày:
      - Bản ghi do **Giảng viên chỉnh tay (`TEACHER_MANUAL`)** luôn có quyền cao nhất (theo lần chỉnh cuối cùng của Giảng viên, hỗ trợ cả duyệt phép `E` cho buổi học trước).
      - Trạng thái vắng (`-`) ở phiên sau **không bao giờ đè** lên trạng thái `P / E / L` mà sinh viên đã điểm danh hợp lệ ở phiên trước trong cùng ngày (xem bảng sự thật `mergeAttendance` ở mục 3 bên dưới).
@@ -128,7 +128,7 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
 
 ## 4. Quy tắc Định vị GPS & Tâm Phòng Học (`Location_Mode`)
 
-Được quy định tại `handleStudentCheckIn` và `handleTeacherStartSession` trong [`code3.11.1.text`](code3.11.1.text):
+Được quy định tại `handleStudentCheckIn` và `handleTeacherStartSession` trong [`code3.12.0.text`](code3.12.0.text):
 
 1. **Bán kính phòng học chuẩn (`Radius_Meters`)**: Mặc định **`100m`** (cấu hình trong `Classes_Config`).
 2. **Bù trừ sai số GPS trong nhà (`accuracyAllowance`)**:
@@ -138,17 +138,25 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
 3. **Không lưu đệm tọa độ cũ (`Fresh GPS Only`)**:
    - Trên thiết bị Sinh viên ([`js/student.js`](js/student.js)): `window.cachedGPS = null`, luôn gọi `navigator.geolocation.getCurrentPosition` với `enableHighAccuracy: true, maximumAge: 0`.
    - Cửa sổ dùng lại tọa độ vừa xác minh: `15s`, dùng một lần. Tọa độ đã khóa trước khi nhập PIN của Phiên 2 chỉ được nhận nếu không quá `60s`, nếu cũ hơn sẽ lấy GPS mới.
-4. **Tâm lớp & chế độ lấy tâm (`Location_Mode`, v3.11.0)**:
+4. **Tâm lớp & chế độ lấy tâm (`Location_Mode`, v3.12.0)**:
    - **Tâm lớp do giảng viên đặt** trên bản đồ (Leaflet / OpenStreetMap), bằng GPS, hoặc dán tọa độ / link Google Maps. Lớp chưa có tâm **bắt buộc** đặt tâm trước phiên đầu tiên. Không còn tọa độ IUH cài cứng; Script Property tùy chọn `QR_DEFAULT_CAMPUS_LATLNG` đặt giá trị mặc định.
-   - **GPS giảng viên** (`TEACHER_GPS`): nếu cách tâm đã lưu quá `QR_CAMPUS_MAX_M` (mặc định `850m`) thì **không ghi đè** tâm lớp; hệ thống tự chuyển sang dự phòng và cảnh báo.
-   - **Dự phòng khi không có GPS giảng viên** (`STUDENT_AVG_3`): khóa tâm theo cụm **từ 3 sinh viên trở lên** gần nhau, nằm trong `QR_FALLBACK_MAX_M` (mặc định `200m`) quanh tâm lớp. Sinh viên ngoài cụm bị trả về vắng và ghi Audit `ANCHOR_OUTLIER_REVERTED` (không đè điểm chấm tay / giá trị Sheet). Tâm theo cụm **chỉ dùng cho buổi đó**.
+   - **Địa điểm xác thực từ lịch sử**: mỗi lớp nhớ tối đa `5` nơi (các điểm trong `200m` gộp thành một) từng có **≥3 sinh viên điểm danh thật**. Chỉ tính nguồn sinh viên, không tính chấm tay hay đồng bộ Sheet. Không thêm chỗ lưu mới.
+   - **Phân loại GPS giảng viên** (`TEACHER_GPS`). GPS sai số `> 100m` hoặc thiếu sai số thì **không bao giờ** ghi vào tâm lớp.
+     - GPS tốt, cách tâm hoặc một địa điểm xác thực `≤ 200m`: khóa theo GPS và cập nhật tâm.
+     - GPS tốt, cách `200m – 850m` (`QR_CAMPUS_MAX_M`): khóa theo GPS nhưng chỉ lưu tâm mới sau khi **≥3 sinh viên xác nhận** ở nơi mới (Audit `CLASS_CENTER_SET`, nguồn `AUTO_CONFIRMED`).
+     - GPS tốt, cách `> 850m`: chế độ **DUAL**. Nhận sinh viên gần GPS giảng viên hoặc gần tâm/địa điểm đã xác thực. Khi một phía đủ 3 sinh viên thì khóa phía đó, sinh viên ở phía còn lại bị trả về vắng (không đè điểm chấm tay / Sheet). Hiển thị nhẹ `NEW_PLACE_PENDING` / `DUAL_PENDING` kèm `(x/3)`.
+     - GPS kém hoặc không có: dùng chế độ dự phòng bên dưới, không ghi tâm.
+   - **Dự phòng** (`STUDENT_AVG_3`, khi không có GPS giảng viên tốt): khóa theo cụm **từ 3 sinh viên trở lên** trong `QR_FALLBACK_MAX_M` (mặc định `200m`) quanh tâm lớp hoặc quanh một địa điểm xác thực. Sinh viên ngoài cụm bị trả về vắng và ghi Audit `ANCHOR_OUTLIER_REVERTED` (không đè điểm chấm tay / giá trị Sheet). Tâm theo cụm **chỉ dùng cho buổi đó**.
+   - **Tâm sai/cũ tự lành**: khi GPS giảng viên tốt ở gần một địa điểm xác thực, tâm lớp tự đổi về địa điểm đó.
+   - **Đặt tâm lớp bằng tay**: lớp chưa có tâm thì lưu ngay (thiết lập lần đầu); lớp đã có tâm thì chỉ áp cho phiên đang mở, lưu lâu dài khi đủ 3 sinh viên xác nhận. Ghim cách tâm cũ `> 850m` phải bấm Xác nhận hai lần.
+   - **Hủy phiên mở nhầm** không đổi tâm lớp.
    - Sinh viên bị gắn cờ chống giả GPS (`FROZEN_GPS`, `ROUND_ACCURACY`, `DUPLICATE_COORDS`) không được dùng làm mẫu tâm.
    - **Múi giờ** đọc từ Script Property `QR_TIMEZONE` (mặc định múi giờ script, rồi `Asia/Ho_Chi_Minh`); chỉ tự lưu múi giờ giảng viên khi hệ thống chưa có phiên nào.
 ---
 
 ## 5. Quy tắc Khóa Thiết Bị 1-1 & Chống Gian Lận (`Anti-Cheat`)
 
-Được quy định tại `handleStudentCheckIn`, `handleTeacherResetDevice` và phần liên kết thiết bị (tab `Device_Registry`) trong [`code3.11.1.text`](code3.11.1.text). Từ v3.7.2, phía thiết bị lưu thêm Device Vault 3 lớp (`localStorage` + Cookie 365 ngày + `IndexedDB`) và chặn tab ẩn danh/Private:
+Được quy định tại `handleStudentCheckIn`, `handleTeacherResetDevice` và phần liên kết thiết bị (tab `Device_Registry`) trong [`code3.12.0.text`](code3.12.0.text). Từ v3.7.2, phía thiết bị lưu thêm Device Vault 3 lớp (`localStorage` + Cookie 365 ngày + `IndexedDB`) và chặn tab ẩn danh/Private:
 
 1. **Khóa Thiết bị 1-1 (`Devices` sheet)**:
    - Mỗi `Student_ID` chỉ được gắn với **1 `Device_ID` (`ACTIVE`)** và mỗi `Device_ID` chỉ được gắn với **1 `Student_ID`**.
@@ -196,7 +204,7 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
    - Lưu bản chụp trạng thái ô cũ (`previousCells`) để hỗ trợ hoàn tác 1 chạm (`↩️ 3. Undo Last Action`).
 3. **Quy tắc Mã số sinh viên (MSSV) khi đọc roster (v3.9.0)**:
    - `sync.txt` (`normalizeStudentId_`, `getStudentIdRule_`) đọc Script Property `STUDENT_ID_RULE_V1`, mặc định `{"minLen":3,"maxLen":20,"minDigits":2}`. Có thể đặt `minDigits: 0` cho MSSV chỉ có chữ.
-   - `code3.11.1.text` (`normalizeId`) bỏ hậu tố `.0` (do Google Sheets đổi số thành dạng thập phân) giống `sync.txt`, để hai bên so khớp cùng một MSSV.
+   - `code3.12.0.text` (`normalizeId`) bỏ hậu tố `.0` (do Google Sheets đổi số thành dạng thập phân) giống `sync.txt`, để hai bên so khớp cùng một MSSV.
 4. **Đọc ngược ô điểm danh (Sync -> Master Sheet, v3.9.1)**:
    - `sync.txt` đọc ô điểm danh theo bộ ký hiệu và màu đã cấu hình trong `Attendance Mark Settings` (chế độ `CUSTOM`) trước tiên. Ví dụ ký hiệu tự đặt `KP` cho vắng được nhận là `-`, không còn bị hiểu nhầm là có mặt.
    - Sau đó mới tới nhận diện màu vàng `#ffff00` / cam `#ff9900` và ký hiệu mặc định `X` / `A` / `P` / `L` / `E` (giữ làm dự phòng).
@@ -210,7 +218,7 @@ $$\text{Điểm\_còn\_lại} = 10.0 - (\text{Số\_dấu\_x} \times 1.0) - (\te
    - Sử dụng Typography rõ ràng (`Be Vietnam Pro` + `JetBrains Mono` cho số liệu/MSSV/đồng hồ) và chấm tròn màu `7px` cho trạng thái `P / L / E / A`.
    - Chấm tay `P / L / E / -` hiện thanh "Hoàn tác" 5 giây (không hộp xác nhận); modal có `role="dialog"` và đưa focus vào; có thanh báo khi mất mạng (offline).
 2. **Quy tắc Đánh số Phiên bản & Đồng bộ (`changelog-and-versioning.md`)**:
-   - Mỗi lần cập nhật tính năng hoặc sửa lỗi: tăng `SYSTEM_VERSION` (`X.Y.Z`), đổi tên file [`code<X.Y.Z>.text`](code3.11.1.text) ở cả thư mục máy và trên Google Drive (`14mEoxJJ1_USzlYorIvnZBHJwzzK1KDOj`) khi có thay đổi backend, cập nhật [`sync.txt`](sync.txt) (`1TA3scTqHwz8btQYJbzDSPiP6K3QCsxyA`), [`changelog.md`](changelog.md) (`18y2_402KSn4KfRZ0LExDlnCmB6UsqGPz`) song ngữ Anh–Việt, và query string `?v=<X.Y.Z>` ở các file frontend.
+   - Mỗi lần cập nhật tính năng hoặc sửa lỗi: tăng `SYSTEM_VERSION` (`X.Y.Z`), đổi tên file [`code<X.Y.Z>.text`](code3.12.0.text) ở cả thư mục máy và trên Google Drive (`14mEoxJJ1_USzlYorIvnZBHJwzzK1KDOj`) khi có thay đổi backend, cập nhật [`sync.txt`](sync.txt) (`1TA3scTqHwz8btQYJbzDSPiP6K3QCsxyA`), [`changelog.md`](changelog.md) (`18y2_402KSn4KfRZ0LExDlnCmB6UsqGPz`) song ngữ Anh–Việt, và query string `?v=<X.Y.Z>` ở các file frontend.
 3. **Quy tắc Sửa Code Tối Thiểu & Kiểm Thử Thực Tế (`ui-demo-preview.md`)**:
    - **Chỉ sửa đúng chỗ cần sửa**: Can thiệp đúng dòng/hàm cần thay đổi, hạn chế viết lại toàn bộ hàm/file; tuyệt đối không tự ý thêm các dòng comment giới thiệu đầu file/hàm hoặc chèn thêm chữ lên giao diện ngoài yêu cầu.
    - **Phân tách Preview Giao diện & Test Chức năng**:

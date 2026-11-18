@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.11.1)
+ * LECTURER CONTROLLER (js/teacher.js — v3.12.0)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -582,6 +582,7 @@ async function applyTeacherState(state, isInitialLoad = false, isFromCache = fal
   syncRosterVisibilityButtonUI();
   renderTeacherRoster();
   renderAnchorAlert();
+  updateCenterBtnPlacement();
   renderTeacherCourseProgressStrip(activeCfg, ses);
   if (document.getElementById('hist-modal-rows')) {
     refreshHistoryModalDateOptionsIfNeeded();
@@ -998,6 +999,43 @@ function updateHeadcountBox(markedCount) {
   return excess;
 }
 
+function anchorPendingLine(code, confirmedCount, isEn) {
+  const n = Number(confirmedCount);
+  const prog = confirmedCount !== null && confirmedCount !== undefined && confirmedCount !== '' && isFinite(n) ? ` (${n}/3)` : '';
+  if (code === 'NEW_PLACE_PENDING') {
+    return (isEn ? 'New location - waiting for 3 students to confirm' : 'Vị trí mới — chờ 3 sinh viên xác nhận') + prog;
+  }
+  if (code === 'DUAL_PENDING') {
+    return (isEn ? 'Locating the class - waiting for 3 students to check in' : 'Đang xác định vị trí lớp — chờ 3 sinh viên điểm danh') + prog;
+  }
+  return '';
+}
+
+function centerBtnPlacement(classCenter, classPlacesCount) {
+  const places = Number(classPlacesCount);
+  if (isFinite(places) && places >= 1) return 'adv';
+  const lat = classCenter ? Number(classCenter.lat) : NaN;
+  const lng = classCenter ? Number(classCenter.lng) : NaN;
+  const has = isFinite(lat) && isFinite(lng) && !(lat === 0 && lng === 0);
+  return has ? 'adv' : 'main';
+}
+
+function updateCenterBtnPlacement() {
+  const btn = document.getElementById('btn-open-center-modal');
+  if (!btn) return;
+  const where = centerBtnPlacement(teacherState && teacherState.classCenter, teacherState && teacherState.classPlacesCount);
+  const slot = document.getElementById(where === 'main' ? 'slot-center-btn-main' : 'slot-center-btn-adv');
+  if (slot && btn.parentNode !== slot) slot.appendChild(btn);
+}
+
+function centerPinFarMeters(savedCenter, lat, lng) {
+  if (!savedCenter) return null;
+  const sl = Number(savedCenter.lat), sg = Number(savedCenter.lng);
+  if (!isFinite(sl) || !isFinite(sg) || (sl === 0 && sg === 0)) return null;
+  const d = haversineMeters(sl, sg, lat, lng);
+  return d > 850 ? d : null;
+}
+
 function renderAnchorAlert() {
   const box = document.getElementById('tea-anchor-alert');
   if (!box) return;
@@ -1010,12 +1048,9 @@ function renderAnchorAlert() {
   const lines = [];
   const actions = [];
   const rosterList = (teacherState && teacherState.roster) || [];
-  if (w && w.code === 'TEACHER_GPS_FAR') {
-    const d = w.distM !== undefined && w.distM !== null ? formatMetersLabel(w.distM) : '';
-    lines.push(isEn
-      ? `Lecturer GPS is ${d ? '~' + d + ' ' : ''}away from the saved class center. Switched to fallback location around the saved center.`
-      : `GPS giảng viên cách tâm lớp đã lưu${d ? ' khoảng ' + d : ''}. Đã chuyển sang định vị dự phòng quanh tâm đã lưu.`);
-    actions.push({ label: isEn ? 'Set class center' : 'Đặt tâm lớp', fn: () => openCenterModalForSelectedClass() });
+  const pendingLine = w ? anchorPendingLine(w.code, ai.confirmedCount, isEn) : '';
+  if (pendingLine) {
+    lines.push(pendingLine);
   } else if (w && w.code === 'TEACHER_GPS_SUSPECT') {
     const d = w.distM !== undefined && w.distM !== null ? formatMetersLabel(w.distM) : '';
     lines.push(isEn
@@ -1256,6 +1291,15 @@ async function confirmCenterModal() {
   const auth = getTeacherAuth();
   if (!auth) return;
   const isEn = currentLang === 'en';
+  const savedCenter = (teacherState && teacherState.classCenter && String(teacherState.selectedClassId) === String(st.classId)) ? teacherState.classCenter : null;
+  const farM = centerPinFarMeters(savedCenter, st.lat, st.lng);
+  const farKey = st.lat.toFixed(5) + ',' + st.lng.toFixed(5);
+  if (farM !== null && st.farAck !== farKey) {
+    st.farAck = farKey;
+    const d = formatMetersLabel(farM);
+    showCenterMsg(isEn ? `${d} from the old center - press Confirm again to use it` : `Cách tâm cũ ${d} — bấm Xác nhận lần nữa để dùng`);
+    return;
+  }
   st.busy = true;
   updateCenterModalUi();
   const payload = {
@@ -1281,9 +1325,15 @@ async function confirmCenterModal() {
   if (res && res.ok) {
     const done = st.onDone;
     closeCenterModal();
-    showStatus(isEn ? 'Class center saved.' : 'Đã lưu tâm lớp.', 'success', 'tea-session-inline-status');
+    const msg = savedCenter
+      ? (isEn ? 'Applied to this session.' : 'Đã áp dụng cho phiên này.')
+      : (isEn ? 'Class center saved.' : 'Đã lưu tâm lớp.');
+    showStatus(msg, 'success', 'tea-session-inline-status');
     if (done) await done();
     else if (typeof refreshTeacherState === 'function') refreshTeacherState(true);
+  } else if (res && res.code === 'ERR_NO_SESSION') {
+    showCenterMsg(isEn ? 'Open a session first' : 'Hãy mở phiên trước');
+    updateCenterModalUi();
   } else {
     showCenterMsg(formatServerMessage(res && res.code ? res.code : 'ERR_NETWORK', res && res.params, res && res.message));
     updateCenterModalUi();
@@ -1638,8 +1688,8 @@ async function teacherControlSession(subAction, extra = {}) {
         await applyTeacherState(res, false);
         showStatus(
           isEn
-            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.11.1.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
-            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.11.1.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.12.0.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.12.0.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
           'warn',
           'tea-session-inline-status'
         );

@@ -92,7 +92,7 @@ function buildEnv(opts) {
   return env;
 }
 
-const start = (env, body) => env.ctx.handleTeacherStartSession(env.ss, Object.assign({ classId: 'C1', requestId: 'T' + (++env.n) }, body || {}));
+const start = (env, body) => env.ctx.handleTeacherStartSession(env.ss, Object.assign({ classId: 'C1', requestId: 'T' + (++env.n), gpsAccuracy: 20 }, body || {}));
 const startFallback = env => start(env, { usePhoneGps: false, anchorMode: 'STUDENT_AVG_3' });
 const state = env => env.ctx.handleTeacherGetState(env.ss, { classId: 'C1' });
 const sesId = env => env.sheets.Sessions_Log.rows[env.sheets.Sessions_Log.rows.length - 1][0];
@@ -119,13 +119,13 @@ check('GPS 50 m from center -> LOCKED teacher anchor, Classes_Config D/E updated
 });
 
 console.log('--- 2. teacher GPS 20 km away (D4) ---');
-check('far GPS -> D/E kept, fallback session, TEACHER_GPS_FAR, students in class check in', () => {
+check('far GPS without a good accuracy (3.12: no TEACHER_GPS_FAR, no DUAL) -> D/E kept, fallback session, students in class check in', () => {
   const env = buildEnv(); const g = off(20000, 0);
-  const st = start(env, { usePhoneGps: true, lat: g.lat, lng: g.lng });
+  const st = start(env, { usePhoneGps: true, lat: g.lat, lng: g.lng, gpsAccuracy: 250 });
   const ai = st.activeSession.anchorInfo;
   eq(env.classRows[0][3], C.lat); eq(env.classRows[0][4], C.lng);
   eq(ai.source, 'STUDENT_CLUSTER'); eq(ai.locked, false);
-  eq(ai.warning.code, 'TEACHER_GPS_FAR'); ok(Math.abs(ai.warning.distM - 20000) < 100, 'distM ' + ai.warning.distM);
+  eq(ai.warning, undefined);
   for (let i = 1; i <= 3; i++) eq(checkIn(env, sid(i), classroom(i)).ok, true);
   eq(anchor(env).mode, 'LOCKED');
 });
@@ -308,17 +308,16 @@ check('invalid tz name falls back to default; Session tz used when property abse
   eq(vm.runInContext('TIMEZONE', buildEnv({ scriptTz: 'Asia/Tokyo' }).ctx), 'Asia/Tokyo');
   eq(vm.runInContext('TIMEZONE', buildEnv().ctx), 'Asia/Ho_Chi_Minh');
 });
-check('calibrate saves QR_TIMEZONE only with confirmTimeZone:true, valid name, and never overwrites', () => {
-  const env = buildEnv({ center: null });
-  const cal = extra => start(env, Object.assign({ calibrateOnly: true, lat: 48.85, lng: 2.35, source: 'MAP' }, extra));
-  cal({ timeZone: 'Europe/Paris' });
-  eq(env.props.QR_TIMEZONE, undefined);
-  cal({ timeZone: 'Nowhere/City', confirmTimeZone: true });
-  eq(env.props.QR_TIMEZONE, undefined);
-  cal({ timeZone: 'Europe/Paris', confirmTimeZone: true });
-  eq(env.props.QR_TIMEZONE, 'Europe/Paris');
-  cal({ timeZone: 'Asia/Tokyo', confirmTimeZone: true });
-  eq(env.props.QR_TIMEZONE, 'Europe/Paris');
+check('calibrate saves QR_TIMEZONE only with confirmTimeZone:true, valid name, and never overwrites (first-time centre only since 3.12)', () => {
+  const cal = (env, extra) => start(env, Object.assign({ calibrateOnly: true, lat: 48.85, lng: 2.35, source: 'MAP' }, extra));
+  const e1 = buildEnv({ center: null }); cal(e1, { timeZone: 'Europe/Paris' });
+  eq(e1.props.QR_TIMEZONE, undefined);
+  const e2 = buildEnv({ center: null }); cal(e2, { timeZone: 'Nowhere/City', confirmTimeZone: true });
+  eq(e2.props.QR_TIMEZONE, undefined);
+  const e3 = buildEnv({ center: null }); cal(e3, { timeZone: 'Europe/Paris', confirmTimeZone: true });
+  eq(e3.props.QR_TIMEZONE, 'Europe/Paris');
+  const e4 = buildEnv({ center: null, props: { QR_TIMEZONE: 'Europe/Paris' } }); cal(e4, { timeZone: 'Asia/Tokyo', confirmTimeZone: true });
+  eq(e4.props.QR_TIMEZONE, 'Europe/Paris');
 });
 check('todayKey in PING and teacher state follows TIMEZONE', () => {
   const env = buildEnv({ props: { QR_TIMEZONE: 'Pacific/Kiritimati' } });
@@ -365,18 +364,19 @@ console.log('--- 15. open session lost its anchor (H/I empty, cache expired) ---
 });
 
 console.log('--- 16. saved centre survives opening, calibrating and cancelling a session ---');
-check('open session far from saved centre, then calibrate, then CANCEL_MISTAKEN_SESSION keeps the new centre', () => {
+check('3.12: calibrate on a class with a centre is session-only; CANCEL_MISTAKEN_SESSION keeps the saved centre', () => {
   const env = buildEnv();
   const home = off(20000, 0);
   start(env, { usePhoneGps: true, lat: home.lat, lng: home.lng, anchorMode: 'TEACHER_GPS' });
   eq(env.sheets.Classes_Config.rows[0][3], C.lat);
   start(env, { calibrateOnly: true, lat: home.lat, lng: home.lng, source: 'MAP' });
-  eq(env.sheets.Classes_Config.rows[0][3], home.lat);
-  eq(state(env).classCenter.lat, home.lat);
+  eq(env.sheets.Classes_Config.rows[0][3], C.lat);
+  eq(env.sheets.Sessions_Log.rows[0][7], home.lat);
+  eq(state(env).classCenter.lat, C.lat);
   env.ctx.handleTeacherControlSession(env.ss, { classId: 'C1', subAction: 'CANCEL_MISTAKEN_SESSION' });
-  eq(env.sheets.Classes_Config.rows[0][3], home.lat);
-  eq(env.sheets.Classes_Config.rows[0][4], home.lng);
-  eq(state(env).classCenter.lng, home.lng);
+  eq(env.sheets.Classes_Config.rows[0][3], C.lat);
+  eq(env.sheets.Classes_Config.rows[0][4], C.lng);
+  eq(state(env).classCenter.lng, C.lng);
 });
 check('class without a centre -> state.classCenter is null', () => {
   eq(state(buildEnv({ center: null })).classCenter, null);
