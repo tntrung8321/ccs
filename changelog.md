@@ -6,6 +6,7 @@
 * **Feature: Safer New Semester**: `Start New Semester` now backs up the whole Sheet first, then clears classes, class tabs, students, attendance, `_Sync_Base`, schedules and attendance rules. If the backup fails, nothing is deleted. System configuration and `Audit_Log` are kept, so the system does not need to be set up again.
 * **Feature: Weekly Attendance Report by email**: new Sync menu item `6. Weekly Report`, off by default. Only the Sheet owner can change its settings (day/time). The report goes to the Sheet owner or to the chosen email. Warnings follow each class's attendance rules (exam ban, at risk of exam ban, needs monitoring), shown in the new `NEW` card. A `Send now` button in the dialog mails the report immediately (does not affect the weekly schedule). Mail permission is requested automatically on first send.
 * **Change: Temporary code**: removed from cell `C9`; it can now be viewed only from menu `4`.
+* **Change: Lecturer login**: removed the "Sign-in persistence" dropdown. A 6-digit code from menu `4` signs out automatically after 60 minutes (classroom computer); a Master Key keeps the sign-in.
 * **Cleanup**: removed the unused `FAILED_AUTH_COUNT` and `AUTH_LOCKOUT_UNTIL` properties (replaced by per-device lockout).
 * **Version Bump (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.13.0.text`)**:
   * Version set to `3.13.0` (cache busters `?v=3.13.0`). Backend file renamed from `code3.12.0.text`.
@@ -574,6 +575,7 @@
 * **Tính năng: Reset học kỳ an toàn hơn**: `Start New Semester` giờ sao lưu cả Sheet trước, rồi dọn sạch lớp, tab lớp, sinh viên, điểm danh, `_Sync_Base`, lịch và quy chế. Nếu sao lưu lỗi thì không xóa gì. Giữ nguyên cấu hình hệ thống và `Audit_Log` để không phải cài lại.
 * **Tính năng: Báo cáo chuyên cần hằng tuần qua email**: mục menu Sync mới `6. Weekly Report`, mặc định tắt. Chỉ chủ Sheet mới đổi được cài đặt (ngày/giờ). Báo cáo gửi về chủ Sheet hoặc email đã chọn. Cảnh báo theo quy chế chuyên cần của từng lớp (cấm thi, nguy cơ cấm thi, cần theo dõi), hiển thị ở thẻ `MỚI`. Nút `Send now` trong hộp thoại gửi báo cáo ngay (không ảnh hưởng lịch hằng tuần). Quyền gửi mail được xin tự động ở lần gửi đầu.
 * **Thay đổi: Mã tạm**: đã gỡ khỏi ô `C9`; chỉ xem được từ menu `4`.
+* **Thay đổi: Đăng nhập giảng viên**: bỏ ô chọn "Chế độ lưu đăng nhập". Mã 6 số từ menu `4` tự đăng xuất sau 60 phút (máy phòng học); Master Key thì giữ đăng nhập.
 * **Dọn dẹp**: bỏ các thuộc tính không dùng `FAILED_AUTH_COUNT` và `AUTH_LOCKOUT_UNTIL` (đã thay bằng khóa theo thiết bị).
 * **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.13.0.text`)**:
   * Phiên bản đặt thành `3.13.0` (cache buster `?v=3.13.0`). File backend đổi tên từ `code3.12.0.text`.

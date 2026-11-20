@@ -255,9 +255,7 @@ async function restoreTeacherSessionOnLoad(auth) {
   if (!auth) return;
   const apiInput = document.getElementById('inp-tea-api');
   const tokenInput = document.getElementById('inp-tea-token');
-  const persistSelect = document.getElementById('sel-tea-persistence');
   if (apiInput) apiInput.value = normalizeApiUrl(auth.apiUrl);
-  if (persistSelect) persistSelect.value = auth.persistence || 'LOCAL';
 
   document.getElementById('card-teacher-login').classList.add('hidden');
   document.getElementById('box-teacher-dashboard').classList.remove('hidden');
@@ -289,7 +287,7 @@ async function loginTeacher() {
   if (loginBtn && loginBtn.disabled) return;
   const apiUrl = normalizeApiUrl(document.getElementById('inp-tea-api').value);
   const token = document.getElementById('inp-tea-token').value.trim();
-  const persistence = document.getElementById('sel-tea-persistence').value;
+  const persistence = /^\d{6}$/.test(token) ? 'SESSION' : 'LOCAL';
 
   document.getElementById('inp-tea-api').value = apiUrl;
 

@@ -301,12 +301,6 @@
         <label for="inp-tea-token" data-i18n="tea_token_label">Mã đăng nhập (6 số từ menu 4, hoặc Master Key):</label>
         <input type="password" id="inp-tea-token" data-i18n-placeholder="tea_token_placeholder" placeholder="Nhập mã 6 số từ menu 4 hoặc Master Key..." autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();loginTeacher();}" />
 
-        <label for="sel-tea-persistence" data-i18n="tea_session_type_label">Chế độ lưu đăng nhập:</label>
-        <select id="sel-tea-persistence">
-          <option value="LOCAL" selected data-i18n="tea_persist_phone">Thiết bị cá nhân của Giảng viên (Giữ đăng nhập)</option>
-          <option value="SESSION" data-i18n="tea_persist_pc">Máy tính phòng học (Tự động đăng xuất sau 60 phút)</option>
-        </select>
-
         <button type="button" id="btn-tea-login" class="btn btn-primary" onclick="loginTeacher()" data-i18n="tea_login_btn">Đăng nhập Giảng viên</button>
         <div id="tea-login-inline-status" class="inline-feedback hidden" role="status" aria-live="polite"></div>
 
