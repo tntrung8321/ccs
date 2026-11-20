@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.12.0)
+ * 0. MASTER SHEET CONNECTION SETTINGS & SCHEDULE ENGINE (v3.13.0)
  * ============================================================================
  */
 const DEFAULT_LECTURER_API = 'https://script.google.com/macros/s/AKfycbyzXVAiaDpcvV4e8upgie6-yM_p7GOgjF5RhP3wmii6Hnx4s5xQZaPweZiPtbBYpO8q/exec';
@@ -634,13 +634,13 @@ const I18N = {
     stu_one_tap_checkin_btn: "ĐIỂM DANH NGAY",
     stu_submitting_btn: "Đang gửi dữ liệu...",
     tea_login_title: "Đăng nhập Giảng viên",
-    tea_login_desc: "Nhập mã phiên 6 chữ số trên Google Sheet hoặc khóa chính (Master Key).",
+    tea_login_desc: "Nhập mã đăng nhập (6 số từ menu 4) hoặc khóa chính (Master Key).",
     tea_scan_pair_qr: "Quét mã QR Ghép nối",
     tea_config_url_link: "Cấu hình đường dẫn kết nối",
     tea_reset_url_btn: "Khôi phục đường dẫn mặc định",
     tea_api_url_label: "Đường dẫn máy chủ (Ô B4 trên Google Sheet):",
-    tea_token_label: "Mã phiên (6 chữ số) hoặc Khóa chính (Master Key):",
-    tea_token_placeholder: "Nhập mã phiên 6 chữ số hoặc Master Key...",
+    tea_token_label: "Mã đăng nhập (6 số từ menu 4, hoặc Master Key):",
+    tea_token_placeholder: "Nhập mã 6 số từ menu 4 hoặc Master Key...",
     tea_session_type_label: "Chế độ lưu đăng nhập:",
     tea_persist_phone: "Thiết bị cá nhân của Giảng viên (Giữ đăng nhập)",
     tea_persist_pc: "Máy tính phòng học (Tự động đăng xuất sau 60 phút)",
@@ -681,7 +681,7 @@ const I18N = {
     ERR_LOCATION_OUT_OF_RANGE: "[NGOÀI PHẠM VI] Bạn đang cách tâm phòng học {dist}m (Cho phép tối đa {max}m). Vui lòng di chuyển vào lớp và thử lại.",
     ERR_GPS_UNAVAILABLE: "[LỖI TÍN HIỆU GPS] Trình duyệt đã có quyền Vị trí nhưng điện thoại chưa bắt được sóng định vị trong phòng. Vui lòng bật biểu tượng Wi-Fi (để hỗ trợ định vị trong nhà) và bật Dịch vụ định vị trên điện thoại rồi bấm lại.",
     ERR_SERVER_BUSY: "Hệ thống đang xử lý, vui lòng chờ giây lát...",
-    ERR_UNAUTHORIZED: "[TỪ CHỐI] Mật khẩu phiên không đúng hoặc đã hết hạn. Hãy kiểm tra lại ô C9 trên Google Sheet.",
+    ERR_UNAUTHORIZED: "[TỪ CHỐI] Mật khẩu phiên không đúng hoặc đã hết hạn. Hãy lấy mã mới từ menu 4 (Attendance Admin) hoặc dùng Master Key.",
     ERR_MISSING_FIELDS: "[THIẾU THÔNG TIN] Vui lòng nhập đầy đủ các trường bắt buộc.",
     ERR_INVALID_CLASS: "[LỚP KHÔNG HỢP LỆ] Mã lớp không đúng hoặc không tồn tại.",
     ERR_NOT_FOUND: "[KHÔNG TÌM THẤY] Không tìm thấy dữ liệu được yêu cầu.",
@@ -757,13 +757,13 @@ const I18N = {
     stu_one_tap_checkin_btn: "CHECK IN NOW",
     stu_submitting_btn: "Submitting attendance...",
     tea_login_title: "Lecturer Sign In",
-    tea_login_desc: "Enter the 6-digit session code from Google Sheet or your Master Key.",
+    tea_login_desc: "Enter the login code (6 digits from menu 4) or your Master Key.",
     tea_scan_pair_qr: "Scan Pairing QR Code",
     tea_config_url_link: "Configure Connection URL",
     tea_reset_url_btn: "Restore Default URL",
     tea_api_url_label: "Server Endpoint (Cell B4 in Google Sheet):",
-    tea_token_label: "Session Code (6 digits) or Master Key:",
-    tea_token_placeholder: "Enter 6-digit code or Master Key...",
+    tea_token_label: "Login code (6 digits from menu 4, or Master Key):",
+    tea_token_placeholder: "Enter 6-digit code from menu 4 or Master Key...",
     tea_session_type_label: "Sign-In Persistence Mode:",
     tea_persist_phone: "Personal Lecturer Device (Keep Signed In)",
     tea_persist_pc: "Classroom Computer (Auto Sign-Out After 60 Minutes)",
@@ -804,7 +804,7 @@ const I18N = {
     ERR_LOCATION_OUT_OF_RANGE: "[OUT OF RANGE] You are {dist}m away from classroom center (Maximum allowed: {max}m). Please move into the classroom and try again.",
     ERR_GPS_UNAVAILABLE: "[GPS SIGNAL ERROR] Browser has Location permission, but your phone could not lock onto an indoor GPS signal. Please turn on Wi-Fi (for indoor positioning) and Location Services on your phone, then try again.",
     ERR_SERVER_BUSY: "System is processing requests, please wait a moment...",
-    ERR_UNAUTHORIZED: "[UNAUTHORIZED] Invalid or expired session code. Please check Cell C9 in your Google Sheet.",
+    ERR_UNAUTHORIZED: "[UNAUTHORIZED] Invalid or expired session code. Get a new code from menu 4 (Attendance Admin) or use your Master Key.",
     ERR_MISSING_FIELDS: "[MISSING INFO] Please fill in all required fields.",
     ERR_INVALID_CLASS: "[INVALID CLASS] Class code is incorrect or does not exist.",
     ERR_NOT_FOUND: "[NOT FOUND] The requested data could not be found.",

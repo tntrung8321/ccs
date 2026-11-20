@@ -2,6 +2,15 @@
 
 ## ENGLISH VERSION
 
+### Version `v3.13.0` — *Semester Reset With Full Backup, Weekly Attendance Report by Email & Cleaner Temporary Code*
+* **Feature: Safer New Semester**: `Start New Semester` now backs up the whole Sheet first, then clears classes, class tabs, students, attendance, `_Sync_Base`, schedules and attendance rules. If the backup fails, nothing is deleted. System configuration and `Audit_Log` are kept, so the system does not need to be set up again.
+* **Feature: Weekly Attendance Report by email**: new Sync menu item `6. Weekly Report`, off by default. Only the Sheet owner can change its settings (day/time). The report goes to the Sheet owner or to the chosen email. Warnings follow each class's attendance rules (exam ban, near the limit, attention), shown in the new `NEW` card.
+* **Change: Temporary code**: removed from cell `C9`; it can now be viewed only from menu `4`.
+* **Cleanup**: removed the unused `FAILED_AUTH_COUNT` and `AUTH_LOCKOUT_UNTIL` properties (replaced by per-device lockout).
+* **Version Bump (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.13.0.text`)**:
+  * Version set to `3.13.0` (cache busters `?v=3.13.0`). Backend file renamed from `code3.12.0.text`.
+  * Backend change needs an Apps Script deploy (`New version`) to take effect.
+
 ### Version `v3.12.0` — *Self-Learned Class Places, DUAL Mode for New Places & Safer Manual Centre Setting*
 * **Feature: Self-learned class places**: each class remembers up to `5` places where at least `3` real students were marked present (only student sources count; manual marks and Sheet sync do not). No new storage location is added.
 * **Feature: DUAL mode for a new place**: when lecturer GPS is good (accuracy ≤ 100 m) but far from the centre (home, a new campus, wrong GPS), the session runs in DUAL mode. It accepts students near the lecturer GPS or near the centre/verified places. Once 3 students are on one side, that side is locked and students on the other side are returned absent (manual marks / Sheet values are not overwritten). The "20000 m away" case no longer occurs.
@@ -561,6 +570,15 @@
 
 ## PHIÊN BẢN TIẾNG VIỆT
 
+### Version `v3.13.0` — *Reset Học Kỳ Có Sao Lưu Đầy Đủ, Báo Cáo Chuyên Cần Hằng Tuần Qua Email & Xử Lý Mã Tạm Gọn Hơn*
+* **Tính năng: Reset học kỳ an toàn hơn**: `Start New Semester` giờ sao lưu cả Sheet trước, rồi dọn sạch lớp, tab lớp, sinh viên, điểm danh, `_Sync_Base`, lịch và quy chế. Nếu sao lưu lỗi thì không xóa gì. Giữ nguyên cấu hình hệ thống và `Audit_Log` để không phải cài lại.
+* **Tính năng: Báo cáo chuyên cần hằng tuần qua email**: mục menu Sync mới `6. Weekly Report`, mặc định tắt. Chỉ chủ Sheet mới đổi được cài đặt (ngày/giờ). Báo cáo gửi về chủ Sheet hoặc email đã chọn. Cảnh báo theo quy chế chuyên cần của từng lớp (cấm thi, sát nút, chú ý), hiển thị ở thẻ `MỚI`.
+* **Thay đổi: Mã tạm**: đã gỡ khỏi ô `C9`; chỉ xem được từ menu `4`.
+* **Dọn dẹp**: bỏ các thuộc tính không dùng `FAILED_AUTH_COUNT` và `AUTH_LOCKOUT_UNTIL` (đã thay bằng khóa theo thiết bị).
+* **Nâng Phiên Bản (`index.html`, `sync.txt`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js`, `RULES.md`, `code3.13.0.text`)**:
+  * Phiên bản đặt thành `3.13.0` (cache buster `?v=3.13.0`). File backend đổi tên từ `code3.12.0.text`.
+  * Thay đổi Backend cần deploy Apps Script (`New version`) mới có hiệu lực.
+
 ### Version `v3.12.0` — *Địa Điểm Lớp Tự Học, Chế Độ DUAL Cho Nơi Mới & Đặt Tâm Thủ Công An Toàn Hơn*
 * **Tính năng: Địa điểm lớp tự học**: mỗi lớp nhớ tối đa `5` nơi từng có ít nhất `3` sinh viên điểm danh thật (chỉ tính nguồn sinh viên; chấm tay và đồng bộ Sheet không tính). Không thêm chỗ lưu mới.
 * **Tính năng: Chế độ DUAL cho nơi mới**: khi GPS giảng viên tốt (sai số ≤ 100 m) nhưng ở xa tâm (nhà, cơ sở mới, GPS sai), phiên chạy chế độ DUAL: nhận sinh viên gần GPS giảng viên hoặc gần tâm/địa điểm đã xác thực. Đủ 3 sinh viên ở phía nào thì khóa phía đó; sinh viên ở phía còn lại bị trả về vắng (không đè điểm chấm tay / Sheet). Ca "cách 20000m" không còn.
@@ -1101,9 +1119,9 @@
 ### Version `v2.1.0` — *Phiên Bản Nền Tảng Gốc (`ClassCheck QR`)*
 * **Nền tảng Điểm danh QR & Khóa thiết bị**: Điểm danh bằng QR tĩnh/xoay vòng 15 giây kết hợp kiểm tra bán kính GPS, khóa cứng `1 Trình duyệt = 1 MSSV` bằng mã băm SHA-256 (`Device_Registry`) và bảng điều khiển tự động `Setup_&_Dashboard`.
 
-## Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.12.0`)
+## Quick Comparison / Bảng Đối Chiếu Nhanh (`v2.1.0` vs. `v3.13.0`)
 
-| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.12.0` |
+| Feature / Tính năng | Baseline `v2.1.0` | Release `v3.13.0` |
 | :--- | :--- | :--- |
 | **Frontend Architecture / Kiến trúc** | Monolithic `index.html` / Gộp chung 1 file | **Modular 5-File (`index.html`, `css/styles.css`, `js/schedule-config.js`, `js/student.js`, `js/teacher.js` `?v=3.12.0`) on `tntrung8321.github.io/ccs/` (Zero `html5-qrcode` bloat)** |
 | **UI & Iconography / Giao diện** | Decorative emojis / Giao diện dùng emoji | **Desktop 2-Column Split-View (`>= 960px`), 100% Centered Floating Confirmation Popups (`#confirm-modal`), Clean Non-AI Utilitarian Buttons, 5-Second Undo Bar (Immediate on Manual Marks), 6-Second Auto-Dismiss Success Notices, `role="dialog"` Focus-Managed Modals, Official Attendance Score & `CẤM THI`** |
@@ -1115,6 +1133,7 @@
 | **Lecturer Control / Mở phiên GV** | Direct 1-tap open / Mở phiên 1 chạm | **Authoritative In-Lock Session Re-Check (no stale-cache check-ins) + Centered Floating Confirmations (`0ms` Busy Lock) + `TEMP_PC_CODE` Preserved on `CLOSE_NOW` + Unified `+2 Phút` (`EXTEND_2M`) + `manualMarkSeqByStudent` Anti-Overwrite** |
 | **Concurrency / Chịu tải** | Direct Sheet reads / Đọc trực tiếp từng tab | **Zero-RPC Pre-Lock Cache + `LockService` Guards on All Write/Rebuild Handlers (45 Concurrent Students in `< 1.6s`, Zero Double-Click Overwrites)** |
 | **Anti-Cheat / Chống gian lận** | Basic radius check / Kiểm tra bán kính cơ bản | **Global 30-Strike Lecturer Code Lockout + Fail-Closed GPS Validation + Master Key Kept Off Third-Party QR URLs + PING Device-Credential Gate + Per-Device 5-Strike Auth Lockout + Server-Salted `pinSeed` + Anti-Paste/App-Switch PIN Guard + 4-Strike `PIN_LOCKED` + 3-Layer Cross-Healing Vault (`localStorage` + `Cookie` + `IndexedDB`)** |
-| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Two-Way Sync Within ~5 Min (`_Sync_Base`, Cell-Level Push, Sheet Wins Conflicts) + Locked `TEACHER_MANUAL` Make-Up/Late Overrides** |
+| **Roster & Backup / Sổ sách** | Manual copy-paste / Nhập xuất thủ công | **1-Col (`P1` only) or 3-Col (`P1 / P2 / Chốt`) Sheet Breakdown + Guaranteed `.XLSX` Past-History Sync + Two-Way Sync Within ~5 Min (`_Sync_Base`, Cell-Level Push, Sheet Wins Conflicts) + Locked `TEACHER_MANUAL` Make-Up/Late Overrides + Full-Backup Semester Reset (`Start New Semester`, nothing deleted if backup fails)** |
+| **Weekly Report / Báo cáo tuần** | None / Không có | **Optional email attendance report (`6. Weekly Report`, off by default, owner-only settings) with class-rule warnings (exam ban, near limit, attention)** |
 | **Attendance Rules / Quy chế chuyên cần** | Fixed IUH formula / Công thức IUH cố định | **Per-class rules (`CLASS_RULES_V1`) with presets, detailed editor, preview before save, JSON import/export (`presets.json`), `OFF` mode without exam ban; strict validation (`ERR_INVALID_RULES`); Sync reads marks by configured custom symbols/colors incl. Present colour (v3.9.2)** |
-| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.12.0`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |
+| **Client Cache / Bộ nhớ đệm Web** | PWA Service Worker (`sw.js`) | **Instant live reload (`?v=3.13.0`) + Throttled iOS `pageshow`/`focus` Wake-Up Sync + `16px` Anti-Zoom Mobile Inputs** |

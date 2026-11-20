@@ -74,7 +74,7 @@ function buildEnv({ sessionRows = [], deviceRows = [], c9 = '', props = {} } = {
   const sheets = {
     Sessions_Log: mkSheet(sessionRows),
     Device_Registry: mkSheet(deviceRows),
-    'Setup_&_Dashboard': { getRange: () => ({ getValue: () => c9 }) }
+    'Setup_&_Dashboard': { getRange: () => ({ getValue: () => c9, clearContent: () => {} }) }
   };
   const ss = { getSheetByName: n => sheets[n] || null };
   const ctx = vm.createContext({
@@ -238,10 +238,19 @@ check('non-6-digit text in C9 is not accepted as a password', () => {
   env.propStore.TEMP_PC_CODE = '654321';
   assert.strictEqual(verify(env, 'letmein').ok, false);
 });
-check('6-digit code in C9 is still accepted', () => {
+check('6-digit code typed into C9 is NOT accepted any more', () => {
   const env = authEnv({ c9: 'Temp PC Code:\n777777\n(Valid 2 Hours)' });
   env.propStore.TEMP_PC_CODE = '654321';
-  assert.strictEqual(verify(env, '777777').ok, true);
+  assert.strictEqual(verify(env, '777777').ok, false);
+  assert.strictEqual(verify(env, '654321').ok, true);
+});
+check('refreshTempPcCode(forceNew) rotates the code and clears C9; old code stops working', () => {
+  const env = authEnv();
+  const fresh = env.ctx.refreshTempPcCode(env.ss, true);
+  assert.notStrictEqual(fresh, '123456');
+  assert.strictEqual(verify(env, '123456').ok, false);
+  assert.strictEqual(verify(env, fresh).ok, true);
+  assert.strictEqual(verify(env, MASTER).mode, 'MASTER');
 });
 
 // ---------------------------------------------------------------- M5: credential before PIN guard

@@ -12,7 +12,7 @@
   <title>ClassCheck — Hệ Thống Điểm Danh Định Vị</title>
 
   <!-- Modular Utilitarian Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css?v=3.12.0" />
+  <link rel="stylesheet" href="css/styles.css?v=3.13.0" />
 </head>
 <body>
 
@@ -295,11 +295,11 @@
           </div>
         </div>
         <p class="subtext" data-i18n="tea_login_desc">
-          Nhập mã phiên 6 chữ số trên Google Sheet hoặc khóa chính (Master Key).
+          Nhập mã đăng nhập (6 số từ menu 4) hoặc khóa chính (Master Key).
         </p>
 
-        <label for="inp-tea-token" data-i18n="tea_token_label">Mã phiên (6 chữ số) hoặc Khóa chính (Master Key):</label>
-        <input type="password" id="inp-tea-token" data-i18n-placeholder="tea_token_placeholder" placeholder="Nhập mã phiên 6 chữ số hoặc Master Key..." autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();loginTeacher();}" />
+        <label for="inp-tea-token" data-i18n="tea_token_label">Mã đăng nhập (6 số từ menu 4, hoặc Master Key):</label>
+        <input type="password" id="inp-tea-token" data-i18n-placeholder="tea_token_placeholder" placeholder="Nhập mã 6 số từ menu 4 hoặc Master Key..." autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();loginTeacher();}" />
 
         <label for="sel-tea-persistence" data-i18n="tea_session_type_label">Chế độ lưu đăng nhập:</label>
         <select id="sel-tea-persistence">
@@ -581,9 +581,9 @@
   </div>
 
   <!-- MODULAR APPLICATION SCRIPTS -->
-  <script src="js/attendance-rules.js?v=3.12.0"></script>
-  <script src="js/schedule-config.js?v=3.12.0"></script>
-  <script src="js/student.js?v=3.12.0"></script>
-  <script src="js/teacher.js?v=3.12.0"></script>
+  <script src="js/attendance-rules.js?v=3.13.0"></script>
+  <script src="js/schedule-config.js?v=3.13.0"></script>
+  <script src="js/student.js?v=3.13.0"></script>
+  <script src="js/teacher.js?v=3.13.0"></script>
 </body>
 </html>

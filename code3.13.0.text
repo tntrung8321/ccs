@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.12.0)
+ * CCS (CLASSCHECK SYSTEM) — GOOGLE APPS SCRIPT BACKEND (v3.13.0)
  * ============================================================================
  * Architecture : Master Google Sheet + Bound Apps Script Web App
  * Companion    : Sync.gs (sync.txt) & Frontend UI (index.html, js/*.js)
@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-const SYSTEM_VERSION = '3.12.0';
+const SYSTEM_VERSION = '3.13.0';
 const TIMEZONE = (function () {
   const candidates = [];
   try { candidates.push(PropertiesService.getScriptProperties().getProperty('QR_TIMEZONE')); } catch (e) {}
@@ -97,10 +97,9 @@ function initializeAndVerifySystem() {
     props.setProperty('TEACHER_MASTER_KEY', 'TKEY_' + generateRandomToken(24));
     props.setProperty('TEMP_PC_CODE', generateNumericCode(6));
     props.setProperty('TEMP_PC_EXPIRES', String(Date.now() + 7200000));
-    props.setProperty('FAILED_AUTH_COUNT', '0');
   }
 
-  props.setProperty('FAILED_AUTH_COUNT', '0');
+  props.deleteProperty('FAILED_AUTH_COUNT');
   props.deleteProperty('AUTH_LOCKOUT_UNTIL');
 
   let installId = props.getProperty('INSTALLATION_ID');
@@ -210,8 +209,8 @@ function updateDashboardQRs(ss) {
   sheet.getRange('A9').setFormula('=IMAGE("' + studentQrUrl + '")');
   sheet.getRange('B9').clearContent().setValue(TEACHER_PAIRING_B9_TEXT_);
 
-  const tempCode = refreshTempPcCode(ss, false);
-  sheet.getRange('C9').setValue('Temp PC Code:\n' + tempCode + '\n(Valid 2 Hours)').setFontSize(14).setFontWeight('bold');
+  refreshTempPcCode(ss, false);
+  sheet.getRange('C9').clearContent();
 }
 
 const TEACHER_PAIRING_B9_TEXT_ = 'Lecturer phone pairing QR is shown only in a private dialog.\n' +
@@ -437,9 +436,9 @@ function startNewSemesterWizard() {
   const confirm = ui.alert(
     '📦 Start New Semester (Archive & Reset)',
     'This wizard will:\n' +
-    '1. Save a complete backup copy of this entire Google Sheet into your Google Drive.\n' +
-    '2. Clear Sessions_Log, Attendance_Log, and Device_Registry for the new semester.\n' +
-    '3. Keep your Deployed Web App URL and Lecturer Phone Pairing intact!\n\n' +
+    '1. Save a complete backup copy of this entire Google Sheet into your Google Drive first. If the backup fails, NOTHING is deleted.\n' +
+    '2. THEN DELETE: all classes (Classes_Config rows), all class roster tabs, Sessions_Log, Attendance_Log, Device_Registry, the hidden _Sync_Base tab, saved class schedules and per-class attendance rules.\n' +
+    '3. KEEP: your Deployed Web App URL, Lecturer Master Key, QR keys, Lecturer Phone Pairing, Audit_Log. Your own Sheet/XLSX files on Drive are not touched.\n\n' +
     'Do you want to proceed?',
     ui.ButtonSet.YES_NO
   );
@@ -447,8 +446,18 @@ function startNewSemesterWizard() {
 
   const dateStamp = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd_HHmm');
   const backupName = ss.getName() + ' [ARCHIVE ' + dateStamp + ']';
-  const backupFile = DriveApp.getFileById(ss.getId()).makeCopy(backupName);
+  let backupId = '';
+  try {
+    backupId = String(DriveApp.getFileById(ss.getId()).makeCopy(backupName).getId() || '');
+  } catch (e) {
+    backupId = '';
+  }
+  if (!backupId) {
+    ui.alert('❌ Backup failed — nothing was deleted', 'The backup copy could not be created, so the semester was NOT reset. Check your Google Drive space/permissions and try again.', ui.ButtonSet.OK);
+    return;
+  }
 
+  const classIdsBefore = Object.keys(getClassesMap(ss, true));
   const devIds = [];
   const sesIds = [];
   const devSheetBefore = ss.getSheetByName(TAB_DEVICES);
@@ -466,11 +475,25 @@ function startNewSemesterWizard() {
     });
   }
 
-  [TAB_DEVICES, TAB_SESSIONS, TAB_ATTEND].forEach(tabName => {
+  [TAB_CLASSES, TAB_DEVICES, TAB_SESSIONS, TAB_ATTEND].forEach(tabName => {
     const sh = ss.getSheetByName(tabName);
     if (sh && sh.getLastRow() > 1) {
       sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).clearContent();
     }
+  });
+  const failedTabs = [];
+  classIdsBefore.concat(['_Sync_Base']).forEach(tabName => {
+    try {
+      const sh = ss.getSheetByName(tabName);
+      if (sh && ss.getSheets().length > 1) ss.deleteSheet(sh);
+    } catch (e) { failedTabs.push(tabName); }
+  });
+  const semProps = PropertiesService.getScriptProperties();
+  ['QR_CLASS_SCHEDULE_META_MAP', CLASS_RULES_PROP_KEY, 'QR_MANUAL_EXAM_BAN_MAP', 'QR_CENTER_AUTO_SYNCED_SESSIONS',
+    'QR_CENTER_FILE_ID_CACHE_V3', 'QR_CENTER_ROSTER_SYNC_META_V1', 'QR_CENTER_LAST_SYNC_BATCH', 'QR_CENTER_LAST_ACTION_TYPE',
+    'QR_SYNC2W_CURSOR', 'QR_SYNC2W_LAST_FULL_MS'
+  ].concat(classIdsBefore.map(cid => 'QR_SHEET_PAST_HISTORY_' + cid)).forEach(k => {
+    try { semProps.deleteProperty(k); } catch (e) {}
   });
 
   const resetCache = CacheService.getScriptCache();
@@ -479,16 +502,17 @@ function startNewSemesterWizard() {
     try { resetCache.removeAll(devCacheKeys.slice(i, i + 100)); } catch (e) {}
   }
   invalidateSessionAttendanceMaps_(sesIds);
-  Object.keys(getClassesMap(ss, true)).forEach(cid => invalidateClassCache(cid));
+  classIdsBefore.forEach(cid => invalidateClassCache(cid));
 
   invalidateSystemCache();
-  logAudit(ss, 'LECTURER_MENU', 'NEW_SEMESTER_ARCHIVE', backupName, 'Backup File ID: ' + backupFile.getId());
+  logAudit(ss, 'LECTURER_MENU', 'NEW_SEMESTER_ARCHIVE', backupName, 'Backup File ID: ' + backupId + ' | Classes removed: ' + classIdsBefore.length);
 
   ui.alert(
     '✅ New Semester Ready!',
     '1. Backup saved to your Google Drive as:\n   "' + backupName + '"\n\n' +
-    '2. Session, Attendance, and Device logs have been cleared.\n' +
-    '3. You can now update Classes_Config or use "Add New Class Wizard" for your new semester courses.',
+    '2. All classes, roster tabs, Session, Attendance, and Device logs have been cleared.\n' +
+    '3. You can now use "Add New Class Wizard" for your new semester courses.' +
+    (failedTabs.length ? '\n\n⚠️ Could not delete these tabs, please delete them manually: ' + failedTabs.join(', ') : ''),
     ui.ButtonSet.OK
   );
 }
@@ -1694,10 +1718,7 @@ function verifyTeacherToken(ss, submittedToken, body) {
   // 1. Master Key ALWAYS works (bypasses and clears any 10-min lockout)
   const masterKey = props.getProperty('TEACHER_MASTER_KEY') || props.getProperty('TEACHER_MASTER_Key');
   if (masterKey && cleanToken === masterKey) {
-    cache.removeAll([failKey, lockKey, 'AUTH_LOCKOUT_UNTIL', 'AUTH_FAIL_GLOBAL']);
-    if (props.getProperty('AUTH_LOCKOUT_UNTIL')) {
-      props.deleteProperty('AUTH_LOCKOUT_UNTIL');
-    }
+    cache.removeAll([failKey, lockKey, 'AUTH_FAIL_GLOBAL']);
     return { ok: true, mode: 'MASTER' };
   }
 
@@ -1709,7 +1730,7 @@ function verifyTeacherToken(ss, submittedToken, body) {
       ok: false,
       code: 'ERR_AUTH_LOCKED',
       params: { mins: waitMins },
-      message: '[TẠM KHÓA] Nhập sai quá 5 lần. Tạm khóa mã 6 số trong ' + waitMins + ' phút (Dùng Master Key hoặc đổi mã mới trên Sheet để vào ngay).'
+      message: '[TẠM KHÓA] Nhập sai quá 5 lần. Tạm khóa mã 6 số trong ' + waitMins + ' phút (Dùng Master Key hoặc lấy mã mới từ menu 4 để vào ngay).'
     };
   }
 
@@ -1734,28 +1755,6 @@ function verifyTeacherToken(ss, submittedToken, body) {
     return { ok: true, mode: 'TEMP_PC' };
   }
 
-  // Fallback: Read active 6-digit password from Cell C9 of Setup_&_Dashboard (cached briefly for 15s)
-  let sheetCode = String(cache.get('DASH_C9_CODE_V35') || '');
-  if (!sheetCode) {
-    const dashSheet = ss.getSheetByName(TAB_DASHBOARD);
-    if (dashSheet) {
-      const c9Text = String(dashSheet.getRange('C9').getValue() || '').trim();
-      const match6 = c9Text.match(/\b(\d{6})\b/);
-      if (match6) {
-        sheetCode = match6[1];
-      }
-      if (sheetCode) {
-        try { cache.put('DASH_C9_CODE_V35', sheetCode, 15); } catch (e) {}
-      }
-    }
-  }
-
-  // Accept if submitted token matches visible C9 code (while not expired)
-  if (isTempValid && sheetCode && cleanToken === sheetCode) {
-    cache.remove(failKey);
-    return { ok: true, mode: 'TEMP_PC' };
-  }
-
   // 4. Record per-device failed attempt & lock this device for 10 mins on 5th consecutive wrong try
   const failedCount = Number(cache.get(failKey) || '0');
   const newFailed = failedCount + 1;
@@ -1772,7 +1771,7 @@ function verifyTeacherToken(ss, submittedToken, body) {
       ok: false,
       code: 'ERR_AUTH_LOCKED',
       params: { mins: 10 },
-      message: '[ĐÃ KHÓA] Nhập sai 5/5 lần. Đã khóa mã 6 số trong 10 phút (Dùng Master Key hoặc đổi mã mới trên Sheet để vào ngay).'
+      message: '[ĐÃ KHÓA] Nhập sai 5/5 lần. Đã khóa mã 6 số trong 10 phút (Dùng Master Key hoặc lấy mã mới từ menu 4 để vào ngay).'
     };
   }
 
@@ -4683,13 +4682,11 @@ function refreshTempPcCode(ss, forceNew) {
     exp  = Date.now() + 2 * 60 * 60 * 1000;
     props.setProperty('TEMP_PC_CODE', code);
     props.setProperty('TEMP_PC_EXPIRES', String(exp));
-    props.setProperty('FAILED_AUTH_COUNT', '0');
-    props.deleteProperty('AUTH_LOCKOUT_UNTIL');
-    cache.removeAll(['AUTH_LOCKOUT_UNTIL', 'DASH_C9_CODE_V35', 'AUTH_FAIL_GLOBAL']);
+    cache.removeAll(['AUTH_FAIL_GLOBAL']);
     const doc = ss || SpreadsheetApp.getActiveSpreadsheet();
     const sheet = doc ? doc.getSheetByName(TAB_DASHBOARD) : null;
     if (sheet) {
-      sheet.getRange('C9').setValue('Temp PC Code:\n' + code + '\n(Valid 2 Hours)').setFontSize(14).setFontWeight('bold');
+      sheet.getRange('C9').clearContent();
     }
   }
   return code;

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * LECTURER CONTROLLER (js/teacher.js — v3.12.0)
+ * LECTURER CONTROLLER (js/teacher.js — v3.13.0)
  *  - Sheet-Based Rotating 6-Digit Session Code & Master Key Authentication
  *  - Zero-Flicker Session & Class Restoration on Browser Refresh (F5)
  *  - Real-Time Class Auto-Selection (Google Calendar + Period Slots 123/456/789/10-12/13-15)
@@ -296,8 +296,8 @@ async function loginTeacher() {
   if (!apiUrl || !token) {
     showStatus(
       currentLang === 'en'
-        ? 'Please enter the session code from Google Sheet or your Master Key.'
-        : 'Vui lòng nhập mật khẩu phiên từ Google Sheet hoặc khóa chính (Master Key).',
+        ? 'Please enter the login code (6 digits from menu 4) or your Master Key.'
+        : 'Vui lòng nhập mã đăng nhập (6 số từ menu 4) hoặc khóa chính (Master Key).',
       'err',
       'tea-login-inline-status'
     );
@@ -307,8 +307,8 @@ async function loginTeacher() {
   if (loginBtn) loginBtn.disabled = true;
   showStatus(
     currentLang === 'en'
-      ? 'Verifying session code with Google Sheet...'
-      : 'Đang xác thực mật khẩu phiên với Google Sheet...',
+      ? 'Verifying login code...'
+      : 'Đang xác thực mã đăng nhập...',
     'warn',
     'tea-login-inline-status'
   );
@@ -396,8 +396,8 @@ async function refreshTeacherState(force = false) {
       logoutTeacher();
       showStatus(
         currentLang === 'en'
-          ? 'Session code on Google Sheet has changed or expired. Please sign in again.'
-          : 'Mã phiên trên Google Sheet đã thay đổi hoặc hết hạn. Vui lòng đăng nhập lại bằng mã mới trên Sheet.',
+          ? 'The login code has changed or expired. Please sign in again with the new code (menu 4).'
+          : 'Mã đăng nhập đã thay đổi hoặc hết hạn. Vui lòng đăng nhập lại bằng mã mới (menu 4).',
         'warn'
       );
     }
@@ -1688,8 +1688,8 @@ async function teacherControlSession(subAction, extra = {}) {
         await applyTeacherState(res, false);
         showStatus(
           isEn
-            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.12.0.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
-            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.12.0.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
+            ? `Closed session & cleared marks, but your Google Sheet's Apps Script (Code.gs) is still on an older deployment (v3.6.0). Please paste the latest code3.13.0.text into Apps Script -> Deploy -> Manage deployments -> Edit -> New version to completely delete mistaken session rows.`
+            : `Đã dừng phiên và xóa điểm danh tạm thời, nhưng Apps Script (Code.gs) trên Google Sheet của bạn đang ở bản Deploy cũ (v3.6.0) chưa có lệnh xóa dòng phiên. Vui lòng dán bản code3.13.0.text mới vào Apps Script -> Deploy -> Manage deployments -> Edit -> New version!`,
           'warn',
           'tea-session-inline-status'
         );
