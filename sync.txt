@@ -103,7 +103,6 @@ function buildCenterSyncMenuOnly_() {
       .addSeparator()
       .addItem('5. Attendance Mark Settings', 'openAttendanceStyleDialog')
       .addItem('6. Weekly Report', 'openWeeklyReportDialog')
-      .addItem('Cấp quyền gửi báo cáo', 'authorizeWeeklyReportMail')
       .addToUi();
   } catch (e) {}
 }
@@ -4280,12 +4279,16 @@ function saveWeeklyReportSettings(cfgIn) {
   return cfg;
 }
 
-function authorizeWeeklyReportMail() {
+function sendWeeklyReportManual(cfgIn) {
+  assertReportAdmin_();
+  const cfg = normalizeReportCfg_(cfgIn);
+  if (cfg.email && !/^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(cfg.email)) throw new Error('Invalid email address');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return 'BUSY';
   try {
-    const left = MailApp.getRemainingDailyQuota();
-    showAlert_('Đã cấp quyền gửi báo cáo. Hạn mức mail còn lại hôm nay: ' + left);
-  } catch (e) {
-    showAlert_('Chưa cấp được quyền gửi mail: ' + (e && e.message ? e.message : e));
+    return sendWeeklyReportNow_(SpreadsheetApp.getActiveSpreadsheet(), cfg, Date.now(), true);
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
   }
 }
 
@@ -4315,8 +4318,25 @@ function openWeeklyReportDialog() {
         '[[input id="mail" type="text" value="' + escapeHtml_(cfg.email) + '" style="width:95%; padding:6px; border:1px solid #d1d5db; border-radius:4px;"]][[/div]]' +
       '[[div style="margin-bottom:10px;"]][[label style="font-size:12px; font-weight:600;"]]Classes (none ticked = all)[[/label]][[br]]' + classBoxes + '[[/div]]' +
       '[[div id="msg" style="display:none; padding:6px; margin-bottom:8px; background:#fee2e2; color:#991b1b; font-size:12px; border-radius:4px;"]][[/div]]' +
-      '[[button id="saveBtn" onclick="save()" style="padding:8px 16px; background:#2563eb; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;"]]Save[[/button]]' +
+      '[[button id="saveBtn" onclick="save()" style="padding:8px 16px; background:#2563eb; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;"]]Save[[/button]] ' +
+      '[[button id="sendBtn" onclick="sendNow()" style="padding:8px 16px; background:#059669; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;"]]Send now[[/button]]' +
       '[[script]]' +
+        'function readCfg() {' +
+          'var ids = []; var bx = document.getElementsByClassName("cls");' +
+          'for (var i = 0; i < bx.length; i++) { if (bx[i].checked) ids.push(bx[i].value); }' +
+          'return { enabled: document.getElementById("en").checked, dow: Number(document.getElementById("dow").value), hour: Number(document.getElementById("hour").value), email: document.getElementById("mail").value, classIds: ids };' +
+        '}' +
+        'function showMsg(t, ok) { var m = document.getElementById("msg"); m.style.display = "block"; m.style.background = ok ? "#d1fae5" : "#fee2e2"; m.style.color = ok ? "#065f46" : "#991b1b"; m.innerText = t; }' +
+        'function sendNow() {' +
+          'var btn = document.getElementById("sendBtn"); btn.disabled = true; showMsg("Sending...", true);' +
+          'google.script.run.withSuccessHandler(function(r) { btn.disabled = false;' +
+            'if (r === "SENT") showMsg("Report sent.", true);' +
+            'else if (r === "NO_SESSIONS") showMsg("No sessions found for the selected classes, nothing to report.", false);' +
+            'else if (r === "BUSY") showMsg("Another report is being sent, try again in a moment.", false);' +
+            'else showMsg("Not sent (" + r + ").", false); })' +
+            '.withFailureHandler(function(err) { btn.disabled = false; showMsg("Error: " + err.message, false); })' +
+            '.sendWeeklyReportManual(readCfg());' +
+        '}' +
         'function save() {' +
           'var ids = []; var bx = document.getElementsByClassName("cls");' +
           'for (var i = 0; i < bx.length; i++) { if (bx[i].checked) ids.push(bx[i].value); }' +
@@ -4328,7 +4348,7 @@ function openWeeklyReportDialog() {
         '}' +
       '[[/script]]' +
     '[[/div]]';
-  SpreadsheetApp.getUi().showModalDialog(renderDialogHtml_(tpl, 420, 470), '6. Weekly Report');
+  SpreadsheetApp.getUi().showModalDialog(renderDialogHtml_(tpl, 420, 520), '6. Weekly Report');
 }
 
 function reportDayKey_(ms) {
@@ -4397,7 +4417,7 @@ function buildWeeklyReportData_(ss, cfg, nowMs, prevIds) {
       const id = cid + ':' + sid;
       const isNew = out.hadPrev && !prevSet[id];
       if (ev.examStatus === 'BAN') {
-        if (!st.manualExamBan) ban.push({ id: id, sid: sid, name: name, isNew: isNew, note: 'vắng quy đổi ' + ev.equivAbsences + ', điểm CC ' + ev.attendanceScore });
+        if (!st.manualExamBan) ban.push({ id: id, sid: sid, name: name, isNew: isNew, note: 'vắng quy đổi ' + ev.equivAbsences + ' · CC ' + ev.attendanceScore });
         return;
       }
       if (ev.examStatus === 'WARN') {
@@ -4449,64 +4469,84 @@ function buildWeeklyReportData_(ss, cfg, nowMs, prevIds) {
 function renderWeeklyReportMail_(data) {
   const dd = data.todayKey.slice(8, 10) + '/' + data.todayKey.slice(5, 7);
   const t = data.totals;
-  const subject = '[CCS] Chuyên cần tuần ' + dd + ': ' + t.ban + ' cấm thi, ' + t.warn + ' sát nút, ' + t.attn + ' chú ý';
+  const subject = '[CCS] Chuyên cần tuần ' + dd + ': ' + t.ban + ' cấm thi, ' + t.warn + ' nguy cơ cấm thi, ' + t.attn + ' cần theo dõi';
   const E = escapeHtml_;
-  const dot = function (c) { return '<span style="color:' + c + ';">&#9679;</span> '; };
-  const NEW_H = ' <span style="background:#2563eb;color:#fff;font-size:10px;padding:1px 4px;border-radius:3px;">MỚI</span>';
+  const cap = function (s) { s = String(s || ''); return s.charAt(0).toUpperCase() + s.slice(1); };
+  const NEW_H = ' <span style="background:#2563eb;color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;">MỚI</span>';
   const NEW_T = ' [MỚI]';
+  const BD = '1px solid #d1d5db';
+  const th = function (v, fg, bg, w) { return '<th align="left" width="' + w + '" style="width:' + w + ';padding:8px;border:' + BD + ';background:' + bg + ';color:' + fg + ';font-size:12px;">' + v + '</th>'; };
+  const td = function (v, extra, rs) { return '<td' + (rs ? ' rowspan="' + rs + '"' : '') + ' style="padding:6px 8px;border:' + BD + ';height:34px;vertical-align:middle;' + (extra || '') + '">' + v + '</td>'; };
   const h = [], x = [];
-  h.push('<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;font-size:14px;color:#111827;">');
-  h.push('<p>Xin chào, đây là báo cáo chuyên cần tuần này (đến ' + E(reportDisplayDate_(data.todayKey)) + ').</p>');
-  x.push('Xin chào, đây là báo cáo chuyên cần tuần này (đến ' + reportDisplayDate_(data.todayKey) + ').', '');
+  const until = reportDisplayDate_(data.todayKey);
+  h.push('<div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:0 auto;font-size:14px;color:#111827;line-height:1.5;">');
+  h.push('<div style="border-bottom:3px solid #1d4ed8;padding-bottom:8px;margin-bottom:14px;"><div style="font-size:18px;font-weight:bold;color:#1d4ed8;">BÁO CÁO CHUYÊN CẦN TUẦN</div><div style="font-size:12px;color:#6b7280;">Cập nhật đến ngày ' + E(until) + ' · Hệ thống CCS ClassCheck</div></div>');
+  h.push('<p style="margin:0 0 10px;">Kính gửi Quý Giảng viên,</p>');
+  h.push('<p style="margin:0 0 6px;">Hệ thống xin gửi báo cáo chuyên cần của các lớp trong tuần, tính đến ngày ' + E(until) + '. Các mức cảnh báo được xác định theo quy chế chuyên cần đã thiết lập cho từng lớp.</p>');
+  x.push('BÁO CÁO CHUYÊN CẦN TUẦN (đến ' + until + ')', '', 'Kính gửi Quý Giảng viên,', 'Hệ thống xin gửi báo cáo chuyên cần của các lớp trong tuần, tính đến ngày ' + until + '. Các mức cảnh báo được xác định theo quy chế chuyên cần đã thiết lập cho từng lớp.', '');
 
-  h.push('<h3 style="margin:14px 0 6px;">1) Tóm tắt</h3><table style="border-collapse:collapse;width:100%;font-size:13px;"><tr style="background:#f3f4f6;text-align:left;"><th style="padding:4px;">Lớp</th><th>Sĩ số</th><th>Có mặt</th><th>Cấm thi</th><th>Sát nút</th><th>Chú ý</th></tr>');
-  x.push('1) TÓM TẮT (Lớp | Sĩ số | Có mặt tuần | Cấm thi | Sát nút | Chú ý)');
+  const hd = function (title, color) { return '<h3 style="margin:20px 0 8px;font-size:15px;color:' + color + ';border-left:4px solid ' + color + ';padding-left:8px;">' + title + '</h3>'; };
+  const num = function (n, color) { return n > 0 ? '<b style="color:' + color + ';">' + n + '</b>' : '<span style="color:#9ca3af;">0</span>'; };
+
+  h.push(hd('1) Tổng quan các lớp', '#1d4ed8'));
+  h.push('<table width="100%" style="border-collapse:collapse;table-layout:fixed;width:100%;font-size:13px;"><tr>' + ['Lớp', 'Sĩ số', 'Tỉ lệ có mặt (7 ngày qua)', 'Cấm thi', 'Nguy cơ cấm thi', 'Cần theo dõi'].map(function (v, i) { return th(v, '#1e3a8a', '#eff6ff', i === 0 ? '17%' : '16.6%'); }).join('') + '</tr>');
+  x.push('1) TỔNG QUAN CÁC LỚP (Lớp | Sĩ số | Tỉ lệ có mặt 7 ngày qua | Cấm thi | Nguy cơ cấm thi | Cần theo dõi)');
   data.classes.forEach(function (c) {
-    h.push('<tr style="border-top:1px solid #e5e7eb;"><td style="padding:4px;">' + E(c.classId) + '</td><td>' + c.size + '</td><td>' + c.presentPct + '% (' + c.weekCount + ' buổi)</td><td>' + c.banCount + '</td><td>' + c.warnCount + '</td><td>' + c.attnCount + '</td></tr>');
+    h.push('<tr>' + td('<b>' + E(c.classId) + '</b>') + td(String(c.size)) + td(c.presentPct + '% · ' + c.weekCount + ' buổi') + td(num(c.banCount, '#b91c1c')) + td(num(c.warnCount, '#c2410c')) + td(num(c.attnCount, '#0f766e')) + '</tr>');
     x.push(c.classId + ' | ' + c.size + ' | ' + c.presentPct + '% (' + c.weekCount + ' buổi) | ' + c.banCount + ' | ' + c.warnCount + ' | ' + c.attnCount);
   });
   h.push('</table>');
   x.push('');
 
-  const sect = function (title, color, label, pick) {
-    let any = false;
+  const sect = function (n, title, color, bg, heads, label, emptyMsg, pick) {
     const hh = [], xx = [];
+    let any = false;
     data.classes.forEach(function (c) {
       const r = pick(c);
       if (!r.rows.length) return;
       any = true;
-      hh.push('<p style="margin:8px 0 2px;"><b>' + E(c.classId) + '</b></p>');
       xx.push(c.classId + ':');
-      r.rows.forEach(function (row) {
-        hh.push('<div style="margin:2px 0 2px 8px;">' + dot(color) + row.h + '</div>');
-        xx.push('  - ' + row.t);
+      r.rows.forEach(function (row, i) {
+        hh.push('<tr>' + td(i === 0 ? '<b>' + E(c.classId) + '</b>' : '') + row.h.map(function (v) { return (v && typeof v === 'object') ? td(v.v, '', v.rs) : td(v); }).join('') + '</tr>');
+        if (row.t !== null) xx.push('  - ' + row.t);
       });
       if (r.more > 0) {
-        hh.push('<div style="margin:2px 0 2px 8px;color:#6b7280;">+' + r.more + ' sinh viên khác, xem trên web</div>');
+        hh.push('<tr><td colspan="' + heads.length + '" style="padding:6px 8px;border:' + BD + ';color:#6b7280;font-size:12px;">+' + r.more + ' sinh viên khác, xem trên web</td></tr>');
         xx.push('  +' + r.more + ' sinh viên khác, xem trên web');
       }
     });
-    h.push('<h3 style="margin:14px 0 6px;">' + title + '</h3>');
-    x.push(label);
-    if (!any) { h.push('<div style="color:#6b7280;">Không có.</div>'); x.push('  Không có.'); } else { h.push(hh.join('')); x.push.apply(x, xx); }
+    h.push(hd(n + ') ' + title, color));
+    x.push(n + ') ' + label);
+    if (!any) {
+      h.push('<div style="color:#6b7280;font-style:italic;">' + emptyMsg + '</div>');
+      x.push('  ' + emptyMsg);
+    } else {
+      h.push('<table width="100%" style="border-collapse:collapse;table-layout:fixed;width:100%;font-size:13px;"><tr>' + heads.map(function (v, i) { return th(v, color, bg, ['17%', '15%', '28%', '40%'][i]); }).join('') + '</tr>' + hh.join('') + '</table>');
+      x.push.apply(x, xx);
+    }
     x.push('');
   };
 
-  sect('2) Cần xử lý ngay: vượt ngưỡng cấm thi, chưa đánh dấu', '#dc2626', '2) CẦN XỬ LÝ NGAY (vượt ngưỡng cấm thi, chưa đánh dấu)', function (c) {
+  sect(2, 'Cấm thi, chưa đánh dấu', '#b91c1c', '#fef2f2', ['Lớp', 'MSSV', 'Họ và tên', 'Tình trạng'], 'CẤM THI, CHƯA ĐÁNH DẤU', 'Không có.', function (c) {
     return { more: c.banMore, rows: c.ban.map(function (s) {
-      return { h: E(s.name) + ' (' + E(s.sid) + ') - ' + E(s.note) + (s.isNew ? NEW_H : ''), t: s.name + ' (' + s.sid + ') - ' + s.note + (s.isNew ? NEW_T : '') };
+      return { h: [E(s.sid), '<b>' + E(s.name) + '</b>' + (s.isNew ? NEW_H : ''), E(cap(s.note))], t: s.name + ' (' + s.sid + ') - ' + s.note + (s.isNew ? NEW_T : '') };
     }) };
   });
-  sect('3) Sát nút', '#f97316', '3) SÁT NÚT', function (c) {
-    return { more: c.warnMore, rows: c.warnLines.map(function (g) {
-      const names = g.students.map(function (s) { return s.name + (s.isNew ? NEW_T : ''); }).join(', ');
-      const namesH = g.students.map(function (s) { return E(s.name) + (s.isNew ? NEW_H : ''); }).join(', ');
-      return { h: namesH + ' - ' + E(g.reason), t: names + ' - ' + g.reason };
-    }) };
+  sect(3, 'Nguy cơ cấm thi', '#c2410c', '#fff7ed', ['Lớp', 'MSSV', 'Họ và tên', 'Cảnh báo'], 'NGUY CƠ CẤM THI', 'Không có.', function (c) {
+    const rows = [];
+    c.warnLines.forEach(function (g) {
+      const names = g.students.map(function (st) { return st.name + (st.isNew ? NEW_T : ''); }).join(', ');
+      g.students.forEach(function (st, i) {
+        const cells = [E(st.sid), '<b>' + E(st.name) + '</b>' + (st.isNew ? NEW_H : '')];
+        if (i === 0) cells.push({ v: E(cap(g.reason)), rs: g.students.length });
+        rows.push({ h: cells, t: i === 0 ? names + ' - ' + g.reason : null });
+      });
+    });
+    return { more: c.warnMore, rows: rows };
   });
-  sect('4) Chú ý hành vi (chuỗi đang diễn ra)', '#eab308', '4) CHÚ Ý HÀNH VI (chuỗi đang diễn ra)', function (c) {
+  sect(4, 'Cần theo dõi (vắng hoặc trễ liên tiếp)', '#0f766e', '#f0fdfa', ['Lớp', 'MSSV', 'Họ và tên', 'Hành vi ghi nhận'], 'CẦN THEO DÕI (vắng hoặc trễ liên tiếp)', 'Không có.', function (c) {
     return { more: c.attnMore, rows: c.attn.map(function (s) {
-      return { h: E(s.name) + ' (' + E(s.sid) + ') - ' + E(s.note) + (s.isNew ? NEW_H : ''), t: s.name + ' (' + s.sid + ') - ' + s.note + (s.isNew ? NEW_T : '') };
+      return { h: [E(s.sid), '<b>' + E(s.name) + '</b>' + (s.isNew ? NEW_H : ''), E(cap(s.note))], t: s.name + ' (' + s.sid + ') - ' + s.note + (s.isNew ? NEW_T : '') };
     }) };
   });
 
@@ -4517,14 +4557,18 @@ function renderWeeklyReportMail_(data) {
   data.classes.forEach(function (c) {
     foot.push('Lớp ' + c.classId + ': ' + (c.isDefaultRules ? 'quy chế mặc định' : 'quy chế đã đặt (' + c.presetId + ')') + ', dữ liệu tính từ ngày ' + (c.firstDay ? reportDisplayDate_(c.firstDay) : 'chưa có') + '.');
   });
-  h.push('<h3 style="margin:14px 0 6px;">5) Ghi chú</h3>');
+  h.push(hd('5) Ghi chú', '#374151'));
   x.push('5) GHI CHÚ');
-  foot.forEach(function (l) { h.push('<div style="font-size:12px;color:#374151;margin:2px 0;">' + E(l) + '</div>'); x.push('  ' + l); });
+  h.push('<ul style="margin:0;padding-left:20px;font-size:13px;color:#374151;">' + foot.map(function (l) { return '<li style="margin:2px 0;">' + E(l) + '</li>'; }).join('') + '</ul>');
+  foot.forEach(function (l) { x.push('  ' + l); });
+  h.push('<p style="margin:18px 0 2px;">Trân trọng,</p><p style="margin:0;font-weight:bold;">Hệ thống CCS ClassCheck</p>');
+  h.push('<p style="margin:12px 0 0;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:8px;">Thư được gửi tự động, chỉ dành cho giảng viên phụ trách. Vui lòng không chuyển tiếp danh sách sinh viên ra ngoài.</p>');
   h.push('</div>');
+  x.push('', 'Trân trọng,', 'Hệ thống CCS ClassCheck');
   return { subject: subject, htmlBody: h.join(''), body: x.join('\n') };
 }
 
-function sendWeeklyReportNow_(ss, cfg, nowMs) {
+function sendWeeklyReportNow_(ss, cfg, nowMs, manual) {
   const props = PropertiesService.getScriptProperties();
   let prev = null;
   try { const raw = props.getProperty(REPORT_LAST_IDS_KEY); if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) prev = p; } } catch (e) {}
@@ -4533,6 +4577,10 @@ function sendWeeklyReportNow_(ss, cfg, nowMs) {
   const to = getReportRecipient_(cfg);
   if (!to) return 'NO_RECIPIENT';
   const mail = renderWeeklyReportMail_(data);
+  if (manual) {
+    MailApp.sendEmail({ to: to, subject: mail.subject, body: mail.body, htmlBody: mail.htmlBody });
+    return 'SENT';
+  }
   const prevSent = props.getProperty(REPORT_LAST_SENT_KEY);
   props.setProperty(REPORT_LAST_SENT_KEY, data.todayKey);
   try {

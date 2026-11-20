@@ -123,10 +123,13 @@ const tick = () => ctx.sendWeeklyAttendanceReportTick();
 // ---- menu ----
 ctx.buildCenterSyncMenuOnly_();
 const i5 = menuItems.indexOf('5. Attendance Mark Settings');
-ok(i5 >= 0 && menuItems[i5 + 1] === '6. Weekly Report' && menuItems.indexOf('Cấp quyền gửi báo cáo') > i5 + 1, 'menu has "6. Weekly Report" after 5 and the authorize item');
+ok(i5 >= 0 && menuItems[i5 + 1] === '6. Weekly Report' && menuItems.indexOf('Cấp quyền gửi báo cáo') < 0, 'menu has "6. Weekly Report" after 5 and no authorize item');
 reset();
-ctx.authorizeWeeklyReportMail();
-ok(true, 'authorize function runs');
+ok(ctx.sendWeeklyReportManual({ enabled: false, classIds: [] }) === 'SENT' && mails.length === 1 && !props.REPORT_LAST_SENT_KEY && !props.REPORT_LAST_IDS && triggers.length === 0, 'manual send mails now even when disabled, without touching sent/ids markers or triggers');
+ok(tick() === 'DISABLED' && mails.length === 1, 'manual send does not enable scheduled sending');
+let mthrew = false;
+try { ctx.sendWeeklyReportManual({ email: 'bad' }); } catch (e) { mthrew = true; }
+ok(mthrew && mails.length === 1, 'manual send rejects invalid email');
 
 // ---- off by default ----
 reset();
@@ -162,7 +165,7 @@ ok(props.REPORT_LAST_SENT_KEY === '2026-11-23', 'REPORT_LAST_SENT_KEY stored');
 // ---- content ----
 const m = mails[0];
 ok(m.to === 'owner@example.test', 'default recipient = script owner');
-ok(m.subject === '[CCS] Chuyên cần tuần 23/11: 3 cấm thi, 4 sát nút, 2 chú ý', 'subject counts: ' + m.subject);
+ok(m.subject === '[CCS] Chuyên cần tuần 23/11: 3 cấm thi, 4 nguy cơ cấm thi, 2 cần theo dõi', 'subject counts: ' + m.subject);
 ok(/Name_a1\b/.test(m.body) && /Name_b1\b/.test(m.body) && /Name_c2\b/.test(m.body), 'unmarked banned students listed (3 classes, 3 rule sets)');
 ok(!/Name_a2\b/.test(m.body) && !/Name_a2\b/.test(m.htmlBody), 'manualExamBan student hidden');
 const warnLine = m.body.split('\n').find(l => /Name_a3/.test(l));
@@ -178,7 +181,7 @@ ok(/dữ liệu tính từ ngày 31\/10\/2026/.test(m.body), 'data-since date sh
 ok(/Vắng có phép tuần này: 1 lượt/.test(m.body), 'excused count in footer');
 ok(!/MỚI/.test(m.body) && !/MỚI/.test(m.htmlBody), 'first mail has no NEW tags (nothing to compare)');
 ok(!/Mr\.|Ms\.|Thầy|thầy|Cô /.test(m.body + m.htmlBody + m.subject), 'no hardcoded lecturer name/title');
-ok(/max-width:560px/.test(m.htmlBody) && /<table/.test(m.htmlBody) && !/<table/.test(m.body), 'html is narrow; text version is plain');
+ok(/max-width:680px/.test(m.htmlBody) && /<table/.test(m.htmlBody) && !/<table/.test(m.body), 'html is narrow; text version is plain');
 ok(JSON.parse(props.REPORT_LAST_IDS).includes('LOP-A:a1') && !JSON.parse(props.REPORT_LAST_IDS).includes('LOP-A:a2'), 'REPORT_LAST_IDS stores listed students only');
 
 // ---- NEW tag ----
@@ -201,7 +204,7 @@ ok(!/X<b>Y/.test(mails[0].htmlBody) && /X&lt;b&gt;Y/.test(mails[0].htmlBody), 'n
 reset(); enable({ email: 'prof@example.test', classIds: ['LOP-B'] });
 tick();
 ok(mails[0].to === 'prof@example.test' && /Name_b1/.test(mails[0].body) && !/Name_a1\b|Name_c2\b/.test(mails[0].body), 'custom recipient and class filter respected');
-ok(mails[0].subject === '[CCS] Chuyên cần tuần 23/11: 1 cấm thi, 1 sát nút, 0 chú ý', 'filtered subject counts: ' + mails[0].subject);
+ok(mails[0].subject === '[CCS] Chuyên cần tuần 23/11: 1 cấm thi, 1 nguy cơ cấm thi, 0 cần theo dõi', 'filtered subject counts: ' + mails[0].subject);
 
 // ---- mail failure ----
 reset(); enable();
